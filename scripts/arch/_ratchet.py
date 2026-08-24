@@ -46,6 +46,14 @@ def run(name: str, title: str, violations: dict[str, str], header: str) -> int:
     """Compare violations against the baseline. Returns a process exit code."""
     update = "--update" in sys.argv
     baseline = _load(name)
+
+    # Keys must survive a round trip through the baseline file, which is read
+    # back with a line-strip. A key with leading or trailing whitespace would
+    # never match itself again, and the check would fail forever in both
+    # directions at once — which is exactly how this was found.
+    for k in violations:
+        if k != k.strip() or "\n" in k:
+            raise ValueError(f"{name}: unstable violation key {k!r}")
     found = set(violations)
 
     if update:

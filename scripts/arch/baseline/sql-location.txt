@@ -4,64 +4,48 @@
 # by hand — a new entry means a new violation, and that is what this file
 # exists to prevent.
 
-cmd/scheduler/main.go:80
-internal/api/auth.go:131
-internal/api/auth.go:161
-internal/api/auth.go:205
-internal/api/auth.go:270
-internal/api/auth.go:61
-internal/api/dashboard.go:166
-internal/api/dashboard.go:174
-internal/api/dashboard.go:184
-internal/api/dashboard.go:186
-internal/api/dashboard.go:191
-internal/api/dashboard.go:202
-internal/api/dashboard.go:322
-internal/api/dashboard.go:375
-internal/api/dashboard.go:414
-internal/api/dashboard.go:490
-internal/api/dashboard.go:504
-internal/api/dashboard.go:537
-internal/api/dashboard.go:601
-internal/api/dashboard.go:634
-internal/api/dashboard.go:77
-internal/api/jobs.go:54
-internal/api/posting.go:112
-internal/api/preferences.go:57
-internal/api/preferences.go:72
-internal/api/profile.go:103
-internal/api/profile.go:126
-internal/api/profile.go:130
-internal/api/profile.go:166
-internal/api/profile.go:212
-internal/api/resume.go:209
-internal/api/resume.go:253
-internal/api/resume.go:330
-internal/api/resume.go:372
-internal/api/resume.go:378
-internal/api/resume.go:388
-internal/api/resume.go:395
-internal/auth/session.go:117
-internal/auth/session.go:123
-internal/auth/session.go:131
-internal/auth/session.go:82
-internal/auth/session.go:99
-internal/jobs/client.go:183
-internal/jobs/client.go:230
-internal/jobs/client.go:266
-internal/jobs/dedupe.go:104
-internal/jobs/dedupe.go:59
-internal/jobs/ingest.go:110
-internal/jobs/ingest.go:160
-internal/jobs/ingest.go:206
-internal/jobs/ingest.go:275
-internal/jobs/ingest.go:316
-internal/jobs/ingest.go:83
-internal/jobs/score.go:109
-internal/jobs/score.go:160
-internal/jobs/score.go:200
-internal/jobs/score.go:240
-internal/jobs/score.go:297
-internal/jobs/score.go:385
-internal/jobs/score.go:65
-internal/jobs/score.go:84
+cmd/scheduler/main.go :: SELECT pg_try_advisory_lock($1)
+internal/api/auth.go :: INSERT INTO users (email, password_hash) VALUES ($1, $2)
+internal/api/auth.go :: SELECT id, email, email_verified_at FROM users WHERE id
+internal/api/auth.go :: SELECT id, password_hash FROM users WHERE email = $1 AND
+internal/api/auth.go :: UPDATE users SET password_hash = $2, updated_at = now()
+internal/api/auth.go :: UPDATE users SET previous_visit_at = CASE WHEN last_acti
+internal/api/jobs.go :: SELECT previous_visit_at FROM users WHERE id = $1
+internal/api/posting.go :: SELECT p.id, p.title, c.name, c.slug, COALESCE(p.locatio
+internal/api/preferences.go :: SELECT preferences FROM users WHERE id = $1 AND deleted_
+internal/api/preferences.go :: UPDATE users SET preferences = $2, updated_at = now() WH
+internal/api/profile.go :: DELETE FROM user_skills WHERE user_id = $1 AND origin =
+internal/api/profile.go :: INSERT INTO user_skills (user_id, skill_id, origin) SELE
+internal/api/profile.go :: SELECT COALESCE(u.first_name, ''), COALESCE(u.last_name,
+internal/api/profile.go :: SELECT canonical, display_name FROM skills WHERE canonic
+internal/api/profile.go :: UPDATE users SET first_name = $2, last_name = $3, curren
+internal/api/resume.go :: DELETE FROM user_skills WHERE user_id = $1 AND origin =
+internal/api/resume.go :: INSERT INTO resumes (user_id, label, is_default, blob_ke
+internal/api/resume.go :: INSERT INTO user_skills (user_id, skill_id, origin) SELE
+internal/api/resume.go :: SELECT parsed_json_enc FROM resumes WHERE id = $1 AND us
+internal/api/resume.go :: SELECT s.canonical, s.display_name, EXISTS (SELECT 1 FRO
+internal/api/resume.go :: UPDATE resumes SET is_default = (id = $2), updated_at =
+internal/api/resume.go :: UPDATE users SET total_yoe = $2, updated_at = now() WHER
+internal/auth/session.go :: DELETE FROM sessions WHERE expires_at < now() - interval
+internal/auth/session.go :: DELETE FROM sessions WHERE id = $1
+internal/auth/session.go :: DELETE FROM sessions WHERE user_id = $1
+internal/auth/session.go :: INSERT INTO sessions (id, user_id, expires_at, user_agen
+internal/auth/session.go :: UPDATE sessions SET last_used_at = now() WHERE id = $1 A
+internal/jobs/client.go :: DELETE FROM user_job_scores s WHERE s.posting_id IN ( SE
+internal/jobs/client.go :: SELECT DISTINCT s.posting_id FROM user_job_scores s JOIN
+internal/jobs/client.go :: UPDATE sources s SET tier = CASE -- Someone is watching
+internal/jobs/dedupe.go :: WITH candidates AS ( SELECT DISTINCT ON (a.id) a.id AS l
+internal/jobs/dedupe.go :: WITH ranked AS ( SELECT p.id, first_value(p.id) OVER ( P
+internal/jobs/ingest.go :: SELECT id, company_id, vendor::text, board_token, etag,
+internal/jobs/ingest.go :: UPDATE sources SET consecutive_errors = consecutive_erro
+internal/jobs/ingest.go :: UPDATE sources SET last_polled_at = now(), consecutive_e
+internal/jobs/ingest.go :: UPDATE sources SET last_polled_at = now(), last_changed_
+internal/jobs/ingest.go :: WITH due AS ( SELECT id FROM sources WHERE next_poll_at
+internal/jobs/ingest.go :: select due sources: %w
+internal/jobs/score.go :: DELETE FROM user_job_scores WHERE posting_id = $1 AND pr
+internal/jobs/score.go :: INSERT INTO user_job_scores (user_id, posting_id, resume
+internal/jobs/score.go :: SELECT p.id, p.yoe_min, p.yoe_max, p.yoe_confidence, COA
+internal/jobs/score.go :: SELECT u.id, COALESCE(u.total_yoe, 0), u.pref_countries,
+internal/jobs/score.go :: SELECT u.id, COALESCE(u.total_yoe,0), u.pref_countries,
+internal/jobs/score.go :: select candidate profiles: %w
+internal/jobs/score.go :: select postings to score: %w

@@ -49,9 +49,16 @@ def main() -> int:
         for lit in gf.literals:
             if not STATEMENT.match(lit.text):
                 continue
-            first = " ".join(lit.text.split())[:64]
-            key = f"{gf.rel}:{lit.line}"
-            violations[key] = f'{key}: SQL in a non-database package — "{first}…"'
+            # Keyed by the statement itself, not by line number. A line-number
+            # key churns the baseline every time anything above it moves, which
+            # buries the one entry that actually changed in a diff of fifty
+            # that did not.
+            # rstrip: the baseline file round-trips through a line-strip on
+            # load, so a key ending in a space would never match itself
+            # again and the check would fail permanently.
+            first = " ".join(lit.text.split())[:56].rstrip()
+            key = f"{gf.rel} :: {first}"
+            violations[key] = f'{gf.rel}:{lit.line}: SQL in a non-database package — "{first}…"'
     return _ratchet.run(
         "sql-location",
         "SQL location",
