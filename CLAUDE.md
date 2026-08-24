@@ -155,11 +155,12 @@ failure mode this file exists to prevent. Live counts: `make arch-check`.
 
 | Gap | Size | Status |
 |---|---|---|
-| SQL in `internal/api` instead of `internal/store` | 36 literals, 9 pgx import edges across 7 files | Ratcheted; being extracted |
-| Functions over 80 lines | 23 | Ratcheted; target is 50 |
-| `internal/store`, `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 4 packages | Open |
-| CSS scattered in `.svelte` blocks rather than `app.css` | 1,809 lines vs 736 | Being consolidated |
-| The interface has no typographic or colour identity | `system-ui` + Tailwind `indigo-600` | See phase-5 §6 |
+| ~~SQL outside `internal/store`~~ | 0 | **Closed.** Every query is in the store or the migration packages |
+| ~~Database calls outside the data layer~~ | 0 | **Closed** |
+| ~~Package layering violations~~ | 0 | **Closed** |
+| Functions over 80 lines | 12 | Ratcheted; target is 50. Longest is 117 |
+| `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 3 packages | Open. `internal/store` now has 7 integration tests |
+| INP and ingest-latency budgets | — | Declared but never measured. See phase-5 §10 |
 
 ## Testing expectations
 

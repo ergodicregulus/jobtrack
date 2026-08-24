@@ -78,11 +78,17 @@ budget needs a written trade in the PR.
 
 ## Where things live
 
-- `web/src/app.css` — tokens and the system. **New shared style goes here.**
-- `.svelte` `<style>` blocks — component-specific only. There are currently 1,809
-  lines scattered across 13 of them against 736 in `app.css`, which is backwards
-  and is being corrected. Do not add to the pile.
+- `web/scripts/palette.mjs` — **the palette, in OKLCH. Never type a colour into
+  `app.css`.** Edit the ramp, run `node scripts/palette.mjs`, paste the block.
+  `palette.test.ts` fails if the two disagree.
+- `web/src/app.css` — tokens, `@font-face`, and the shared system.
+- `.svelte` `<style>` blocks — component-scoped styles. This is the intended
+  pattern, not a mess to clean up: scoped styles that share a *name* do not
+  share a meaning, and Svelte keeps them apart. Extract a component when the
+  same *thing* exists twice, which is a correctness argument — the wordmark's
+  WCAG target-size fix reached one of its three copies and not the other two.
 - `web/src/lib/tokens.test.ts` — the contrast suite.
+- `web/static/fonts/` — self-hosted woff2. The CSP forbids a font CDN.
 
 ## Before claiming done
 
@@ -92,10 +98,24 @@ make bench-budget    # the performance budget
 make ui-audit        # loads every page at 390/834/1440 and checks the invariants
 ```
 
-## Known weakness, so you do not reproduce it
+## Type and colour, and why they are what they are
 
-The accent is `#4f46e5` — Tailwind's `indigo-600` — on `ui-sans-serif, system-ui`.
-Those are the two most-repeated choices in machine-generated interfaces, and no
-amount of correct spacing compensates. The warm stone ground (`#fbfaf9` / `#1c1b19`)
-is *not* the problem and should stay. If you are changing the accent or the type,
-that is an ADR: see `docs/engineering/phase-5-production-readiness.md` §6.
+**Instrument Sans + IBM Plex Mono**, self-hosted, 40 KB against a 45 KB budget.
+Mono is structural: every measured value — score, count, salary, date — is set
+in it with `tabular-nums`, because a score is a measurement and a column of them
+must not jitter. Do not use mono decoratively.
+
+The accent is `oklch(35% 0.09 258)`, a deep ink blue. It was Tailwind
+`indigo-600` until 2026-08-25; `palette.test.ts` now forbids that hex by name.
+
+**Two traps, both already walked into once:**
+
+1. The accent cannot leave the blue-violet family. Teal, rose and amber already
+   carry meaning and the accent must stay distinguishable from all three under
+   common colour-vision deficiencies. That constraint is *why* indigo was there.
+   What fixed it was dropping the chroma and the lightness, not changing hue.
+2. **Do not reach for a high-contrast serif on warm cream with a terracotta
+   accent.** `phase-5 §6.2/6.3` proposes exactly that, and it has since become
+   the single most recognisable machine-generated look — adopting it would solve
+   the stated problem by walking into a newer version of it. That section is
+   superseded on this point.
