@@ -1,0 +1,44 @@
+# Secrets — never committed. .env.example is the checked-in template.
+.env
+.env.local
+*.pem
+*.key
+
+# Build output
+/bin/
+/dist/
+/tmp/
+*.test
+coverage.out
+coverage.html
+
+# Frontend
+node_modules/
+web/.svelte-kit/
+web/build/
+web/.vite/
+
+# Editors
+.idea/
+*.swp
+.DS_Store
+
+# Local container volumes
+.docker-data/
+
+# Screenshot output from `make screenshots` — a looking tool, not an artefact.
+web/.screenshots/
+
+# Compiled binaries built into the worktree. `resume-parser` is the root-level
+# artefact from `go build ./cmd/resume-parser`; the source directory is
+# cmd/resume-parser/ and is unaffected by this root-anchored pattern.
+/resume-parser
+/ingestor
+/matcher
+/migrate
+/scheduler
+/seed
+
+# Playwright output
+web/test-results/
+web/playwright-report/

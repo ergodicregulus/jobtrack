@@ -1,0 +1,1064 @@
+openapi: 3.1.0
+
+# The API contract, and the source of truth for the frontend's types.
+#
+# web/src/lib/types.ts is GENERATED from this file by `make generate`. Editing
+# that file by hand is prohibited: hand-copied types drift silently, and the
+# failure mode is a frontend that compiles cleanly against a shape the server
+# stopped returning months ago. See docs/engineering/consistency-and-drift.md.
+
+info:
+  title: JobTrack API
+  version: 1.0.0
+  description: |
+    Job search for software engineers. Postings are read from employers' own
+    applicant tracking systems, scored against a user profile, and tracked
+    through an application funnel.
+
+    Two conventions run through every response:
+
+    - `null` means NOT KNOWN and is never collapsed to a zero or an empty
+      string. An undisclosed salary is `null`, not `0`; the difference between
+      "the employer did not publish this" and "this role pays nothing" is the
+      whole point.
+    - Errors are RFC 9457 problem+json, always, including 404s from unmatched
+      routes.
+
+servers:
+  - url: /
+    description: Same-origin. The browser never talks to the API cross-origin,
+      so the session cookie needs neither CORS nor SameSite=None.
+
+tags:
+  - name: auth
+  - name: profile
+  - name: jobs
+  - name: tracking
+
+paths:
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Create an account
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201':
+          description: Created; the session cookie is set on this response.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionInfo' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Signed in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionInfo' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Sign out
+      operationId: logout
+      responses:
+        '204': { description: Signed out; the session cookie is cleared. }
+
+  /v1/me:
+    get:
+      tags: [profile]
+      summary: The signed-in account
+      operationId: getMe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/profile:
+    get:
+      tags: [profile]
+      summary: The matching profile
+      operationId: getProfile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [profile]
+      summary: Update part of the profile
+      description: |
+        Partial by design. An omitted field is left alone, which is what lets
+        the onboarding wizard save each step without the later steps clobbering
+        the earlier ones with zero values.
+
+        Committing a change also enqueues a re-score in the same transaction, so
+        "profile saved" and "matches recomputed" cannot diverge.
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: The profile after the update.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/onboarding/complete:
+    post:
+      tags: [profile]
+      summary: Finish onboarding
+      description: |
+        Separate from PATCH /v1/me/profile because "save my progress" and "I am
+        finished" are different intents with different validation. Per-step
+        saves skip the completeness check; only this endpoint asserts the
+        profile can produce meaningful matches, and names the missing fields
+        when it cannot.
+      operationId: completeOnboarding
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: Onboarded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/preferences:
+    get:
+      tags: [profile]
+      summary: Display preferences
+      operationId: getPreferences
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [profile]
+      summary: Update display preferences
+      operationId: updatePreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Preferences' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/dashboard:
+    get:
+      tags: [profile]
+      summary: The signed-in home page
+      operationId: getDashboard
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/jobs:
+    get:
+      tags: [jobs]
+      summary: The job feed
+      description: |
+        Public. Discovery does not require an account; a signed-in caller
+        additionally receives their match score on each item.
+
+        Keyset pagination via `cursor`, never OFFSET — at page 40 an OFFSET
+        query still sorts and discards everything before it.
+      operationId: listJobs
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text search }
+        - { name: country, in: query, schema: { type: string }, description: Comma-separated ISO 3166-1 alpha-2 codes }
+        - { name: mode, in: query, schema: { type: string }, description: 'Comma-separated: remote, hybrid, onsite' }
+        - { name: yoe, in: query, schema: { type: integer, minimum: 0, maximum: 50 } }
+        - { name: yoe_stretch, in: query, schema: { type: boolean, default: true } }
+        - { name: comp_min, in: query, schema: { type: number } }
+        - { name: comp_currency, in: query, schema: { type: string } }
+        - { name: comp_disclosed_only, in: query, schema: { type: boolean } }
+        - { name: posted_within, in: query, schema: { type: string }, description: '1d, 7d, 30d or any' }
+        - { name: skills, in: query, schema: { type: string }, description: Comma-separated; ALL must match }
+        - { name: vendor, in: query, schema: { type: string } }
+        - name: band
+          in: query
+          schema: { type: string }
+          description: |
+            Comma-separated match bands — strong, plausible, stretch, unlikely.
+
+            **Requires an authenticated caller.** A band states how well a role
+            fits one specific person, so it cannot be honoured without a profile;
+            an anonymous request carrying it gets a 400 rather than being
+            silently ignored.
+
+            Filtering here also excludes postings the matcher has not scored yet,
+            since an unscored posting has no band. That is intended for a
+            deliberate "show me strong fits" request.
+        - { name: sort, in: query, schema: { type: string, enum: [newest, comp, match] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedPage' }
+        '400': { $ref: '#/components/responses/Problem' }
+
+  /v1/jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: One posting in full, with its score breakdown
+      description: |
+        Public, like the feed — reading a posting needs no account. A signed-in
+        caller additionally gets `match`, including the five weighted components
+        and the one-line reason each earned.
+
+        Returns 404 for a posting that is no longer live. A role nobody can
+        apply to is better reported as absent than shown.
+      operationId: getPosting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Posting' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/jobs/facets:
+    get:
+      tags: [jobs]
+      summary: Counts per filter value
+      description: Lets the UI show "Remote (1,240)" so nobody filters blindly into zero results.
+      operationId: getFacets
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Facets' }
+
+  /v1/me/resume:
+    post:
+      tags: [profile]
+      summary: Upload a CV and get back what we understood
+      description: >-
+        Parses the file and returns a PROPOSAL. Nothing reaches the profile
+        until /apply — a silently wrong skill list corrupts every score
+        afterwards while looking like it worked. The body is the raw file;
+        max 5 MB. PDF, DOCX and plain text are supported. A scanned PDF has no
+        text layer and is refused with advice rather than guessed at.
+      operationId: uploadResume
+      parameters:
+        - in: query
+          name: label
+          schema: { type: string }
+          description: Optional name for this CV. Defaults to the upload date.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '201':
+          description: Parsed. Review before applying.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResumeUpload' }
+        # A scan, an unsupported type, or a damaged document. The problem
+        # detail says which, and what to do about it.
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/resume/{id}/apply:
+    post:
+      tags: [profile]
+      summary: Commit the skills the user confirmed
+      description: >-
+        Writes the CONFIRMED skills with origin='resume' and queues a rescore.
+        Only skills the parse actually proposed are accepted; otherwise this
+        would be an arbitrary add-skill endpoint wearing a resume's name.
+      operationId: applyResume
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResumeApply' }
+      responses:
+        '200':
+          description: Applied; rescoring queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied, rescoring]
+                properties:
+                  applied: { type: integer }
+                  rescoring: { type: boolean }
+        '404': { description: No such resume for this user }
+
+  /v1/me/activity:
+    get:
+      tags: [dashboard]
+      summary: The last 12 weeks of real activity
+      description: >-
+        Applications sent and statuses that genuinely changed — not logins, not
+        searches, not saves. A grid that lit up because someone opened the page
+        would be measuring attendance. Only days with activity are returned;
+        the client fills the gaps, which it must be able to do anyway for the
+        days before the account existed.
+      operationId: getActivity
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+
+  /v1/skills/common:
+    get:
+      tags: [profile]
+      summary: Starter suggestions for the skill picker
+      description: >-
+        Served rather than hardcoded in the client: the list existed verbatim
+        in two Svelte files and had already drifted, and it held canonical
+        names, so the chips read "postgresql" and "aws".
+      operationId: getCommonSkills
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SkillSuggestion' }
+
+  /v1/market:
+    get:
+      tags: [jobs]
+      summary: Corpus figures, public
+      description: >-
+        Real numbers for the landing page. Public because "6,804 live postings"
+        is checkable and "thousands of opportunities" is what every job board
+        writes instead. Shares one SQL definition with the dashboard so the two
+        surfaces cannot quote different figures for the same thing.
+      operationId: getMarket
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketSummary' }
+
+  /v1/me/saved:
+    get:
+      tags: [tracking]
+      summary: Every tracked application
+      operationId: listTracked
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TrackedItem' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/saved/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [tracking]
+      summary: Save a posting
+      description: |
+        Idempotent, and PUT rather than POST for that reason — the button is
+        easy to double-click and the result must never be two rows. `id` is the
+        POSTING id here.
+      operationId: saveJob
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrackedItem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [tracking]
+      summary: Remove a saved posting
+      description: |
+        Only a bare save is removable. Once an application has advanced,
+        deleting it would destroy interview history the user cannot
+        reconstruct; withdrawing is the status change for that. `id` is the
+        POSTING id.
+      operationId: unsaveJob
+      responses:
+        '204': { description: Removed. }
+        '409': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [tracking]
+      summary: Advance an application
+      description: '`id` is the APPLICATION id here, not the posting id.'
+      operationId: updateTracked
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrackedUpdate' }
+      responses:
+        '204': { description: Updated. }
+        '400': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /healthz:
+    get:
+      summary: Liveness and dependency check
+      operationId: health
+      responses:
+        '200': { description: Healthy }
+        '503': { description: Degraded }
+
+components:
+  responses:
+    Problem:
+      description: RFC 9457 problem detail
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+
+  schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: |
+            Length is the only rule. Composition requirements push people toward
+            predictable substitutions; NIST SP 800-63B advises against them.
+            The upper bound exists so a multi-megabyte password cannot turn
+            Argon2 into a denial of service.
+
+    SessionInfo:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at: { type: string, format: date-time }
+
+    Me:
+      type: object
+      required: [id, email, email_verified]
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        email_verified: { type: boolean }
+
+    Profile:
+      type: object
+      required:
+        [first_name, last_name, current_title, target_title, total_yoe,
+         pref_countries, pref_modes, pref_comp_min, pref_currency, skills,
+         resume_skills, skill_labels, onboarded, yoe_stated]
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        current_title: { type: string }
+        target_title: { type: string }
+        total_yoe: { type: number }
+        yoe_stated:
+          type: boolean
+          description: |
+            Whether experience was ever answered. Zero years is a legitimate
+            answer — a new graduate has zero — so the count alone cannot
+            distinguish "none" from "never asked".
+        pref_countries: { type: array, items: { type: string } }
+        pref_modes: { type: array, items: { $ref: '#/components/schemas/WorkMode' } }
+        pref_comp_min: { type: number }
+        pref_currency: { type: string }
+        skills:
+          type: array
+          items: { type: string }
+          description: >-
+            Skills the user declared by hand. PATCH replaces this set wholesale,
+            so it must never contain anything inferred.
+        resume_skills:
+          type: array
+          items: { type: string }
+          readOnly: true
+          description: >-
+            Skills a CV contributed, via POST /v1/me/resume/{id}/apply. Kept
+            separate from `skills` because PATCH replaces that set wholesale —
+            merging them would silently convert every inferred skill into a
+            declared one on the next profile save.
+        skill_labels:
+          type: object
+          additionalProperties: { type: string }
+          readOnly: true
+          description: >-
+            Canonical name to how it should be WRITTEN, covering every skill in
+            `skills` and `resume_skills`. The canonical form is the identifier
+            and is deliberately lower-case; rendering it directly is what put
+            "postgresql" and "javascript" on screen as chips.
+        onboarded: { type: boolean }
+
+    ProfileUpdate:
+      type: object
+      description: Every field is optional; an omitted field is left unchanged.
+      properties:
+        first_name: { type: string, maxLength: 80 }
+        last_name: { type: string, maxLength: 80 }
+        current_title: { type: string, maxLength: 120 }
+        target_title: { type: string, maxLength: 120 }
+        total_yoe: { type: number, minimum: 0, maximum: 60 }
+        pref_countries: { type: array, items: { type: string } }
+        pref_modes: { type: array, items: { $ref: '#/components/schemas/WorkMode' } }
+        pref_comp_min: { type: number, minimum: 0 }
+        pref_currency: { type: string }
+        skills: { type: array, maxItems: 60, items: { type: string } }
+
+    Preferences:
+      type: object
+      description: |
+        Display settings, stored as JSONB on the user.
+
+        There is no `density`. One existed and was removed: it changed row
+        padding without changing type size or target size, so it did not do the
+        accessibility job it claimed to. Rows written before the removal still
+        carry the key and it is preserved untouched, but nothing reads it.
+      properties:
+        theme: { type: string, enum: [system, light, dark] }
+
+    WorkMode:
+      type: string
+      enum: [remote, hybrid, onsite]
+
+    Band:
+      type: string
+      enum: [strong, plausible, stretch, unlikely]
+
+    Match:
+      type: object
+      required: [score, band, missing_skills]
+      properties:
+        score: { type: number, minimum: 0, maximum: 100 }
+        band: { $ref: '#/components/schemas/Band' }
+        missing_skills:
+          type: array
+          items: { type: string }
+          description: |
+            What the posting asked for that the profile does not have. Shown
+            with every score: a number the reader cannot interrogate is a number
+            they cannot overrule.
+
+    FeedItem:
+      type: object
+      required:
+        [id, title, company_name, company_slug, location_raw, city, country, mode,
+         apply_url, ats_vendor, comp_min, comp_max, comp_currency, comp_period,
+         comp_source, yoe_min, yoe_max, yoe_confidence, posted_at,
+         posted_at_is_estimate, first_seen_at, ai_screening_disclosed,
+         ai_opt_out_url, parse_confidence, must_have_skills, nice_to_have_skills, saved]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        company_name: { type: string }
+        company_slug: { type: string }
+        location_raw: { type: string }
+        city: { type: [string, 'null'] }
+        country: { type: [string, 'null'] }
+        mode: { type: string, enum: [remote, hybrid, onsite, unknown] }
+        apply_url:
+          type: string
+          format: uri
+          description: The employer's own ATS URL. Never proxied — we do not
+            claim to apply on anyone's behalf.
+        ats_vendor: { type: string }
+        comp_min:
+          type: [number, 'null']
+          description: null means NOT DISCLOSED, which is not the same as zero.
+        comp_max: { type: [number, 'null'] }
+        comp_currency: { type: [string, 'null'] }
+        comp_period: { type: [string, 'null'] }
+        comp_source: { type: [string, 'null'], enum: [structured, parsed_text, null] }
+        yoe_min: { type: [integer, 'null'] }
+        yoe_max: { type: [integer, 'null'] }
+        yoe_confidence:
+          type: number
+          description: Below 0.5 the band is unknown, not zero.
+        posted_at: { type: [string, 'null'], format: date-time }
+        posted_at_is_estimate:
+          type: boolean
+          description: True when the date came from an updated-at rather than a
+            first-published field.
+        first_seen_at: { type: string, format: date-time }
+        ai_screening_disclosed:
+          type: [boolean, 'null']
+          description: null means the vendor does not expose it — "unknown",
+            never "no AI".
+        ai_opt_out_url: { type: [string, 'null'] }
+        parse_confidence: { type: number }
+        must_have_skills: { type: array, items: { type: string } }
+        nice_to_have_skills: { type: array, items: { type: string } }
+        match:
+          $ref: '#/components/schemas/Match'
+          description: Absent for anonymous callers and for postings not yet scored.
+        saved: { type: boolean }
+
+    Posting:
+      type: object
+      description: One posting in full. Extends the feed shape with the
+        description and the complete score reasoning.
+      required:
+        [id, title, company_name, company_slug, location_raw, mode, apply_url,
+         ats_vendor, description_html, comp_min, comp_max, comp_currency,
+         comp_period, comp_source, yoe_min, yoe_max, yoe_confidence, posted_at,
+         posted_at_is_estimate, first_seen_at, ai_screening_disclosed,
+         ai_disclaimer, ai_opt_out_url, parse_confidence, must_have_skills,
+         nice_to_have_skills, saved]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        company_name: { type: string }
+        company_slug: { type: string }
+        location_raw: { type: string }
+        mode: { type: string }
+        apply_url: { type: string, format: uri }
+        ats_vendor: { type: string }
+        description_html:
+          type: string
+          description: The employer's own markup, sanitised at ingest.
+        comp_min: { type: [number, 'null'] }
+        comp_max: { type: [number, 'null'] }
+        comp_currency: { type: [string, 'null'] }
+        comp_period: { type: [string, 'null'] }
+        comp_source: { type: [string, 'null'] }
+        yoe_min: { type: [integer, 'null'] }
+        yoe_max: { type: [integer, 'null'] }
+        yoe_confidence: { type: number }
+        posted_at: { type: [string, 'null'], format: date-time }
+        posted_at_is_estimate: { type: boolean }
+        first_seen_at: { type: string, format: date-time }
+        ai_screening_disclosed: { type: [boolean, 'null'] }
+        ai_disclaimer: { type: [string, 'null'] }
+        ai_opt_out_url: { type: [string, 'null'] }
+        parse_confidence: { type: number }
+        must_have_skills: { type: array, items: { type: string } }
+        nice_to_have_skills: { type: array, items: { type: string } }
+        saved: { type: boolean }
+        match: { $ref: '#/components/schemas/PostingMatch' }
+
+    PostingMatch:
+      type: object
+      required: [score, band, confidence, missing_skills, components, computed_at]
+      properties:
+        score: { type: number }
+        band: { $ref: '#/components/schemas/Band' }
+        confidence:
+          type: number
+          description: |
+            Below 1 when part of the picture was unreadable — a posting whose
+            requirements we could not extract, or a resume we struggled with.
+        missing_skills: { type: array, items: { type: string } }
+        components: { type: array, items: { $ref: '#/components/schemas/MatchComponent' } }
+        computed_at: { type: string, format: date-time }
+
+    MatchComponent:
+      type: object
+      description: |
+        One weighted part of a score with the reason it earned what it did.
+        Stored as the scorer wrote it and replayed verbatim, so the reasons shown
+        are the ones that produced this score rather than a recomputation that
+        could disagree with it.
+      required: [name, score, max, detail, neutral]
+      properties:
+        name: { type: string, enum: [skills, experience, location, compensation, freshness, parse] }
+        score: { type: number }
+        max: { type: number }
+        detail: { type: string, description: Plain-English reason, generated by the scorer. }
+        neutral:
+          type: boolean
+          description: |
+            True when the component ABSTAINED — the posting did not disclose
+            enough to judge it. An abstaining component is excluded from both
+            numerator and denominator, so it never drags a score down. This is
+            not the same as scoring zero.
+        matched: { type: array, items: { type: string } }
+        missing: { type: array, items: { type: string } }
+
+    FeedPage:
+      type: object
+      required: [data, has_more]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/FeedItem' } }
+        next_cursor: { type: string }
+        has_more: { type: boolean }
+        since_last_visit:
+          type: string
+          format: date-time
+          description: |
+            When the viewer's previous visit ended. Absent for anonymous viewers
+            and for a first visit — where everything would be new, and a page on
+            which every row is flagged flags nothing.
+
+            Distinct from `posted_within=24h`: this is about **you**, that is
+            about the market. A visit boundary is a gap of 30 minutes.
+
+    Facets:
+      type: object
+      required: [modes, countries, vendors, yoe, comp, comp_undisclosed, total]
+      properties:
+        modes: { type: object, additionalProperties: { type: integer } }
+        countries: { type: object, additionalProperties: { type: integer } }
+        vendors: { type: object, additionalProperties: { type: integer } }
+        yoe:
+          type: object
+          additionalProperties: { type: integer }
+          description: >-
+            Counts per experience band, keyed exactly as the ?yoe= parameter
+            takes them, so the client never translates between what it shows
+            and what it sends. `unstated` is a band of its own — a posting with
+            no stated range is not evidence of being junior or senior.
+        comp:
+          type: object
+          additionalProperties: { type: integer }
+          description: >-
+            Counts per salary floor, keyed as ?comp_min= takes them.
+            CUMULATIVE, not disjoint: "150000" is every posting paying at least
+            that, which is what the chip claims and therefore what its count
+            must mean.
+        comp_undisclosed:
+          type: integer
+          description: >-
+            Postings publishing no salary. Surfaced because a salary filter
+            silently excludes them, and about a fifth of the market is in here.
+        total: { type: integer }
+
+    Dashboard:
+      type: object
+      required: [greeting, matches, pipeline, needs_reply, top_matches, market, strength]
+      properties:
+        greeting: { type: string }
+        matches: { $ref: '#/components/schemas/MatchSummary' }
+        pipeline: { type: array, items: { $ref: '#/components/schemas/PipelineStage' } }
+        needs_reply: { type: array, items: { $ref: '#/components/schemas/ActionItem' } }
+        top_matches: { type: array, items: { $ref: '#/components/schemas/DashboardJob' } }
+        market: { $ref: '#/components/schemas/MarketSummary' }
+        strength: { $ref: '#/components/schemas/Strength' }
+
+    Strength:
+      type: object
+      description: |
+        How complete the profile is, and what completing it would change. Each
+        item names the scoring component it feeds — "60% complete" on its own
+        tells a user nothing about whether to care.
+      required: [percent, items]
+      properties:
+        percent: { type: integer, minimum: 0, maximum: 100 }
+        items: { type: array, items: { $ref: '#/components/schemas/StrengthItem' } }
+
+    StrengthItem:
+      type: object
+      required: [field, label, done, why]
+      properties:
+        field: { type: string }
+        label: { type: string }
+        done: { type: boolean }
+        why: { type: string, description: What this field changes about matching. }
+
+    MatchSummary:
+      type: object
+      required: [strong, plausible, new_today, scored]
+      properties:
+        strong: { type: integer }
+        plausible: { type: integer }
+        new_today: { type: integer }
+        scored: { type: integer }
+
+    PipelineStage:
+      type: object
+      required: [status, label, count]
+      properties:
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        label: { type: string }
+        count: { type: integer }
+
+    ActionItem:
+      type: object
+      required: [id, company_name, role_title, status, days_since]
+      properties:
+        id: { type: integer, format: int64 }
+        company_name: { type: string }
+        role_title: { type: string }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        days_since: { type: integer }
+        next_action: { type: string }
+        next_action_at: { type: [string, 'null'], format: date-time }
+
+    DashboardJob:
+      type: object
+      required: [id, title, company_name, location, mode, score, band, missing_skills, posted_at, apply_url, saved]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        company_name: { type: string }
+        location: { type: string }
+        mode: { type: string }
+        score: { type: number }
+        band: { $ref: '#/components/schemas/Band' }
+        missing_skills: { type: array, items: { type: string } }
+        posted_at: { type: string, format: date-time }
+        apply_url: { type: string, format: uri }
+        saved: { type: boolean }
+
+    ResumeUpload:
+      type: object
+      required: [id, label, format, confidence, skills, years_of_experience,
+                 diagnostics, new_skills, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        label: { type: string }
+        format: { type: string, enum: [docx, pdf, text, unknown] }
+        confidence:
+          type: number
+          description: >-
+            How much of the document's expected structure we recovered, 0-1.
+            Shown to the user, never hidden — a reader deciding on an incomplete
+            parse should know it is incomplete.
+        email: { type: string }
+        phone: { type: string }
+        links: { type: array, items: { type: string } }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/ResumeSkill' }
+        years_of_experience:
+          type: number
+          nullable: true
+          description: >-
+            null means we could not tell. It is NOT zero — those are opposite
+            claims about a candidate.
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/ResumeDiagnostic' }
+        new_skills:
+          type: integer
+          description: How many of these the profile does not already have.
+        created_at: { type: string, format: date-time }
+
+    ResumeSkill:
+      type: object
+      required: [canonical, label, evidence, known]
+      properties:
+        canonical:
+          type: string
+          description: The identifier, lower-case. Sent back on apply.
+        label:
+          type: string
+          description: >-
+            How to write it on screen. Showing the canonical directly rendered
+            "postgresql" and "node.js" as chips.
+        evidence:
+          type: string
+          enum: [experience, projects, skills, summary, education, other, unlabelled]
+          description: >-
+            Where in the CV it was found. A skill described inside a role is a
+            stronger claim than one merely listed, and the UI shows the
+            difference.
+        years: { type: number }
+        known:
+          type: boolean
+          description: True when the profile already has this skill.
+
+    ResumeDiagnostic:
+      type: object
+      required: [code, message, severity]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        severity: { type: string, enum: [blocking, warning] }
+
+    ResumeApply:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items: { type: string }
+          description: >-
+            The skills the user CONFIRMED, not the ones we proposed. An
+            unchecked skill is never written; corrections always win.
+        set_years:
+          type: boolean
+          description: >-
+            Opt-in separately, because it overwrites a field the user may have
+            set by hand.
+
+    Activity:
+      type: object
+      required: [days, from, to, total]
+      properties:
+        days:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityDay' }
+        from:
+          type: string
+          format: date
+          description: >-
+            First day of the window, a Monday. The server decides the shape so
+            it cannot drift across a midnight boundary in the browser.
+        to: { type: string, format: date }
+        total:
+          type: integer
+          description: >-
+            Sum over the window. A plain count, never a streak — this is a
+            record of what happened, not a target to hit.
+
+    ActivityDay:
+      type: object
+      required: [day, count]
+      properties:
+        day: { type: string, format: date }
+        count: { type: integer }
+
+    SkillSuggestion:
+      type: object
+      required: [canonical, label]
+      properties:
+        canonical: { type: string, description: The identifier, lower-case. }
+        label: { type: string, description: How to write it on screen. }
+
+    MarketSummary:
+      type: object
+      required: [live_postings, companies, added_this_week, remote_share]
+      properties:
+        live_postings: { type: integer }
+        companies: { type: integer }
+        added_this_week: { type: integer }
+        remote_share: { type: number }
+
+    ApplicationStatus:
+      type: string
+      enum: [saved, applied, referred, recruiter_screen, hm_screen, onsite, offer, rejected, ghosted, withdrawn]
+
+    ApplicationChannel:
+      type: string
+      enum: [careers_page, job_board, referral, cold_email, recruiter_inbound, other]
+
+    TrackedItem:
+      type: object
+      required: [id, posting_id, company_name, role_title, status, updated_at,
+                 days_since_activity]
+      properties:
+        id: { type: integer, format: int64 }
+        posting_id: { type: [integer, 'null'], format: int64 }
+        company_name: { type: string }
+        role_title: { type: string }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        apply_url: { type: string }
+        note: { type: string }
+        next_action: { type: string }
+        next_action_at: { type: [string, 'null'], format: date-time }
+        applied_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        days_since_activity:
+          type: integer
+          description: |
+            Days since anything last happened on this application. A **fact**,
+            reported without interpretation.
+
+            Nothing sets a terminal status on the user's behalf. An earlier
+            version moved applications to `ghosted` after 21 days, which
+            asserted an employer's intent from silence — and from silence in our
+            own records, which contain only what the user chose to log.
+
+    TrackedUpdate:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        channel: { $ref: '#/components/schemas/ApplicationChannel' }
+        note: { type: string }
+        next_action: { type: string }
+        next_action_at: { type: string, format: date }
+
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457.
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        fields: { type: array, items: { $ref: '#/components/schemas/FieldError' } }
+        trace_id:
+          type: string
+          description: Correlates a user-visible error with its server logs and traces.

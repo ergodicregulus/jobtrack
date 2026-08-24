@@ -1,0 +1,277 @@
+# Local development stack. Everything runs in containers; the host needs only
+# Docker and git.
+#
+#   make dev     start everything with file watching
+#   make down    stop, keeping data
+#   make clean   stop and destroy volumes
+#
+# Compose Watch syncs source into the running container in well under a second,
+# which is what removed the last reason to run Go processes on the host.
+
+name: jobtrack
+
+x-go-service: &go-service
+  build:
+    context: .
+    dockerfile: deploy/dev/Dockerfile
+  volumes:
+    - .:/src
+    - go-mod:/go/pkg/mod
+    - go-build:/root/.cache/go-build
+  environment: &go-env
+    APP_ENV: dev
+    LOG_LEVEL: debug
+    LOG_JSON: "false"
+    DATABASE_URL: postgres://jobtrack:dev@postgres:5432/jobtrack?sslmode=disable
+    OBJECT_STORE_ENDPOINT: http://minio:9000
+    OBJECT_STORE_BUCKET: jobtrack-dev
+    OBJECT_STORE_ACCESS_KEY: minioadmin
+    OBJECT_STORE_SECRET_KEY: minioadmin
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    OTEL_SAMPLE_RATIO: "1.0"
+    SESSION_SECRET: dev-only-not-a-real-secret-min-32-chars
+    RESUME_ENCRYPTION_KEY: dev-only-resume-key-also-min-32-chars
+    RESUME_PARSER_URL: http://resume-parser:9090
+    COOKIE_SECURE: "false"
+    # The SSR server calls the API on behalf of every visitor, so without
+    # trusting its forwarded client address ALL users would share one
+    # rate-limit bucket and 429 each other.
+    #
+    # Every RFC-1918 range, because Docker allocates the bridge subnet
+    # dynamically — it is 192.168.x here but 172.x elsewhere, and guessing wrong
+    # means the allowlist silently never matches. In production this is the
+    # gateway's address or the pod CIDR, which is known and should be narrow.
+    TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+    INGEST_MODE: fixture
+  depends_on:
+    postgres:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  # --------------------------------------------------------------------------
+  # Stateful dependencies
+  # --------------------------------------------------------------------------
+  postgres:
+    # pgvector/pgvector, not plain postgres: the vector extension must exist in
+    # the image. This is the single most common local setup mistake.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: jobtrack
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: jobtrack
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -d and -U matter: the default checks the `postgres` database as the
+      # `root` user and passes before our database is actually ready.
+      test: ["CMD-SHELL", "pg_isready -U jobtrack -d jobtrack"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - log_min_duration_statement=200ms
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Creates the bucket once, then exits. A one-shot init container rather than
+  # bucket-creation logic inside the app.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/jobtrack-dev &&
+      echo 'bucket ready'"
+    restart: "no"
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "4318:4318"    # OTLP/HTTP
+
+  # --------------------------------------------------------------------------
+  # Migrations — run to completion before any service starts
+  # --------------------------------------------------------------------------
+  migrate:
+    <<: *go-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # entrypoint + command split so subcommands work naturally:
+    #   docker compose run --rm migrate status
+    #   docker compose run --rm migrate repair 7
+    entrypoint: ["go", "run", "./cmd/migrate"]
+    command: ["up"]
+    restart: "no"
+
+  # --------------------------------------------------------------------------
+  # Application services
+  # --------------------------------------------------------------------------
+  api:
+    <<: *go-service
+    command: air -c deploy/dev/air.api.toml
+    environment:
+      <<: *go-env
+      HTTP_ADDR: ":8080"
+      # Far above production. Every browser in the E2E suite shares this
+      # container's address, so a limit tuned for one person throttles the whole
+      # test run and surfaces as "the job feed is unavailable (429)" — which
+      # looks exactly like a broken feed rather than a working limiter.
+      RATE_LIMIT_PER_MINUTE: "60000"
+      RATE_LIMIT_BURST: "2000"
+    ports:
+      - "8080:8080"
+    develop:
+      watch:
+        # sync+restart for compiled Go: the file is synced, then air rebuilds
+        # inside the container. Using `rebuild` here would re-create the image
+        # on every keystroke, which is what makes people believe container
+        # development is slow.
+        - action: sync+restart
+          path: ./internal
+          target: /src/internal
+        - action: sync+restart
+          path: ./cmd
+          target: /src/cmd
+        # Dependency manifests genuinely need an image rebuild.
+        - action: rebuild
+          path: go.mod
+        - action: rebuild
+          path: go.sum
+
+  ingestor:
+    <<: *go-service
+    command: air -c deploy/dev/air.ingestor.toml
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./internal
+          target: /src/internal
+        - action: sync+restart
+          path: ./cmd/ingestor
+          target: /src/cmd/ingestor
+
+  matcher:
+    <<: *go-service
+    command: air -c deploy/dev/air.matcher.toml
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./internal
+          target: /src/internal
+        - action: sync+restart
+          path: ./cmd/matcher
+          target: /src/cmd/matcher
+
+  scheduler:
+    <<: *go-service
+    command: air -c deploy/dev/air.scheduler.toml
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./internal
+          target: /src/internal
+        - action: sync+restart
+          path: ./cmd/scheduler
+          target: /src/cmd/scheduler
+
+  resume-parser:
+    <<: *go-service
+    command: air -c deploy/dev/air.resume-parser.toml
+    environment:
+      <<: *go-env
+      HTTP_ADDR: ":9090"
+      # No database URL: this service must not be able to reach Postgres even
+      # in development, so the isolation is exercised rather than assumed.
+      DATABASE_URL: ""
+    depends_on:
+      minio:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+    environment:
+      # Service name, not localhost: the containers share a network. Vite
+      # proxies /v1 here so the browser stays same-origin and the session
+      # cookie works with no CORS and no SameSite=None.
+      API_URL: http://api:8080
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+      # Read-only: `make generate` reads the API contract from here to produce
+      # web/src/lib/api.d.ts. Mounted rather than copied so the spec has exactly
+      # one location on disk and cannot drift from the one the API serves.
+      - ./api:/spec:ro
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_started
+    develop:
+      watch:
+        # sync only: Vite's HMR handles the reload itself. sync+restart here
+        # would kill the dev server on every keystroke.
+        - action: sync
+          path: ./web/src
+          target: /app/src
+        - action: rebuild
+          path: ./web/package.json
+
+  # --------------------------------------------------------------------------
+  # Tooling — `docker compose run --rm tools <cmd>`; used by every make target
+  # --------------------------------------------------------------------------
+  tools:
+    build:
+      context: .
+      dockerfile: deploy/dev/Dockerfile
+    volumes:
+      - .:/src
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+    environment:
+      <<: *go-env
+    profiles: ["tools"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["echo 'use: docker compose run --rm tools \"<command>\"'"]
+
+volumes:
+  pgdata:
+  miniodata:
+  go-mod:
+  go-build:
+  web-node-modules:

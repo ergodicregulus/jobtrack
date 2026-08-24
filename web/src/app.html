@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-theme="%jt.theme%">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+
+    <!--
+      The theme is stamped onto <html> by the server, from a cookie mirroring the
+      user's stored preference. That is the only way to avoid a flash of the
+      wrong theme: the browser cannot know the preference before first paint,
+      and any client-side fix runs after the page has already painted.
+
+      When the preference is "system", the attribute is EMPTY rather than
+      resolved. That matters: an empty value lets prefers-color-scheme decide in
+      CSS, and it round-trips — a user who never chose a theme is not silently
+      pinned to whatever their OS said the day they signed up.
+    -->
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

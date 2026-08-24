@@ -1,0 +1,26 @@
+# Hot reload for the scheduler service inside its container.
+# Compose Watch syncs the file; air rebuilds and restarts the binary.
+root = "/src"
+tmp_dir = "/tmp/air-scheduler"
+
+[build]
+  cmd = "go build -o /tmp/air-scheduler/scheduler ./cmd/scheduler"
+  bin = "/tmp/air-scheduler/scheduler"
+  # Watch only what can affect this binary. Watching everything means an edit
+  # to the web app restarts the Go services for no reason.
+  include_ext = ["go", "sql", "yaml"]
+  exclude_dir = ["web", "docs", "deploy", "tmp", ".git"]
+  # Postgres and the pool take a moment; without a delay air can start a new
+  # process before the old one released its connections.
+  delay = 300
+  stop_on_error = true
+  send_interrupt = true
+  # Give graceful shutdown a chance to run, so drain behaviour is exercised in
+  # development rather than only discovered in production.
+  kill_delay = "5s"
+
+[log]
+  main_only = true
+
+[misc]
+  clean_on_exit = true

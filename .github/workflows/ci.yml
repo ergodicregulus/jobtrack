@@ -1,0 +1,392 @@
+# CI runs the same checks as `make check`, in containers, with no cloud
+# credentials present.
+#
+# That last part is not incidental: it is how the vendor-neutrality claim is
+# tested rather than asserted. A dependency that cannot run here cannot merge.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Cancel superseded runs on the same branch. A PR pushed three times should
+  # not occupy three runners proving the first two commits still compile.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  # Fast feedback first. If the code is not formatted there is no point
+  # spending four minutes discovering the tests also pass.
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "::error::unformatted files:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build every binary
+        run: go build ./...
+
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum \
+            || { echo "::error::run 'go mod tidy' and commit the result"; exit 1; }
+
+      - name: Documentation links resolve
+        run: python3 scripts/check-links.py
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # -race is non-negotiable. Concurrency bugs that only appear under
+      # production load are the most expensive class of defect we can ship.
+      - name: Test
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -25
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector, not plain postgres: the extension must exist or every
+        # migration fails on the first statement.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: jobtrack
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: jobtrack
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobtrack -d jobtrack"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgres://jobtrack:test@localhost:5432/jobtrack?sslmode=disable
+        run: go test -tags=integration -count=1 ./...
+
+      # Migrations must apply cleanly from empty AND be idempotent on a second
+      # run. The second run is the one that catches a migration that only works
+      # against a fresh database.
+      - name: Migrations apply from empty and are idempotent
+        env:
+          DATABASE_URL: postgres://jobtrack:test@localhost:5432/jobtrack?sslmode=disable
+          SESSION_SECRET: ci-only-secret-that-is-at-least-32-chars
+          OBJECT_STORE_ENDPOINT: http://localhost:9000
+        run: |
+          go run ./cmd/migrate up
+          go run ./cmd/migrate up
+          go run ./cmd/migrate verify
+          go run ./cmd/migrate status
+
+  images:
+    name: Build images
+    runs-on: ubuntu-latest
+    needs: [static]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, ingestor, matcher, scheduler, resume-parser, migrate]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.service }}
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+          push: false
+          load: true
+          tags: jobtrack/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # Distroless images must stay small and shell-free. A regression here
+      # usually means someone switched the base to debug something and forgot.
+      - name: Image is minimal and has no shell
+        run: |
+          size=$(docker image inspect jobtrack/${{ matrix.service }}:ci \
+                   --format '{{.Size}}')
+          mb=$((size / 1024 / 1024))
+          echo "image size: ${mb}MB"
+          if [ "$mb" -gt 60 ]; then
+            echo "::error::image is ${mb}MB, budget is 60MB"; exit 1
+          fi
+          if docker run --rm --entrypoint /bin/sh \
+               jobtrack/${{ matrix.service }}:ci -c 'echo shell present' 2>/dev/null; then
+            echo "::error::image contains a shell"; exit 1
+          fi
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Type check
+        run: npx svelte-kit sync && npx svelte-check --tsconfig ./tsconfig.json
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      # A budget that only warns is a budget that gets exceeded. This fails the
+      # build, so a regression is caught by the PR that caused it rather than
+      # six releases later.
+      - name: Performance budget
+        run: node scripts/check-budget.js
+
+  e2e:
+    name: End to end
+    runs-on: ubuntu-latest
+    needs: [static, frontend]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: jobtrack
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: jobtrack
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobtrack -d jobtrack"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://jobtrack:test@localhost:5432/jobtrack?sslmode=disable
+      SESSION_SECRET: ci-only-secret-that-is-at-least-32-chars
+      OBJECT_STORE_ENDPOINT: http://localhost:9000
+      COOKIE_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Migrate and seed
+        run: |
+          go run ./cmd/migrate up
+          go run ./cmd/seed
+
+      - name: Start API
+        run: |
+          go run ./cmd/api &
+          for i in $(seq 1 30); do
+            curl -sf localhost:8080/readyz >/dev/null && break
+            sleep 1
+          done
+          curl -sf localhost:8080/readyz
+
+      - name: Start web
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          API_URL=http://localhost:8080 npm run dev &
+          for i in $(seq 1 40); do
+            curl -sf localhost:5173 >/dev/null && break
+            sleep 2
+          done
+
+      - name: Playwright
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test --project=chromium
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # The dependency budget from docs/product/principles.md P6, made
+      # mechanical. Adding a 13th direct dependency should force a conversation,
+      # not slip through review.
+      - name: Dependency budget
+        run: |
+          count=$(go list -m -f '{{if not .Indirect}}{{.Path}}{{end}}' all \
+                    | grep -v '^github.com/jobtrack/jobtrack$' \
+                    | grep -v '^golang.org/x/' \
+                    | grep -v '^go.opentelemetry.io/' \
+                    | grep -c . || true)
+          echo "direct dependencies (excluding x/ and otel): $count"
+          if [ "$count" -gt 12 ]; then
+            echo "::error::dependency budget is 12, found $count"; exit 1
+          fi
+
+      # A secret in git history is compromised the moment it is pushed, so the
+      # useful check is the one that runs before merge rather than the audit
+      # that runs after. Full history on PRs: a secret added and then "removed"
+      # in a later commit is still in the pack.
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # CodeQL finds classes `go vet` does not — taint flow into SQL, path handling,
+  # and the injection shapes that only show up across function boundaries.
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          language: ${{ matrix.language }}
+          queries: security-and-quality
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  # Every migration must apply forward against the PREVIOUS release's schema.
+  # This is the expand/contract rule, which until now was enforced by review —
+  # and review is not a mechanism, it is a hope.
+  migration-compat:
+    name: Migrations are backward compatible
+    runs-on: ubuntu-latest
+    needs: [static]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: jobtrack
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: jobtrack
+        options: >-
+          --health-cmd "pg_isready -U jobtrack -d jobtrack"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build the previous release's schema, then migrate onto it
+        env:
+          DATABASE_URL: postgres://jobtrack:dev@localhost:5432/jobtrack?sslmode=disable
+        run: |
+          set -euo pipefail
+          prev=$(git tag --sort=-v:refname | head -1)
+          if [ -z "$prev" ]; then
+            echo "no previous tag; nothing to compare against"; exit 0
+          fi
+          echo "previous release: $prev"
+
+          # Apply the previous release's migrations...
+          git checkout "$prev" -- migrations/
+          go run ./cmd/migrate up
+
+          # ...then this branch's, forward, onto that schema.
+          git checkout HEAD -- migrations/
+          go run ./cmd/migrate up
+          go run ./cmd/migrate verify
+
+  # The rendering invariants, mechanically. This suite is already written and
+  # already green; leaving it out of CI was the only way it could regress.
+  accessibility:
+    name: Rendering and accessibility audit
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring the stack up
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait postgres minio
+          docker compose run --rm migrate
+          docker compose run --rm tools "go run ./cmd/seed"
+          docker compose up -d --wait api web
+
+      - name: ui-audit
+        run: make ui-audit
+
+      # Screenshots on failure, because every layout bug in this project so far
+      # was found by looking rather than by testing.
+      - name: Screenshots
+        if: failure()
+        run: make screenshots || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots
+          path: web/.screenshots/
+          retention-days: 7

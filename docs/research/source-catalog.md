@@ -1,0 +1,364 @@
+# Source catalog
+
+> Status: **LIVING DOCUMENT**. Every quirk listed here must have a corresponding golden-file fixture
+> in `internal/source/<vendor>/testdata/`. A documented quirk with no fixture is a regression waiting
+> to happen.
+
+Policy basis: [ADR-0004](../architecture/adr/0004-source-acquisition-policy.md). Pipeline:
+[ingestion-pipeline.md](../architecture/ingestion-pipeline.md).
+
+## Tiers
+
+| Tier | Definition | v1 |
+|---|---|---|
+| **1 — Public ATS API** | Unauthenticated JSON/XML the vendor publishes so employers can embed listings. Stable because the vendor's paying customer depends on it | ✅ Built |
+| **2 — JSON-LD career pages** | `schema.org/JobPosting` the publisher embeds specifically for machine consumption | ✅ Built |
+| **3 — Licensed feeds** | A commercial agreement | Future, on merit |
+| **4 — Board scraping** | LinkedIn, Indeed, Naukri, Glassdoor | ❌ **Prohibited** |
+
+---
+
+## Tier 1 — Public ATS APIs
+
+### Greenhouse
+
+> **Verified 2026-08-15** against the official schema
+> ([grnhse/greenhouse-api-docs](https://github.com/grnhse/greenhouse-api-docs/blob/master/source/includes/job-board/_jobs.md)).
+> This section previously understated the available fields; see
+> [verification-log](verification-log.md#v1--greenhouse-field-coverage-was-materially-understated). `[A-23]`
+
+```
+GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true
+GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs/{job_id}?pay_transparency=true
+```
+
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | **None** — entire board in one response, even at 500+ roles. Response carries `meta.total` |
+| List fields | `id`, `internal_job_id`, `title`, `updated_at`, `requisition_id`, `location.name`, `absolute_url`, `language`, `metadata`, and `content` when `content=true` |
+| Detail-only fields | `first_published`, `company_name`, `application_deadline`, `pay_input_ranges`, `data_compliance`, `questions`, `include_ai_disclaimer`, `ai_disclaimer`, `ai_opt_out_request_url` |
+| Compensation | **Two paths — see below** |
+| Stable ID | ✅ `id` |
+
+**Quirks and design consequences:**
+
+- ⚠️ **`content` is HTML that is itself HTML-escaped.** The official example literally shows
+  `&amp;lt;p&amp;gt;` — a double decode. This is exactly where sanitisation bugs hide; see
+  [security §2](../operations/security-and-privacy.md#2-threat-model).
+
+- ⚠️ **Compensation has no structured field on the list endpoint.** Two options, and we use both:
+  - `?content=true` (or `full_content=true`, which appends intro/pay-transparency/conclusion blocks)
+    embeds pay ranges **inside the description HTML** — text extraction, `comp_source='parsed_text'`.
+  - The **per-job** endpoint with `pay_transparency=true` returns structured `pay_input_ranges[]`
+    with `min_cents`, `max_cents`, `currency_type` — `comp_source='structured'`.
+
+  So Greenhouse is an **N+1 vendor for structured comp**, like SmartRecruiters is for descriptions.
+  We fetch detail **only for new or changed postings that the text parse did not resolve**, which
+  keeps the cost proportional to churn rather than to board size.
+
+- ⚠️ **`first_published` exists only on the detail endpoint**, and it is the correct field for posting
+  age. `updated_at` moves on any edit, so using it would make an edited 40-day-old posting look fresh
+  — directly corrupting the signal the product is built on
+  ([P2](../product/principles.md#p2--freshness-is-the-product)). Where we have only `updated_at`, age
+  is marked as an upper bound rather than reported as fact.
+
+- ✅ **`requisition_id` is a genuine dedup key.** Two postings from one company sharing a
+  `requisition_id` are the same role, decided in blocking without any similarity computation.
+
+- ✅ **`include_ai_disclaimer` / `ai_disclaimer` / `ai_opt_out_request_url`** — Greenhouse now exposes
+  whether the employer runs AI talent matching, **and an opt-out URL**. This is a product feature, not
+  a schema note; see [feature-spec §F10](../product/feature-spec.md#f10--ai-screening-disclosure).
+
+- `data_compliance[]` carries GDPR consent and retention requirements per posting. Not used in v1,
+  but recorded because it is relevant to how long we keep application context.
+- Dates are ISO-8601 with offsets — the best-behaved vendor on this point.
+- No search or filtering on the public feed; we build our own index.
+- The single large response makes `ETag` / content-hash comparison unusually valuable.
+
+**Fixtures:** `full-board.json`, `escaped-html.json`, `empty-board.json`, `detail-pay-ranges.json`,
+`detail-ai-disclaimer.json`
+
+### Lever — **DROPPED FROM SCOPE**
+
+> **Verified 2026-08-15: this endpoint is not usable.** Every token tried
+> returned `{"ok":false,"error":"Document not found"}` or an empty array,
+> including sites whose careers pages are visibly Lever-hosted. The public
+> `v0/postings` route appears to have been retired or gated.
+>
+> The schema notes below are kept because they were correct when written and
+> because the epoch-milliseconds quirk is the kind of thing worth remembering if
+> the endpoint returns. **No adapter is implemented, and none should be written
+> until a live board can be demonstrated.**
+
+```
+GET https://api.lever.co/v0/postings/{site}?mode=json
+```
+
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | `skip` / `limit` |
+| Fields | text, categories{commitment, location, team}, hostedUrl, applyUrl, salaryRange |
+| Compensation | Sometimes, structured |
+| Stable ID | ✅ `id` |
+
+**Quirks:**
+- ⚠️ **`createdAt` is epoch milliseconds, not ISO-8601.** The only vendor that does this, and it
+  produces plausible-looking dates in 1970 if mishandled.
+- Flat JSON array with no wrapper — the cleanest shape of any vendor.
+- `workplaceType` enum (`remote`/`hybrid`/`onsite`) is present but **not trusted**; we cross-check it
+  against the description.
+
+**Fixtures:** `full-board.json`, `epoch-millis.json`, `with-salary.json`
+
+### Ashby
+
+```
+GET https://api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true
+```
+
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | None |
+| Fields | id, title, location, department, workplaceType, jobUrl, applyUrl, compensation |
+| Compensation | ✅ **Best of any vendor** — structured min/max/currency/interval |
+| Stable ID | ✅ `id` |
+
+**Quirks:**
+- ⚠️ Compensation nests inconsistently: usually in `summaryComponents`, sometimes top-level,
+  sometimes inside `compensationTiers[]`. All three shapes need handling.
+- `includeCompensation=true` is required, and omitting it silently returns no salary rather than an
+  error — a quiet failure worth a test.
+
+**Fixtures:** `full-board.json`, `comp-summary.json`, `comp-tiers.json`, `comp-toplevel.json`
+
+### SmartRecruiters
+
+```
+GET https://api.smartrecruiters.com/v1/companies/{company}/postings?limit=100&offset=0
+GET https://api.smartrecruiters.com/v1/companies/{company}/postings/{id}      # for the description
+```
+
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | `limit`/`offset`, **max 100** |
+| Compensation | Rare |
+| Stable ID | ✅ `id` |
+
+**Status: IMPLEMENTED** (`internal/source/smartrecruiters`), verified live 2026-08-17.
+
+**Quirks:**
+- ⚠️ **Descriptions are absent from the list response.** One additional request per posting, returned
+  as separate sections that must be reassembled in order.
+- This is by far the most expensive vendor per posting. The adapter caps the second phase at **250
+  details per poll**, and skips it entirely when the list hashes identically to the previous poll —
+  so a steady-state board costs one request, and a 4,800-posting board backfills over several polls
+  rather than arriving as a burst against someone else's API.
+- ⚠️ **The company identifier is case-sensitive and is not the domain.** `bosch` returns an empty
+  board; `BoschGroup` returns 4,803 postings. Five candidate boards initially looked dead for this
+  reason alone. Always verify against `totalFound` before adding a board.
+- `releasedDate` is a genuine **first-published** timestamp, not an updated-at. Unusual and valuable:
+  freshness from this vendor is real rather than an upper bound.
+- `refNumber` is the employer's own requisition code — a free dedup key.
+
+**Why it earns its place — measured, not assumed** ([A-00f](evidence-ledger.md#a-00f)):
+
+| Vendor | Extracted skills classified as must/nice |
+|---|---|
+| Greenhouse | 26.0% |
+| Ashby | 24.2% |
+| **SmartRecruiters** | **54.1%** |
+
+The posting is split into named sections and one is `qualifications`, which the extractor already
+treats as a requirements heading. Every other source hands us one blob and depends on the employer
+happening to write a heading we recognise. This is the difference between a posting that produces
+real must-haves and one whose skills component abstains.
+
+`companyDescription` is assembled **last**, deliberately: it is boilerplate naming technologies used
+across the whole group, and above the qualifications it would let a company-wide name-drop read as a
+requirement for the specific role.
+
+**Boards, verified live 2026-08-17:** `BoschGroup` (4,803 — 527 in India), `Wise` (438), `Ubisoft2`
+(273), `Swiggy` (46, all India). `Visa` and `Bytedance` return 2 each and were not added.
+
+**Fixtures:** `list.json`, `detail.json` (captured from BoschGroup)
+
+### Recruitee
+
+```
+GET https://{company}.recruitee.com/api/offers/
+```
+
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | None |
+| Fields | id, title, location, department, careers_url, careers_apply_url, employment_type_code, remote |
+| Compensation | Rare |
+| Stable ID | ✅ `id` |
+
+**Quirks:**
+- ⚠️ **Per-company subdomain**, so an invalid slug fails as **DNS resolution, not HTTP 404**. A
+  completely different error path, and the adapter must classify it correctly or the circuit breaker
+  misfires.
+- Dates are `YYYY-MM-DD HH:MM:SS UTC` — not ISO-8601.
+- `employment_type_code` uses composite codes needing normalisation.
+- Lighter metadata than Greenhouse or Ashby.
+
+**Fixtures:** `full-board.json`, `dns-failure.txt`, `composite-employment-codes.json`
+
+### Workable
+
+```
+GET https://www.workable.com/api/accounts/{subdomain}?details=true
+```
+
+**Quirks:** locations and departments come from **separate endpoints** and must be joined. Lighter
+metadata overall.
+
+**Fixtures:** `account.json`, `locations.json`, `departments.json`
+
+### Personio
+
+```
+GET https://{company}.jobs.personio.de/xml?language=en
+```
+
+**Quirks:** ⚠️ **XML, not JSON** — the only such vendor, requiring a separate parse path. Domain may
+be `.com` rather than `.de`. Mostly European employers; lower priority for the India-first v1.
+
+**Fixtures:** `board.xml`
+
+---
+
+## Tier 2 — JSON-LD career pages
+
+```
+GET https://<company>/careers        → parse <script type="application/ld+json">
+```
+
+Filter to `@type: JobPosting`. Normalise per `schema.org/JobPosting` semantics — which is the
+vocabulary our canonical schema is modelled on, deliberately.
+
+| Field | Coverage | Notes |
+|---|---|---|
+| `title` | ~99% `[A-12]` | |
+| `datePosted` | ~99% `[A-12]` | |
+| `hiringOrganization` | high | |
+| `employmentType` | ~80% `[A-12]` | Fixed vocabulary: `FULL_TIME`, `PART_TIME`, `CONTRACTOR`, `TEMPORARY`, `INTERN`, `VOLUNTEER`, `PER_DIEM`, `OTHER`. **May be an array** |
+| `baseSalary` | ~80% `[A-12]` | `MonetaryAmount` with `value` as `QuantitativeValue` |
+| `jobLocation` | high | May be an array |
+| `validThrough` | medium | Useful as a closure hint, but absence means nothing |
+| `jobLocationType` | low | `TELECOMMUTE` for remote |
+
+**Quirks:**
+- ⚠️ Quality varies enormously between publishers. Confidence scoring is per-source, not global.
+- ⚠️ **No stable vendor ID.** We derive `sha256(canonical_url || normalised_title || company_id)`.
+- Some pages embed multiple `JobPosting` objects; some embed one per page.
+- `robots.txt` **is honoured here**, including `Crawl-delay`. These are ordinary web pages, not
+  documented API surfaces.
+- Frequently duplicates a Tier-1 source for the same company — this is the primary work of the dedup
+  pipeline, and the ATS source wins canonical selection because its apply URL is more certainly live.
+
+---
+
+## Tier 4 — Prohibited, and why
+
+Recorded so the reasoning survives; each is a *hard* no, not a backlog item.
+
+| Source | Why not |
+|---|---|
+| **LinkedIn** | ToS prohibits scraping; aggressive anti-automation; accounts get restricted. Easy Apply data would not be actionable anyway. *hiQ* lost on breach of contract precisely here `[A-11]` |
+| **Indeed** | ToS; anti-bot. Delivery is unreliable by design — Apply Sync is opt-in `[A-10]` |
+| **Naukri** | ToS. Structurally it is a **resume database, not an application system**, so scraping it would misrepresent what the listings are |
+| **Glassdoor** | ToS; anti-bot |
+| **Workday** (`*.myworkdayjobs.com`) | ⚠️ **Note the nuance:** Workday is a legitimate ATS whose apply URLs we happily *link to*, but its job search is a POST-based internal API, not a published feed. Consuming it would be reverse-engineering an undocumented interface — Tier 4 behaviour on a Tier 1 vendor. We ingest Workday postings only where a company also publishes JSON-LD |
+
+**The boundary that decides all of these:** is the endpoint *published for machine consumption*? A
+documented public board API is. An internal API discovered in a browser's network tab is not, however
+technically accessible it may be.
+
+---
+
+## Discovery — finding boards to poll
+
+The unglamorous problem nobody writes about: knowing that `acme` has a Greenhouse board at all.
+
+| Method | Yield | Notes |
+|---|---|---|
+| Public ATS token lists | High | Community-maintained lists of board tokens |
+| Career-page JSON-LD crawl of a curated company list | Medium | Also discovers the Tier-2 source |
+| Career-page redirect inspection | High | `careers.acme.com` → `boards.greenhouse.io/acme` reveals both the vendor and the token |
+| User submission | Low volume, **high value** | A user asking for a company is the strongest possible relevance signal, and it promotes to tier A immediately |
+| Funding/news monitoring | Medium | Companies that just raised are hiring |
+
+**Validation before adding:** the endpoint must return ≥ 1 posting, parse cleanly, and map to a
+company we can identify. Failures are logged for manual review rather than retried indefinitely.
+
+### Tokens are verified, never guessed
+
+The starter list in `internal/seed/boards.go` carries an `Openings` count taken
+at verification time, and every token was confirmed live before it was added.
+
+This is a rule learnt the hard way. An earlier revision inferred tokens from
+company names — `boards.greenhouse.io/razorpay`, `/swiggy`, `/zomato` — which
+looked entirely plausible and were wrong. Nine of twelve did not exist. The
+postings seeded from them carried apply URLs that 404ed, which is the single
+worst failure this product can have: the whole claim is that the link lands in a
+real requisition queue.
+
+Razorpay's actual token, for the record, is
+`razorpaysoftwareprivatelimited`. It is not guessable.
+
+Recording the opening count also makes drift visible. A board that silently
+drops to zero has usually **migrated ATS vendors**, not stopped hiring, and the
+two need very different responses.
+
+**Current coverage: 61 boards, ~6,700 live postings.** 34 Greenhouse, 27 Ashby,
+across US, UK, EU and India.
+
+### India coverage is thin, and honestly so
+
+Four Indian boards, all Greenhouse. This is not a curation preference: most
+Indian employers run Lever (see above), Darwinbox, Keka or an in-house portal,
+and the large product companies that do use Greenhouse often gate the board
+behind their own careers site rather than publishing the JSON endpoint. Closing
+this gap needs a Darwinbox or Keka adapter, not a longer token list.
+
+---
+
+## Per-vendor operational notes
+
+| Vendor | Priority | Typical board size | Poll cost | Notes |
+|---|---|---:|---|---|
+| Greenhouse | 1 | 20–500 | Low list, **N+1 for structured comp** | Widest coverage among startups and product companies. Detail fetch only on change |
+| Lever | — | — | — | **Dropped**: public endpoint returns "Document not found" |
+| Ashby | 1 | 5–100 | Low | **Best compensation data** — worth over-weighting in discovery |
+| SmartRecruiters | 2 | 50–1000 | **High** (N+1) | Fetch descriptions only for changed postings |
+| Recruitee | 3 | 5–50 | Low | Mostly European |
+| Workable | 3 | 5–100 | Medium (3 endpoints) | |
+| Personio | 4 | 5–50 | Low | XML; European |
+| JSON-LD | 2 | 1–200 | Medium | Broadest reach, most variable quality |
+
+**Discovery priority follows compensation quality, not board count.** Ashby boards are smaller but
+carry structured salary data, which is one of the four ghost-job integrity correlates `[A-06]` and one
+of the most-used filters. A hundred Ashby boards are worth more to users than a hundred Personio ones.
+
+---
+
+## Adding a vendor — checklist
+
+- [ ] Endpoint documented here, with auth, pagination and rate limits
+- [ ] Every quirk listed, each with a golden-file fixture
+- [ ] Adapter implements `source.Adapter`
+- [ ] Golden tests cover: full board, empty board, malformed response, and every listed quirk
+- [ ] **Empty-board test asserts the board is NOT mass-closed** — the guard that has embarrassed every
+      aggregator that skipped it
+- [ ] Stable ID strategy documented (vendor ID, or the derivation rule)
+- [ ] Compensation mapping, including the "not disclosed" case
+- [ ] Date parsing, including the vendor's specific format
+- [ ] Added to seed data so it appears in local development
+- [ ] Rate limit and circuit-breaker thresholds set

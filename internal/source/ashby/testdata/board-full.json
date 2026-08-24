@@ -1,0 +1,278 @@
+{
+  "jobs": [
+    {
+      "id": "bcbf0fb9-2405-497b-bbc9-e09d8f7a4963",
+      "title": "Software Engineer (Core Infrastructure)",
+      "department": "Engineering",
+      "team": "Engineering",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": true,
+      "secondaryLocations": [],
+      "publishedAt": "2025-03-25T08:06:38.373+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/bcbf0fb9-2405-497b-bbc9-e09d8f7a4963",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/bcbf0fb9-2405-497b-bbc9-e09d8f7a4963/application",
+      "descriptionHtml": "<h2>About the Role</h2><p style=\"min-height:1.5em\">Core (aka Browserbase Core Infrastructure) is the backbone of everything we do. This team keeps our browsers running at scale, solving massive distributed systems challenges and making sure our platform is fas",
+      "descriptionPlain": "ABOUT THE ROLE\n\nCore (aka Browserbase Core Infrastructure) is the backbone of everything we do. This team keeps our browsers running at scale, solving massive distributed systems challenges and making sure our platform is fast, reliable, and scalable.\n\n\n\n\nWHAT",
+      "compensation": {
+        "compensationTierSummary": "$132K \u2013 $358K \u2022 Offers Equity",
+        "scrapeableCompensationSalarySummary": "$132K - $358K",
+        "compensationTiers": [
+          {
+            "id": "b1c095fd-d8a7-4603-a499-62903b45333a",
+            "tierSummary": "Estimated base salary $132K \u2013 $358K \u2022 Offers Equity",
+            "title": null,
+            "additionalInformation": null,
+            "components": [
+              {
+                "id": "4937e464-8a5b-4f7c-99e6-cbe779d56a29",
+                "summary": "Estimated base salary $132K \u2013 $358K",
+                "compensationType": "Salary",
+                "interval": "1 YEAR",
+                "currencyCode": "USD",
+                "minValue": 132000,
+                "maxValue": 358000
+              },
+              {
+                "id": "de1f5195-2543-46d5-b938-a286e2efc296",
+                "summary": "Offers Equity",
+                "compensationType": "EquityPercentage",
+                "interval": "NONE",
+                "currencyCode": null,
+                "minValue": null,
+                "maxValue": null
+              }
+            ]
+          }
+        ],
+        "summaryComponents": [
+          {
+            "compensationType": "Salary",
+            "interval": "1 YEAR",
+            "currencyCode": "USD",
+            "minValue": 132000,
+            "maxValue": 358000
+          },
+          {
+            "compensationType": "EquityPercentage",
+            "interval": "NONE",
+            "currencyCode": null,
+            "minValue": null,
+            "maxValue": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "b81701e4-eca5-4fc5-8d42-ddd39a4810fe",
+      "title": "Business Development Intern",
+      "department": "GTM",
+      "team": "GTM",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": true,
+      "secondaryLocations": [],
+      "publishedAt": "2026-08-07T23:29:46.761+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/b81701e4-eca5-4fc5-8d42-ddd39a4810fe",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/b81701e4-eca5-4fc5-8d42-ddd39a4810fe/application",
+      "descriptionHtml": "<h1>Sales Development Intern</h1><p style=\"min-height:1.5em\">Browserbase is the web browser for AI agents and automation. We give developers a high-performance, headless browser platform so they can run, scale, and observe automation \u2014 without managing infrast",
+      "descriptionPlain": "SALES DEVELOPMENT INTERN\n\nBrowserbase is the web browser for AI agents and automation. We give developers a high-performance, headless browser platform so they can run, scale, and observe automation \u2014 without managing infrastructure.\n\nAs a Sales Development In",
+      "compensation": {
+        "compensationTierSummary": "$0 \u2013 $35 per hour",
+        "scrapeableCompensationSalarySummary": null,
+        "compensationTiers": [
+          {
+            "id": "e3d8fe3a-0e96-4cde-9733-539bf40bc257",
+            "tierSummary": "$0 \u2013 $35 per hour",
+            "title": null,
+            "additionalInformation": null,
+            "components": [
+              {
+                "id": "720387f7-454a-40d9-8a6b-9d1fc485ed2e",
+                "summary": "$0 \u2013 $35 per hour",
+                "compensationType": "Salary",
+                "interval": "1 HOUR",
+                "currencyCode": "USD",
+                "minValue": 0,
+                "maxValue": 35
+              }
+            ]
+          }
+        ],
+        "summaryComponents": [
+          {
+            "compensationType": "Salary",
+            "interval": "1 HOUR",
+            "currencyCode": "USD",
+            "minValue": 0,
+            "maxValue": 35
+          }
+        ]
+      }
+    },
+    {
+      "id": "dbadabda-c692-408c-b732-9232c7ec6740",
+      "title": "Design Engineer",
+      "department": "Design",
+      "team": "Design",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": false,
+      "secondaryLocations": [],
+      "publishedAt": "2026-07-07T22:05:58.727+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/dbadabda-c692-408c-b732-9232c7ec6740",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/dbadabda-c692-408c-b732-9232c7ec6740/application",
+      "descriptionHtml": "<h2>About Browserbase</h2><p style=\"min-height:1.5em\">Browserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and repl",
+      "descriptionPlain": "ABOUT BROWSERBASE\n\nBrowserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and replicate user actions. We run 35M+ ses",
+      "compensation": {
+        "compensationTierSummary": null,
+        "scrapeableCompensationSalarySummary": null,
+        "compensationTiers": [],
+        "summaryComponents": []
+      }
+    },
+    {
+      "id": "da147914-cd4e-4451-811e-8687f26a2ce9",
+      "title": "Account Executive",
+      "department": "GTM",
+      "team": "GTM",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": true,
+      "secondaryLocations": [],
+      "publishedAt": "2026-07-17T18:47:57.727+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/da147914-cd4e-4451-811e-8687f26a2ce9",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/da147914-cd4e-4451-811e-8687f26a2ce9/application",
+      "descriptionHtml": "<h1>About the Role</h1><p style=\"min-height:1.5em\">Browserbase is excited to hire an Account Executive to create and grow the enterprise sales motion. In this pivotal role, you'll establish our enterprise sales strategy from the ground up, building relationshi",
+      "descriptionPlain": "ABOUT THE ROLE\n\nBrowserbase is excited to hire an Account Executive to create and grow the enterprise sales motion. In this pivotal role, you'll establish our enterprise sales strategy from the ground up, building relationships with key prospects and closing d",
+      "compensation": {
+        "compensationTierSummary": "$250K \u2013 $300K \u2022 Offers Equity \u2022 Offers Commission \u2022 Offers Commission \u2022 OTE does not include equity or benefits, both of which we offer",
+        "scrapeableCompensationSalarySummary": "$250K - $300K",
+        "compensationTiers": [
+          {
+            "id": "1500892b-564e-44ee-a089-abc70568c510",
+            "tierSummary": "OTE $250K \u2013 $300K \u2022 Offers Equity \u2022 Offers Commission \u2022 Offers Commission \u2022 OTE does not include equity or benefits, both of which we offer",
+            "title": null,
+            "additionalInformation": "OTE does not include equity or benefits, both of which we offer",
+            "components": [
+              {
+                "id": "9c9ff9f4-4ef3-4f02-86a4-7ced4599161b",
+                "summary": "Offers Equity",
+                "compensationType": "EquityPercentage",
+                "interval": "NONE",
+                "currencyCode": null,
+                "minValue": null,
+                "maxValue": null
+              },
+              {
+                "id": "afd1d0a7-767e-41e3-b514-3e84a2ba86db",
+                "summary": "OTE $250K \u2013 $300K",
+                "compensationType": "Salary",
+                "interval": "1 YEAR",
+                "currencyCode": "USD",
+                "minValue": 250000,
+                "maxValue": 300000
+              },
+              {
+                "id": "1c73b194-0602-46ab-a5ec-a459394134db",
+                "summary": "Offers Commission",
+                "compensationType": "Commission",
+                "interval": "1 YEAR",
+                "currencyCode": "USD",
+                "minValue": null,
+                "maxValue": null
+              },
+              {
+                "id": "bff00ca8-17bd-4dff-9937-4312775f489d",
+                "summary": "Offers Commission",
+                "compensationType": "Commission",
+                "interval": "1 YEAR",
+                "currencyCode": "USD",
+                "minValue": null,
+                "maxValue": null
+              }
+            ]
+          }
+        ],
+        "summaryComponents": [
+          {
+            "compensationType": "EquityPercentage",
+            "interval": "NONE",
+            "currencyCode": null,
+            "minValue": null,
+            "maxValue": null
+          },
+          {
+            "compensationType": "Salary",
+            "interval": "1 YEAR",
+            "currencyCode": "USD",
+            "minValue": 250000,
+            "maxValue": 300000
+          },
+          {
+            "compensationType": "Commission",
+            "interval": "1 YEAR",
+            "currencyCode": "USD",
+            "minValue": null,
+            "maxValue": null
+          },
+          {
+            "compensationType": "Commission",
+            "interval": "1 YEAR",
+            "currencyCode": "USD",
+            "minValue": null,
+            "maxValue": null
+          }
+        ]
+      }
+    }
+  ]
+}

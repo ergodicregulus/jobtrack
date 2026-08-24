@@ -1,0 +1,29 @@
+-- +migrate no-transaction
+-- Serve the dashboard's band counts from the index instead of the heap.
+--
+-- `GET /v1/me/dashboard` returned 500 after a ten-second deadline once the
+-- corpus reached 15,379 live postings. One query in its batch was responsible:
+--
+--   SELECT count(*) FILTER (WHERE band = 'strong'), ...
+--     FROM user_job_scores s JOIN job_postings p ON p.id = s.posting_id
+--    WHERE s.user_id = $1 AND p.status = 'live'
+--
+-- A user has one score row per live posting, so this reads ~15,000 rows. The
+-- primary key (user_id, posting_id) finds them, but `band` lives in the heap,
+-- so the plan was a bitmap heap scan touching 15,020 blocks in posting_id order
+-- — scattered, and 9.5 seconds cold against 360ms warm. The dashboard is the
+-- first authenticated page anyone loads, which is exactly when the cache is
+-- cold.
+--
+-- Adding `band` to the key and `posting_id` as a payload makes it an index-only
+-- scan: every column the aggregate needs is in the index, and the join to
+-- job_postings is a cheap hash against a sequential scan of the live set.
+--
+-- This does NOT replace ujs_feed_idx, which is ordered by score for the feed's
+-- keyset pagination and cannot serve a band aggregate.
+--
+-- CONCURRENTLY, and therefore outside a transaction, per deployment-zdt: a bare
+-- CREATE INDEX takes an ACCESS EXCLUSIVE lock and stalls every read on the
+-- table while it builds.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ujs_user_band_idx
+    ON user_job_scores (user_id, band) INCLUDE (posting_id);

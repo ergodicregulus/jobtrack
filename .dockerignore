@@ -1,0 +1,30 @@
+# Keep the build context small: every file here is sent to the daemon on every
+# build, and a large context slows down even fully-cached builds.
+
+.git
+.github
+docs
+*.md
+!README.md
+
+.env
+.env.local
+*.pem
+*.key
+
+bin/
+dist/
+tmp/
+coverage.*
+
+node_modules/
+web/node_modules/
+web/.svelte-kit/
+web/build/
+
+.idea/
+.vscode/
+.DS_Store
+
+# Compose data volumes
+.docker-data/

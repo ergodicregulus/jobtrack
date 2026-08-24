@@ -1,0 +1,191 @@
+# The api Deployment.
+#
+# Every setting below that looks fussy is load-bearing for zero-downtime
+# rollouts. The five that actually decide it are:
+#   maxUnavailable: 0, readiness != liveness, preStop sleep,
+#   terminationGracePeriodSeconds, and the PodDisruptionBudget.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobtrack-api
+  labels:
+    app.kubernetes.io/name: jobtrack
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "{{VERSION}}"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: api
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # Never reduce capacity during a rollout. With maxUnavailable > 0 a
+      # deploy under load sheds requests before the replacement is ready.
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jobtrack
+        app.kubernetes.io/component: api
+        app.kubernetes.io/version: "{{VERSION}}"
+    spec:
+      # Must exceed preStop (5s) + in-flight request time. Shorter, and
+      # Kubernetes SIGKILLs mid-request; the drain is then decorative.
+      terminationGracePeriodSeconds: 45
+
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Spread across zones so losing one degrades rather than outages.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: jobtrack
+              app.kubernetes.io/component: api
+
+      containers:
+        - name: api
+          image: "{{REGISTRY}}/api:{{VERSION}}"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          envFrom:
+            - configMapRef:
+                name: jobtrack-config
+            - secretRef:
+                name: jobtrack-secrets
+
+          # Liveness: is the process wedged? Nothing external.
+          # A liveness probe that checks the database restarts every pod when
+          # the database blips, turning a brief dependency outage into a full
+          # one. This is the single most common self-inflicted outage in k8s.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Readiness: should this pod receive traffic? Checks dependencies,
+          # and returns 503 while draining.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+            successThreshold: 1
+
+          # Startup: gives a slow first boot room without loosening liveness.
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+
+          # No preStop hook, deliberately.
+          #
+          # The usual recipe is `preStop: exec: ["sleep", "5"]` to cover
+          # asynchronous endpoint propagation across kube-proxy and the gateway.
+          # That cannot work here: the image is distroless and has no shell or
+          # coreutils, so the hook would silently fail and the drain would be
+          # decorative.
+          #
+          # Instead the application performs the same sequence itself on
+          # SIGTERM (internal/httpx/server.go): flip readiness to false, wait
+          # DrainDelay for the removal to propagate, then finish in-flight
+          # requests and stop. Owning the sequence in the process is strictly
+          # better than owning it in YAML — it is testable, and it cannot be
+          # lost when someone edits a manifest.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              # Memory only. A CPU limit on a latency-sensitive service causes
+              # throttling that looks exactly like a slow database and is
+              # miserable to diagnose.
+              memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobtrack-api
+spec:
+  selector:
+    app.kubernetes.io/name: jobtrack
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+# Without a PDB, a routine node drain can evict every replica at once. This is
+# the difference between a maintenance window and an incident.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: jobtrack-api
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: api
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: jobtrack-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: jobtrack-api
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # Slow down-scaling absorbs traffic troughs without flapping.
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30

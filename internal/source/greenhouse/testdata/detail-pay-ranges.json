@@ -1,0 +1,16 @@
+{
+  "id": 4285301,
+  "internal_job_id": 3021884,
+  "title": "Senior Backend Engineer, Payments",
+  "company_name": "AcmePay",
+  "first_published": "2026-08-09T12:00:00Z",
+  "updated_at": "2026-08-12T09:14:22-04:00",
+  "requisition_id": "ENG-482",
+  "location": { "name": "Bengaluru, India" },
+  "absolute_url": "https://boards.greenhouse.io/acmepay/jobs/4285301",
+  "content": "&lt;p&gt;Payments platform role.&lt;/p&gt;",
+  "pay_input_ranges": [
+    { "min_cents": 280000000, "max_cents": 420000000, "currency_type": "INR", "title": "Bengaluru Salary Range", "blurb": "Annual base." },
+    { "min_cents": 300000000, "max_cents": 450000000, "currency_type": "INR", "title": "Mumbai Salary Range", "blurb": "Annual base." }
+  ]
+}

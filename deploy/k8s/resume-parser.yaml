@@ -1,0 +1,192 @@
+# resume-parser — the one service that executes over untrusted binary input.
+#
+# Everything here exists to make a successful exploit worthless. The service
+# holds no database credentials, is denied all network egress, runs read-only
+# and non-root, and its only job is bytes in, JSON out. Nothing it learns
+# survives the request.
+#
+# See ADR-0007 (why the service is isolated) and ADR-0012 (why PDF extraction
+# is a child process, and why /tmp must be writable).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resume-parser
+  labels:
+    app.kubernetes.io/name: resume-parser
+    app.kubernetes.io/part-of: jobtrack
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resume-parser
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: resume-parser
+    spec:
+      # No service account token. This pod has no business talking to the
+      # Kubernetes API, and a mounted token is a credential an exploit can use.
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: resume-parser
+          image: jobtrack/resume-parser:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 9090
+
+          env:
+            - name: APP_ENV
+              value: prod
+            - name: HTTP_ADDR
+              value: ":9090"
+            # Deliberately EMPTY. The config loader requires DATABASE_URL for
+            # every service except this one, so that the isolation is enforced
+            # by the code rather than by remembering to leave a variable out.
+            - name: DATABASE_URL
+              value: ""
+            - name: OBJECT_STORE_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: jobtrack-config
+                  key: object_store_endpoint
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: jobtrack-config
+                  key: otlp_endpoint
+
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # pdftotext needs a seekable file, because a PDF's cross-reference
+            # table is at the end and a reader must seek backwards to find it.
+            # An in-memory emptyDir keeps the root filesystem read-only, keeps
+            # the CV off any disk, and vanishes with the pod.
+            #
+            # 64Mi against a 5 MB upload limit: room for one file per concurrent
+            # request with margin, and small enough that a bug cannot eat the
+            # node's memory. It counts against the container's memory limit.
+            - name: scratch
+              mountPath: /tmp
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              # A hard cap is the point here, not a nicety. Unbounded memory
+              # growth is a documented failure mode of PDF parsers, and this is
+              # the wall that turns it into one killed pod rather than a node
+              # under pressure. The scratch tmpfs counts against it.
+              memory: 512Mi
+
+      volumes:
+        - name: scratch
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resume-parser
+spec:
+  selector:
+    app.kubernetes.io/name: resume-parser
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+
+---
+# Default-deny egress, with one exception.
+#
+# This is the control that makes the isolation real rather than aspirational: a
+# parser exploited by a crafted PDF cannot reach the database, the object store,
+# a cloud metadata endpoint, or the internet. Ingress is allowed only from the
+# api, which is the only component with any reason to call it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: resume-parser
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: resume-parser
+  policyTypes: [Ingress, Egress]
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  egress:
+    # DNS only, and only to kube-dns. Without this the pod cannot resolve the
+    # trace collector's name; with anything broader, DNS becomes an
+    # exfiltration channel.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Traces. The one outbound destination, named explicitly.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jaeger
+      ports:
+        - protocol: TCP
+          port: 4318
+
+---
+# A parser under load must not be able to starve the cluster, and a rollout
+# must not take the whole service away.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: resume-parser
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resume-parser

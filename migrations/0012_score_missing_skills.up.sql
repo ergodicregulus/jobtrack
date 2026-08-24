@@ -1,0 +1,16 @@
+-- Store the skills a posting wanted that the user does not have.
+--
+-- The information already exists inside the `components` JSONB, under the
+-- skills component's `missing` key. Reading it from there works, but it means
+-- every feed query unnests a JSON document per row to render one line of text,
+-- on the hottest path in the product.
+--
+-- Precomputing at scoring time is the pattern the rest of the system already
+-- follows: the scorer runs once per (user, posting), the feed runs on every
+-- keystroke. Denormalising toward the read is correct whenever the write is
+-- rarer than the read, and here it is rarer by orders of magnitude.
+--
+-- Nullable rather than defaulted, so an existing row is visibly "not yet
+-- backfilled" instead of indistinguishable from "nothing missing". The
+-- background rescore fills them in.
+ALTER TABLE user_job_scores ADD COLUMN IF NOT EXISTS missing_skills text[];

@@ -1,0 +1,78 @@
+# Schema migrations, run to completion before any application pod starts.
+#
+# A Job, never a Deployment or an initContainer:
+#
+#   - A Deployment would restart it forever.
+#   - An initContainer would run it once PER POD, so ten replicas would race
+#     ten migrators. The advisory lock makes that safe, but it also makes every
+#     rollout wait on a lock queue for no reason.
+#
+# The Job name is unique per deploy (scripts/deploy.sh appends the version and a
+# timestamp) because a completed Job is immutable — reusing the name fails with
+# "field is immutable" instead of running the migration.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{JOB_NAME}}"
+  labels:
+    app.kubernetes.io/name: jobtrack
+    app.kubernetes.io/component: migrate
+    app.kubernetes.io/version: "{{VERSION}}"
+spec:
+  # Migrations are idempotent and the advisory lock serialises them, so a retry
+  # is safe. Two attempts, not more: a migration that fails twice needs a human,
+  # and repeated retries just delay that conclusion.
+  backoffLimit: 2
+
+  # Bound the whole thing. A migration that hangs for an hour is a stuck deploy,
+  # and a stuck deploy that never fails is worse than one that does.
+  activeDeadlineSeconds: 1800
+
+  # Keep the object for a day so the logs are readable after the fact.
+  ttlSecondsAfterFinished: 86400
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jobtrack
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: migrate
+          image: "{{REGISTRY}}/migrate:{{VERSION}}"
+          imagePullPolicy: IfNotPresent
+          args: ["up"]
+
+          envFrom:
+            - configMapRef:
+                name: jobtrack-config
+            - secretRef:
+                name: jobtrack-secrets
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              # No CPU limit: an index build should use whatever is spare rather
+              # than being throttled into a longer deploy window. Memory is
+              # capped because a runaway there is a node-level problem.
+              memory: 512Mi

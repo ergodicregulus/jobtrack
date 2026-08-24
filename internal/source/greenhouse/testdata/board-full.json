@@ -1,0 +1,47 @@
+{
+  "jobs": [
+    {
+      "id": 4285301,
+      "internal_job_id": 3021884,
+      "title": "Senior Backend Engineer, Payments",
+      "updated_at": "2026-08-12T09:14:22-04:00",
+      "requisition_id": "ENG-482",
+      "location": { "name": "Bengaluru, India" },
+      "absolute_url": "https://boards.greenhouse.io/acmepay/jobs/4285301",
+      "language": "en",
+      "metadata": null,
+      "departments": [{ "id": 91, "name": "Engineering" }],
+      "offices": [{ "id": 12, "name": "Bengaluru" }],
+      "content": "&lt;p&gt;We are hiring a senior backend engineer for the payments platform.&lt;/p&gt;&lt;h3&gt;Requirements&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;5+ years building distributed systems&lt;/li&gt;&lt;li&gt;Strong Go or Java&lt;/li&gt;&lt;li&gt;PostgreSQL at scale&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Nice to have&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;Kafka&lt;/li&gt;&lt;li&gt;Kubernetes&lt;/li&gt;&lt;/ul&gt;"
+    },
+    {
+      "id": 4285302,
+      "internal_job_id": 3021885,
+      "title": "Software Engineer I",
+      "updated_at": "2026-08-14T11:02:00Z",
+      "requisition_id": "ENG-489",
+      "location": { "name": "Remote - India" },
+      "absolute_url": "https://boards.greenhouse.io/acmepay/jobs/4285302",
+      "language": "en",
+      "metadata": null,
+      "departments": [{ "id": 91, "name": "Engineering" }],
+      "offices": [{ "id": 15, "name": "Remote" }],
+      "content": "&lt;p&gt;Entry level role on the core services team.&lt;/p&gt;&lt;p&gt;Requirements: 1+ years of professional experience, Python or Go, familiarity with SQL.&lt;/p&gt;"
+    },
+    {
+      "id": 4285303,
+      "internal_job_id": 3021886,
+      "title": "Staff Engineer, Infrastructure",
+      "updated_at": "2026-07-02T08:00:00Z",
+      "requisition_id": "",
+      "location": { "name": "Hybrid — Pune, India" },
+      "absolute_url": "https://boards.greenhouse.io/acmepay/jobs/4285303",
+      "language": "en",
+      "metadata": null,
+      "departments": [{ "id": 92, "name": "Platform" }],
+      "offices": [{ "id": 18, "name": "Pune" }],
+      "content": "&lt;p&gt;Lead infrastructure work across the platform. 8+ years experience required.&lt;/p&gt;"
+    }
+  ],
+  "meta": { "total": 3 }
+}

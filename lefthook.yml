@@ -1,0 +1,65 @@
+# Git hooks. Fast feedback, not the enforcement boundary — CI is the real gate.
+#
+# The pre-commit budget is 5 seconds, and it is a hard design constraint: a slow
+# hook gets bypassed with --no-verify, and a bypassed hook protects nothing.
+# Anything slower runs at pre-push, which happens far less often.
+#
+# Install:  make hooks   (runs `lefthook install` in the tools container)
+# Bypass:   LEFTHOOK=0 git commit    — legitimate for WIP on a branch
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: docker compose run --rm --no-deps -T tools "gofmt -w {staged_files}"
+      stage_fixed: true
+
+    # Catch the most damaging mistakes cheaply. The full vet runs at pre-push.
+    forbidden-patterns:
+      glob: "*.go"
+      run: |
+        if grep -nE '(fmt\.Print|log\.Print|spew\.Dump|//\s*nolint)' {staged_files}; then
+          echo ""
+          echo "Use the structured logger, not fmt.Print/log.Print."
+          echo "See docs/engineering/coding-standards.md §1."
+          exit 1
+        fi
+
+    # SELECT * breaks on every expand migration that adds a column.
+    no-select-star:
+      glob: "*.sql"
+      run: |
+        if grep -niE 'select\s+\*' {staged_files}; then
+          echo ""
+          echo "SELECT * is prohibited: it breaks whenever a column is added,"
+          echo "which is what expand/contract migrations do constantly."
+          exit 1
+        fi
+
+    # Session-level SET silently disappears under transaction-mode PgBouncer,
+    # which would make vector search quietly return short result sets.
+    no-bare-set:
+      glob: "internal/store/queries/*.sql"
+      run: |
+        if grep -nE '^\s*SET\s+(?!LOCAL)' {staged_files} 2>/dev/null; then
+          echo "Use SET LOCAL inside a transaction, not a bare SET."
+          echo "See docs/architecture/caching-and-storage.md §5."
+          exit 1
+        fi
+
+    docs-links:
+      glob: "*.md"
+      run: python3 scripts/check-links.py {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    build:
+      run: docker compose run --rm --no-deps -T tools "go build ./..."
+    vet:
+      run: docker compose run --rm --no-deps -T tools "go vet ./..."
+    test:
+      run: docker compose run --rm --no-deps -T tools "go test -short -count=1 ./..."
+    tidy:
+      run: docker compose run --rm --no-deps -T tools "go mod tidy && git diff --exit-code go.mod go.sum"

@@ -1,0 +1,346 @@
+package jobs
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
+
+	"github.com/jobtrack/jobtrack/internal/config"
+	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/jobtrack/jobtrack/internal/source/ashby"
+	"github.com/jobtrack/jobtrack/internal/source/greenhouse"
+	"github.com/jobtrack/jobtrack/internal/source/smartrecruiters"
+	"github.com/jobtrack/jobtrack/internal/store"
+)
+
+// Deps is what every worker needs. Passed once at construction rather than
+// through job args, because args are persisted and must stay small and PII-free.
+type Deps struct {
+	Pool  *pgxpool.Pool
+	Log   *slog.Logger
+	Cfg   *config.Config
+	Vocab *normalise.Vocabulary
+
+	// River is set after the client is built, so workers can enqueue follow-up
+	// work inside the same transaction as their own writes.
+	River *river.Client[pgx.Tx]
+
+	adapters map[source.Vendor]source.Adapter
+	limiter  *hostLimiter
+}
+
+// Init builds the adapter registry and the politeness limiter.
+func (d *Deps) Init() {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 4,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+	ua := d.Cfg.Ingest.UserAgent
+
+	d.adapters = map[source.Vendor]source.Adapter{
+		source.VendorGreenhouse:      greenhouse.New(client, ua),
+		source.VendorAshby:           ashby.New(client, ua),
+		source.VendorSmartRecruiters: smartrecruiters.New(client, ua),
+	}
+	d.limiter = newHostLimiter(2 * time.Second)
+}
+
+func (d *Deps) adapterFor(v source.Vendor) (source.Adapter, bool) {
+	a, ok := d.adapters[v]
+	return a, ok
+}
+
+// --- schedule_sources -------------------------------------------------------
+
+// ScheduleSourcesWorker enqueues fetches for sources that are due.
+type ScheduleSourcesWorker struct {
+	river.WorkerDefaults[ScheduleSourcesArgs]
+	Deps *Deps
+}
+
+func (w *ScheduleSourcesWorker) Work(ctx context.Context, job *river.Job[ScheduleSourcesArgs]) error {
+	limit := job.Args.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+
+	// Claim the due sources and push next_poll_at forward in ONE statement.
+	// Selecting then updating separately would let a second scheduler tick pick
+	// up the same rows before the first had marked them, producing duplicate
+	// fetches — the politeness violation this design exists to prevent.
+	rows, err := w.Deps.Pool.Query(ctx, `
+		WITH due AS (
+			SELECT id FROM sources
+			 WHERE next_poll_at <= now()
+			   AND tier <> 'paused'
+			   AND (disabled_until IS NULL OR disabled_until < now())
+			 ORDER BY next_poll_at
+			 LIMIT $1
+			 FOR UPDATE SKIP LOCKED
+		)
+		UPDATE sources s
+		   SET next_poll_at = now() + CASE s.tier
+		         WHEN 'a' THEN $2::interval
+		         WHEN 'b' THEN $3::interval
+		         ELSE $4::interval
+		       END
+		         -- Jitter so 500 tier-A sources do not all fire on the hour.
+		         + (random() * interval '5 minutes'),
+		       updated_at = now()
+		  FROM due
+		 WHERE s.id = due.id
+		RETURNING s.id`,
+		limit,
+		w.Deps.Cfg.Ingest.TierAInterval.String(),
+		w.Deps.Cfg.Ingest.TierBInterval.String(),
+		w.Deps.Cfg.Ingest.TierCInterval.String())
+	if err != nil {
+		return fmt.Errorf("select due sources: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	params := make([]river.InsertManyParams, len(ids))
+	for i, id := range ids {
+		params[i] = river.InsertManyParams{Args: FetchSourceArgs{SourceID: id}}
+	}
+	if _, err := w.Deps.River.InsertMany(ctx, params); err != nil {
+		return fmt.Errorf("enqueue fetches: %w", err)
+	}
+
+	w.Deps.Log.InfoContext(ctx, "sources scheduled", "count", len(ids))
+	return nil
+}
+
+// --- fetch_source -----------------------------------------------------------
+
+// FetchSourceWorker polls one board and upserts what it finds.
+type FetchSourceWorker struct {
+	river.WorkerDefaults[FetchSourceArgs]
+	Deps *Deps
+}
+
+func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSourceArgs]) error {
+	d := w.Deps
+
+	var (
+		src     source.Source
+		vendor  string
+		etag    *string
+		lastMod *string
+		hash    []byte
+		cursor  int
+	)
+	err := d.Pool.QueryRow(ctx, `
+		SELECT id, company_id, vendor::text, board_token, etag, last_modified,
+		       content_hash, detail_cursor
+		  FROM sources WHERE id = $1`, job.Args.SourceID).
+		Scan(&src.ID, &src.CompanyID, &vendor, &src.BoardToken, &etag, &lastMod, &hash, &cursor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The source was deleted between scheduling and running. Not an error.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load source %d: %w", job.Args.SourceID, err)
+	}
+	src.Vendor = source.Vendor(vendor)
+
+	if !job.Args.Force {
+		src.ETag = deref(etag)
+		src.LastModified = deref(lastMod)
+		src.ContentHash = hash
+	}
+	// The cursor is carried even under Force. Force means "ignore the validators
+	// and re-read the board", not "throw away the bodies we already fetched" —
+	// resetting it would restart a large board's sweep from the top every time.
+	src.DetailCursor = cursor
+
+	adapter, ok := d.adapterFor(src.Vendor)
+	if !ok {
+		return fmt.Errorf("no adapter for vendor %q", src.Vendor)
+	}
+
+	// Politeness: never more than one in-flight request per host, with an
+	// adaptive delay. Global concurrency is high; per-host concurrency is 1.
+	release, err := d.limiter.acquire(ctx, string(src.Vendor))
+	if err != nil {
+		return err
+	}
+	start := time.Now()
+	result, fetchErr := adapter.Fetch(ctx, src)
+	release(time.Since(start))
+
+	if fetchErr != nil {
+		return w.handleFetchError(ctx, src, result, fetchErr)
+	}
+
+	if result.NotModified {
+		// The common path — roughly 90% of polls. Record that we looked, and
+		// do no further work.
+		_, err := d.Pool.Exec(ctx, `
+			UPDATE sources
+			   SET last_polled_at = now(), consecutive_errors = 0,
+			       etag = COALESCE(NULLIF($2,''), etag),
+			       last_modified = COALESCE(NULLIF($3,''), last_modified),
+			       updated_at = now()
+			 WHERE id = $1`, src.ID, result.ETag, result.LastModified)
+		return err
+	}
+
+	upserted, changed, err := w.persist(ctx, src, result)
+	if err != nil {
+		return err
+	}
+
+	d.Log.InfoContext(ctx, "source ingested",
+		"source_id", src.ID, "vendor", src.Vendor, "board", src.BoardToken,
+		"postings", upserted, "changed", changed,
+		"duration_ms", time.Since(start).Milliseconds())
+
+	// Only bother deduplicating when something actually moved.
+	if changed > 0 {
+		if _, err := d.River.Insert(ctx, DedupeCompanyArgs{CompanyID: src.CompanyID}, nil); err != nil {
+			d.Log.WarnContext(ctx, "could not enqueue dedupe", "error", err)
+		}
+	}
+	return nil
+}
+
+// persist writes one poll's results in a single transaction.
+//
+// The posting upserts, the closure reconciliation and the scoring jobs all
+// commit together. There is no window where a posting exists without its
+// scoring job, which is why this system needs no outbox.
+func (w *FetchSourceWorker) persist(ctx context.Context, src source.Source, result source.FetchResult) (upserted, changed int, err error) {
+	d := w.Deps
+
+	err = store.InTx(ctx, d.Pool, func(tx pgx.Tx) error {
+		seen := make([]string, 0, len(result.Postings))
+		var changedIDs []int64
+
+		for _, raw := range result.Postings {
+			p := store.PostingFromRaw(raw, src, d.Vocab)
+
+			res, err := store.UpsertPosting(ctx, tx, p)
+			if err != nil {
+				return err
+			}
+			if err := store.ReplacePostingSkills(ctx, tx, res.PostingID, p.Skills); err != nil {
+				return err
+			}
+			if err := store.RecordObservation(ctx, tx, res.PostingID, result.ContentHash); err != nil {
+				return err
+			}
+
+			seen = append(seen, raw.ExternalID)
+			upserted++
+			if res.Changed {
+				changed++
+				changedIDs = append(changedIDs, res.PostingID)
+			}
+		}
+
+		// Absence is only meaningful in a response we fully received. Never
+		// call this after a 304 or a partial payload.
+		if _, err := store.ReconcileAbsent(ctx, tx, src.ID, seen); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE sources
+			   SET last_polled_at = now(), last_changed_at = now(),
+			       consecutive_errors = 0, disabled_until = NULL,
+			       etag = NULLIF($2,''), last_modified = NULLIF($3,''),
+			       content_hash = $4, detail_cursor = $5, updated_at = now()
+			 WHERE id = $1`,
+			src.ID, result.ETag, result.LastModified, result.ContentHash,
+			result.DetailCursor); err != nil {
+			return err
+		}
+
+		// Enqueue scoring inside the same transaction. Atomic with the write.
+		for _, id := range changedIDs {
+			if _, err := d.River.InsertTx(ctx, tx, ScorePostingArgs{PostingID: id}, nil); err != nil {
+				return fmt.Errorf("enqueue scoring for %d: %w", id, err)
+			}
+		}
+		return nil
+	})
+	return upserted, changed, err
+}
+
+// handleFetchError records the failure and decides whether to back off.
+func (w *FetchSourceWorker) handleFetchError(ctx context.Context, src source.Source, result source.FetchResult, fetchErr error) error {
+	d := w.Deps
+
+	var disableFor time.Duration
+	switch {
+	case errors.Is(fetchErr, source.ErrSourceGone):
+		// The board is gone. Back off hard rather than retrying every cycle.
+		disableFor = 24 * time.Hour
+	case errors.Is(fetchErr, source.ErrRateLimited):
+		disableFor = result.RetryAfter
+		if disableFor <= 0 {
+			disableFor = 15 * time.Minute
+		}
+	}
+
+	// Circuit breaker: five consecutive failures pauses the source for six
+	// hours, so one broken board cannot consume a worker slot forever.
+	_, err := d.Pool.Exec(ctx, `
+		UPDATE sources
+		   SET consecutive_errors = consecutive_errors + 1,
+		       last_polled_at = now(),
+		       disabled_until = CASE
+		           WHEN $2::interval > interval '0' THEN now() + $2::interval
+		           WHEN consecutive_errors + 1 >= 5 THEN now() + interval '6 hours'
+		           ELSE disabled_until
+		       END,
+		       updated_at = now()
+		 WHERE id = $1`, src.ID, disableFor.String())
+	if err != nil {
+		d.Log.ErrorContext(ctx, "could not record source failure", "source_id", src.ID, "error", err)
+	}
+
+	// A dead board is a fact, not a transient failure: returning an error would
+	// make River retry it four more times for nothing.
+	if errors.Is(fetchErr, source.ErrSourceGone) {
+		d.Log.WarnContext(ctx, "source is gone; disabled for 24h",
+			"source_id", src.ID, "vendor", src.Vendor, "board", src.BoardToken)
+		return nil
+	}
+	return fetchErr
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

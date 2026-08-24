@@ -1,0 +1,51 @@
+{
+  "jobs": [
+    {
+      "id": "2ab81e46-2e46-4120-938c-429b9f4aa7a7",
+      "title": "Field & Events Marketing Manager ",
+      "department": "Marketing",
+      "team": "Marketing",
+      "employmentType": "FullTime",
+      "location": "AMER",
+      "shouldDisplayCompensationOnJobPostings": false,
+      "secondaryLocations": [
+        {
+          "location": "San Francisco, CA",
+          "address": {
+            "postalAddress": {
+              "addressRegion": "California",
+              "addressCountry": "United States",
+              "addressLocality": "San Francisco"
+            }
+          }
+        },
+        {
+          "location": "NYC",
+          "address": {
+            "postalAddress": {
+              "addressCountry": "United States",
+              "addressLocality": "NYC"
+            }
+          }
+        }
+      ],
+      "publishedAt": "2026-06-25T20:44:19.242+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+        "postalAddress": {}
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/supabase/2ab81e46-2e46-4120-938c-429b9f4aa7a7",
+      "applyUrl": "https://jobs.ashbyhq.com/supabase/2ab81e46-2e46-4120-938c-429b9f4aa7a7/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\"><strong>About Supabase</strong></p><p style=\"min-height:1.5em\">Supabase is the Postgres development platform, built by developers for developers. We give teams a complete backend out of the box: Database, Auth, Storage, Edge Functio",
+      "descriptionPlain": "About Supabase\n\nSupabase is the Postgres development platform, built by developers for developers. We give teams a complete backend out of the box: Database, Auth, Storage, Edge Functions, Realtime, and Vector Search, all built on Postgres and designed to grow",
+      "compensation": {
+        "compensationTierSummary": null,
+        "scrapeableCompensationSalarySummary": null,
+        "compensationTiers": [],
+        "summaryComponents": []
+      }
+    }
+  ]
+}

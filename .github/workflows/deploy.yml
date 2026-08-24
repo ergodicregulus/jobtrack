@@ -1,0 +1,179 @@
+# Deploy: verify provenance first, migrate under a gate, roll out, prove it, or
+# roll back.
+#
+# The ordering is the whole design and it comes from deployment-zdt.md:
+#
+#   1. verify the artefact is ours       — before it touches a cluster
+#   2. migrate, expand-only              — old code must still run against it
+#   3. roll out                          — surge, never take capacity away
+#   4. smoke test                        — against the real deployment
+#   5. roll back on failure              — automatically, not by a human at 3am
+#
+# Step 1 is what makes the rest worth doing. Deploying an unverified image from
+# a registry is trusting the registry, and a registry is not a trust boundary.
+
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [staging, production]
+      version:
+        description: Release tag to deploy (e.g. v1.4.0)
+        required: true
+
+concurrency:
+  # One deploy per environment at a time. Two concurrent rollouts of different
+  # versions is how you get a cluster running both and neither.
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify signatures and provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sigstore/cosign-installer@v3
+
+      # Verified by IDENTITY, not by "is it signed" — anyone can sign anything.
+      # The assertion is that this exact digest was signed by a workflow in this
+      # repository, authenticated by GitHub's OIDC issuer.
+      - name: Every image is signed by this repository
+        run: |
+          set -euo pipefail
+          for svc in api ingestor matcher scheduler resume-parser migrate; do
+            image="${REGISTRY}/${{ github.repository }}/${svc}:${VERSION#v}"
+            echo "→ $svc"
+            cosign verify "$image" \
+              --certificate-identity-regexp \
+                "^https://github.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              > /dev/null
+            cosign verify-attestation "$image" \
+              --type spdxjson \
+              --certificate-identity-regexp \
+                "^https://github.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              > /dev/null
+            echo "  signature and SBOM attestation verified"
+          done
+
+      # An image that was clean at build time is not clean forever. This is the
+      # check that catches a CVE published between the release and the deploy.
+      - name: Re-scan published images against today's vulnerability data
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository }}/api:${{ env.VERSION }}
+          severity-cutoff: critical
+          fail-build: true
+
+  migrate:
+    name: Schema migrations
+    runs-on: ubuntu-latest
+    needs: [verify]
+    environment: ${{ inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      # Expand-only, and it must finish before any new pod serves traffic.
+      # Running this as a Job with the rollout gated behind it is the mechanism;
+      # a migration racing a rollout is the failure deployment-zdt.md exists to
+      # prevent.
+      - name: Run migrations as a gated Job
+        run: |
+          set -euo pipefail
+          kubectl -n jobtrack delete job migrate --ignore-not-found
+          kubectl -n jobtrack create job migrate \
+            --image="${REGISTRY}/${{ github.repository }}/migrate:${VERSION#v}" \
+            -- /migrate up
+          kubectl -n jobtrack wait --for=condition=complete job/migrate --timeout=10m \
+            || { kubectl -n jobtrack logs job/migrate --tail=200; exit 1; }
+
+      - name: The database is not behind the binary
+        run: |
+          kubectl -n jobtrack run migrate-verify --rm -i --restart=Never \
+            --image="${REGISTRY}/${{ github.repository }}/migrate:${VERSION#v}" \
+            -- /migrate verify
+
+  rollout:
+    name: Roll out
+    runs-on: ubuntu-latest
+    needs: [migrate]
+    environment: ${{ inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+
+      - name: Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set images and wait
+        run: |
+          set -euo pipefail
+          for svc in api ingestor matcher scheduler resume-parser web; do
+            kubectl -n jobtrack set image "deployment/$svc" \
+              "$svc=${REGISTRY}/${{ github.repository }}/${svc}:${VERSION#v}" \
+              --record
+          done
+          # Wait on each rollout separately so a failure names the service.
+          for svc in api ingestor matcher scheduler resume-parser web; do
+            kubectl -n jobtrack rollout status "deployment/$svc" --timeout=5m
+          done
+
+      # Smoke test the real deployment, not a preview. /readyz is the endpoint
+      # the load balancer already trusts; if it lies, we want to know here.
+      - name: Smoke test
+        id: smoke
+        run: |
+          set -euo pipefail
+          base="${{ vars.PUBLIC_BASE_URL }}"
+          for path in /readyz /livez /v1/market; do
+            code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 20 "$base$path")
+            echo "$path -> $code"
+            [ "$code" = "200" ] || exit 1
+          done
+          # The feed is the product. A deploy that serves an empty feed is a
+          # failed deploy even though every probe is green.
+          n=$(curl -fsS --max-time 20 "$base/v1/jobs?limit=1" | grep -c '"id"' || true)
+          [ "$n" -ge 1 ] || { echo "::error::feed returned no postings"; exit 1; }
+
+      # Undo the rollout, never the migration. Migrations are expand-only for
+      # exactly this reason: the previous release still runs against the new
+      # schema, so rolling back code alone is always safe.
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          for svc in api ingestor matcher scheduler resume-parser web; do
+            kubectl -n jobtrack rollout undo "deployment/$svc" || true
+          done
+          echo "::error::deploy failed; code rolled back, schema left in place (expand-only)"

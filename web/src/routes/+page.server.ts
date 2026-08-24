@@ -1,0 +1,32 @@
+import { redirect } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+
+/**
+ * The root is a decision, not a page, for anyone with an account.
+ *
+ * A signed-in user landing on a marketing page has to click again to reach the
+ * thing they came for. Visitors get the landing page; everyone else is sent
+ * where they were going.
+ */
+export const load: PageServerLoad = async ({ parent, fetch }) => {
+  const { signedIn, profile } = await parent();
+  if (signedIn) redirect(303, profile?.onboarded ? '/dashboard' : '/onboarding');
+
+  // Real figures, not claims. "6,804 live postings" is checkable; "thousands
+  // of opportunities" is the sentence every job board writes.
+  //
+  // This used to read the facets endpoint and derive `companies` from
+  // `Object.keys(facets.countries).length` — a count of COUNTRIES presented
+  // under a company label. It happened not to be rendered, which is the only
+  // reason it was never a lie on screen. /v1/market shares its SQL with the
+  // dashboard, so the landing page and the signed-in view cannot disagree.
+  let stats = { live_postings: 0, companies: 0, added_this_week: 0, remote_share: 0 };
+  try {
+    const res = await fetch('/v1/market');
+    if (res.ok) stats = await res.json();
+  } catch {
+    // The landing page must render regardless; a zero is simply not shown.
+  }
+
+  return { stats };
+};

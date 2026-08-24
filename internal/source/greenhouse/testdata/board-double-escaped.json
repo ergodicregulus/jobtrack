@@ -1,0 +1,15 @@
+{
+  "jobs": [
+    {
+      "id": 999001,
+      "internal_job_id": 111,
+      "title": "Platform Engineer",
+      "updated_at": "2026-08-01T00:00:00Z",
+      "requisition_id": "P-1",
+      "location": { "name": "Remote" },
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/999001",
+      "content": "This is the job description. &amp;lt;p&amp;gt;Any HTML included through the hosted job application editor will be automatically converted into corresponding HTML entities.&amp;lt;/p&amp;gt;"
+    }
+  ],
+  "meta": { "total": 1 }
+}

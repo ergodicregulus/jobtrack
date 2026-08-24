@@ -1,0 +1,70 @@
+{
+  "jobs": [
+    {
+      "id": "dbadabda-c692-408c-b732-9232c7ec6740",
+      "title": "Design Engineer",
+      "department": "Design",
+      "team": "Design",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": false,
+      "secondaryLocations": [],
+      "publishedAt": "2026-07-07T22:05:58.727+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/dbadabda-c692-408c-b732-9232c7ec6740",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/dbadabda-c692-408c-b732-9232c7ec6740/application",
+      "descriptionHtml": "<h2>About Browserbase</h2><p style=\"min-height:1.5em\">Browserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and repl",
+      "descriptionPlain": "ABOUT BROWSERBASE\n\nBrowserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and replicate user actions. We run 35M+ ses",
+      "compensation": {
+        "compensationTierSummary": null,
+        "scrapeableCompensationSalarySummary": null,
+        "compensationTiers": [],
+        "summaryComponents": []
+      }
+    },
+    {
+      "id": "b340041a-72ad-47f9-a419-b2c283548104",
+      "title": "Product Designer",
+      "department": "Design",
+      "team": "Design",
+      "employmentType": "FullTime",
+      "location": "San Francisco",
+      "shouldDisplayCompensationOnJobPostings": false,
+      "secondaryLocations": [],
+      "publishedAt": "2026-07-07T22:06:30.394+00:00",
+      "isListed": false,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "postalCode": "94104",
+          "addressRegion": "CA",
+          "streetAddress": "1 Post Street, Floor 15",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/browserbase/b340041a-72ad-47f9-a419-b2c283548104",
+      "applyUrl": "https://jobs.ashbyhq.com/browserbase/b340041a-72ad-47f9-a419-b2c283548104/application",
+      "descriptionHtml": "<h2>About Browserbase</h2><p style=\"min-height:1.5em\">Browserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and repl",
+      "descriptionPlain": "ABOUT BROWSERBASE\n\nBrowserbase is the complete platform to build and deploy agents that browse and interact with the web like humans. We provide one API key for agents to search and fetch information, fill out forms, and replicate user actions. We run 35M+ ses",
+      "compensation": {
+        "compensationTierSummary": null,
+        "scrapeableCompensationSalarySummary": null,
+        "compensationTiers": [],
+        "summaryComponents": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,736 @@
+/*
+ * JobTrack design system.
+ *
+ * The look has to carry a specific idea: this is an instrument, not a feed.
+ * Five rules produce that, and everything else follows from them.
+ *
+ * 1. ONE ACCENT. EVERYTHING ELSE IS NEUTRAL.
+ *    Restraint is what separates a premium interface from a busy one. A single
+ *    indigo carries interaction; the semantic colours (teal/rose/amber) appear
+ *    ONLY as small signals — a rail, a dot, a chip border — never as large
+ *    surfaces. An earlier revision tinted whole card backgrounds and the result
+ *    read as a chart, not a product.
+ *
+ * 2. COLOUR ENCODES DIRECTION, NEVER DECORATION.
+ *    teal = growing / matched / fresh · rose = shrinking / missing / dead
+ *    amber = contested / uncertain / ageing
+ *    Nothing is coloured because it looks nice. A reader can tell the STATE of
+ *    a card before reading a word of it. Colour is never the ONLY signal —
+ *    every state also carries text or a shape, for the 1-in-12 men with a
+ *    colour-vision deficiency.
+ *
+ * 3. HIERARCHY FIRST, DENSITY SECOND.
+ *    The scanning tool still has to answer "what should I look at" before "show
+ *    me everything". So the type scale is wide (11px to 32px) and weight and
+ *    colour do the ranking.
+ *
+ *    There is ONE density. A user-facing setting existed and was removed: it
+ *    changed row padding and nothing else — not type size, not target size — so
+ *    the accessibility justification written beside it was simply false. A
+ *    reader who needs larger text is better served by browser zoom, which
+ *    scales everything rather than the gaps between things.
+ *
+ * 4. BORDERS ARE SHADOWS.
+ *    `box-shadow: 0 0 0 1px` instead of `border: 1px solid`. A ring does not
+ *    consume layout space, so it can be animated, layered under a real shadow,
+ *    and thickened on focus without anything shifting by a pixel. This is the
+ *    single highest-leverage trick for making components feel machined.
+ *
+ * 5. THE BUDGET IS FIXED FIRST.
+ *    System fonts (zero font bytes), no CSS framework, no icon library — icons
+ *    are inline SVG paths. Every byte spent here is a byte not available for
+ *    the application.
+ */
+
+/* ---------------------------------------------------------------------------
+   Tokens
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Light palette. Defined on bare :root so it is the fallback for everything,
+     including a client that never resolves a media query.
+
+     These are the design's own stone ramp, adopted verbatim except where a
+     value failed contrast (noted individually below). The neutrals are warm —
+     hue ~30, chroma held low — not the blue-grey a default Tailwind-ish palette
+     produces. Pure #f5f5f5 reads as unfinished; a warm cast reads as chosen,
+     and it is what makes the indigo accent look deliberate rather than
+     stock. */
+  --bg:            #fbfaf9;
+  --bg-raised:     #ffffff;
+  --bg-sunken:     #f6f5f3;
+  --bg-hover:      #efedea;
+  --bg-active:     #e7e4e0;
+
+  --fg:            #1c1b19;
+  --fg-muted:      #57534e;
+  /* Every token below carries real text, so every one clears WCAG 1.4.3 AA
+     (4.5:1) against the surface it sits on. --fg-subtle was #8a909d, which
+     measured 3.20:1 and failed — it is used for timestamps, the "via
+     Greenhouse" attribution and every micro label, none of which are
+     decorative. Contrast is computed by tokens.test.ts, never eyeballed. */
+  --fg-subtle:     #6b645f;
+  /* NON-TEXT ONLY: icons, separators, disabled glyphs. Clears the 3:1 that
+     WCAG 1.4.11 requires of meaningful non-text, and nothing more. It was
+     #b0b5bf (2.06:1), which failed even that. If you need it for text, you
+     need --fg-subtle instead — the test enforces this. */
+  --fg-faint:      #8c857e;
+
+  /* Rings, not borders. Alpha so they compose over any surface, and tinted
+     with the ink rather than pure black so they stay in the warm family. */
+  --ring:          rgb(28 27 25 / 0.11);
+  --ring-strong:   rgb(28 27 25 / 0.22);
+  --ring-accent:   rgb(79 70 229 / 0.35);
+
+  /* Legacy aliases: existing components still set `border: 1px solid`. These
+     are --ring flattened over --bg, so a border and a ring read identically. */
+  --border:        #e6e4e1;
+  --border-strong: #d0cdc8;
+
+  /* The one accent. */
+  --accent:        #4f46e5;
+  --accent-hover:  #4338ca;
+  --accent-ink:    #3730a3;
+  --accent-bg:     rgb(79 70 229 / 0.09);
+  /* Chip and control outlines, one per direction. A hairline in the family's
+     own hue reads as part of the chip; a neutral one reads as a box drawn
+     around it. */
+  --accent-line:   rgb(79 70 229 / 0.35);
+  --accent-fg:     #ffffff;
+
+  /* Direction colours: signal weight only.
+     Each has a FILL (dots, bars, heatmap cells — non-text, needs 3:1) and an
+     INK (anything that is read — needs 4.5:1). They are different values on
+     purpose: the design shipped one teal for both, and at 3.59:1 on the raised
+     surface it failed AA the moment a score number was painted with it. The
+     fill is the design's; the ink is that hue taken one step darker. */
+  --grow:          #0d9488;
+  --grow-ink:      #0f766e;
+  --grow-bg:       rgb(13 148 136 / 0.10);
+  --grow-line:     rgb(13 148 136 / 0.34);
+
+  --shrink:        #e11d48;
+  --shrink-ink:    #be123c;
+  --shrink-bg:     rgb(225 29 72 / 0.09);
+  --shrink-line:   rgb(225 29 72 / 0.34);
+
+  --uncertain:     #b45309;
+  /* One step darker than the fill. #b45309 measured 4.39:1 against its own
+     composited tint — under AA, and it carries the word "estimated". */
+  --uncertain-ink: #92400e;
+  --uncertain-bg:  rgb(180 83 9 / 0.10);
+  --uncertain-line: rgb(180 83 9 / 0.34);
+
+  --focus:         #4f46e5;
+
+  /* Spacing: a 4px grid. Fewer steps than a typical scale, on purpose —
+     constraint is what makes a dense layout stay coherent. */
+  --s-0: 2px;
+  --s-1: 4px;
+  --s-1h: 6px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-4h: 20px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 40px;
+  --s-8: 56px;
+
+  /* Row rhythm — the one density, shipped.
+     A list row is 9px of vertical padding, not 12. Three pixels a row sounds
+     like nothing and is the difference between eighteen postings on a laptop
+     screen and fourteen. */
+  --row-y: 9px;
+  --row-x: 12px;
+
+  --radius-sm: 5px;
+  --radius:    8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  /* System stack: zero font bytes, and it renders before any webfont could
+     have finished downloading. */
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Type scale. Tracking tightens as size grows — this is the detail that most
+     separates "crafted" from "default". At 14px and below, normal tracking is
+     correct; tightening small text hurts legibility rather than helping. */
+  --t-xs:   11px; --tr-xs:   0.01em;
+  --t-sm:   12px; --tr-sm:   0;
+  --t-base: 14px; --tr-base: 0;
+  --t-md:   15px; --tr-md:  -0.006em;
+  --t-lg:   17px; --tr-lg:  -0.012em;
+  --t-xl:   21px; --tr-xl:  -0.018em;
+  --t-2xl:  26px; --tr-2xl: -0.024em;
+  --t-3xl:  32px; --tr-3xl: -0.03em;
+
+  /* Elevation. Every level includes its own ring, so a raised surface never
+     needs a separate border declaration. */
+  --e-0: 0 0 0 1px var(--ring);
+  --e-1: 0 0 0 1px var(--ring), 0 1px 2px rgb(16 18 24 / 0.04);
+  --e-2: 0 0 0 1px var(--ring), 0 2px 4px rgb(16 18 24 / 0.04),
+         0 4px 12px rgb(16 18 24 / 0.05);
+  --e-3: 0 0 0 1px var(--ring), 0 8px 24px rgb(16 18 24 / 0.09),
+         0 2px 6px rgb(16 18 24 / 0.05);
+
+  /* Motion. Two durations and one curve covers everything here. The curve is a
+     gentle ease-out: fast to start so the interface feels immediately
+     responsive, settling slowly so nothing snaps. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --fast: 130ms;
+  --slow: 240ms;
+
+  --row-gap: var(--s-2);
+  --card-pad: var(--s-4);
+}
+
+/* Dark under the system setting, unless the user explicitly chose light.
+   The :not() guard is what makes the toggle win in BOTH directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg:            #131211;
+    --bg-raised:     #1a1917;
+    --bg-sunken:     #211f1d;
+    --bg-hover:      #2a2724;
+    --bg-active:     #332f2b;
+
+    --fg:            #f4f1ee;
+    --fg-muted:      #a8a29e;
+    --fg-subtle:     #9c948c;
+    --fg-faint:      #847c74;
+
+    /* Light rings on dark: a hairline of light is how a raised surface reads
+       as raised when there is no shadow to cast. */
+    --ring:          rgb(255 255 255 / 0.11);
+    --ring-strong:   rgb(255 255 255 / 0.24);
+    --ring-accent:   rgb(129 140 248 / 0.42);
+
+    --border:        #2b2825;
+    --border-strong: #3d3833;
+
+    --accent:        #818cf8;
+    --accent-hover:  #a5b4fc;
+    --accent-ink:    #a5b4fc;
+    --accent-bg:     rgb(129 140 248 / 0.13);
+    --accent-line:   rgb(129 140 248 / 0.42);
+    --accent-fg:     #17161c;
+
+    --grow:          #2dd4bf;
+    --grow-ink:      #2dd4bf;
+    --grow-bg:       rgb(45 212 191 / 0.12);
+    --grow-line:     rgb(45 212 191 / 0.38);
+
+    --shrink:        #fb7185;
+    --shrink-ink:    #fb7185;
+    --shrink-bg:     rgb(251 113 133 / 0.12);
+    --shrink-line:   rgb(251 113 133 / 0.38);
+
+    --uncertain:     #fbbf24;
+    --uncertain-ink: #fbbf24;
+    --uncertain-bg:  rgb(251 191 36 / 0.12);
+    --uncertain-line: rgb(251 191 36 / 0.38);
+
+    --focus:         #818cf8;
+
+    --e-0: 0 0 0 1px var(--ring);
+    --e-1: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.4);
+    --e-2: 0 0 0 1px var(--ring), 0 2px 6px rgb(0 0 0 / 0.45),
+           0 8px 20px rgb(0 0 0 / 0.35);
+    --e-3: 0 0 0 1px var(--ring), 0 12px 32px rgb(0 0 0 / 0.6),
+           0 2px 8px rgb(0 0 0 / 0.4);
+  }
+}
+
+/* The explicit dark choice repeats the overrides so the toggle beats the OS. */
+:root[data-theme='dark'] {
+  --bg:            #131211;
+  --bg-raised:     #1a1917;
+  --bg-sunken:     #211f1d;
+  --bg-hover:      #2a2724;
+  --bg-active:     #332f2b;
+
+  --fg:            #f4f1ee;
+  --fg-muted:      #a8a29e;
+  --fg-subtle:     #9c948c;
+  --fg-faint:      #847c74;
+
+  --ring:          rgb(255 255 255 / 0.11);
+  --ring-strong:   rgb(255 255 255 / 0.24);
+  --ring-accent:   rgb(129 140 248 / 0.42);
+
+  --border:        #2b2825;
+  --border-strong: #3d3833;
+
+  --accent:        #818cf8;
+  --accent-hover:  #a5b4fc;
+  --accent-ink:    #a5b4fc;
+  --accent-bg:     rgb(129 140 248 / 0.13);
+  --accent-line:   rgb(129 140 248 / 0.42);
+  --accent-fg:     #17161c;
+
+  --grow:          #2dd4bf;
+  --grow-ink:      #2dd4bf;
+  --grow-bg:       rgb(45 212 191 / 0.12);
+  --grow-line:     rgb(45 212 191 / 0.38);
+
+  --shrink:        #fb7185;
+  --shrink-ink:    #fb7185;
+  --shrink-bg:     rgb(251 113 133 / 0.12);
+  --shrink-line:   rgb(251 113 133 / 0.38);
+
+  --uncertain:     #fbbf24;
+  --uncertain-ink: #fbbf24;
+  --uncertain-bg:  rgb(251 191 36 / 0.12);
+  --uncertain-line: rgb(251 191 36 / 0.38);
+
+  --focus:         #818cf8;
+
+  --e-0: 0 0 0 1px var(--ring);
+  --e-1: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.4);
+  --e-2: 0 0 0 1px var(--ring), 0 2px 6px rgb(0 0 0 / 0.45),
+         0 8px 20px rgb(0 0 0 / 0.35);
+  --e-3: 0 0 0 1px var(--ring), 0 12px 32px rgb(0 0 0 / 0.6),
+         0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+
+/* ---------------------------------------------------------------------------
+   Responsive layout primitives
+
+   Named as data-attributes rather than classes, following the design system:
+   these are the handful of rules that CANNOT be expressed inline (viewport
+   queries, pointer queries, reduced motion), so keeping them in one block
+   makes the responsive behaviour of the whole app readable in one screen.
+   --------------------------------------------------------------------------- */
+
+/* Feed: filter rail beside the results once there is room for both. Below
+   1040px the rail becomes a sheet, because a 272px column plus a readable row
+   does not fit on a laptop at 1280 with a sidebar open. */
+[data-feed-grid] { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-5); }
+@media (min-width: 1040px) {
+  [data-feed-grid] { grid-template-columns: 272px minmax(0, 1fr); gap: var(--s-6); align-items: start; }
+}
+
+[data-wide-only] { display: none; }
+@media (min-width: 1040px) { [data-wide-only] { display: block; } }
+[data-narrow-only] { display: block; }
+@media (min-width: 1040px) { [data-narrow-only] { display: none; } }
+
+/* Global search appears once the header has room for it without crowding the
+   nav. Below that it lives on the feed, where search belongs anyway.
+
+   These two are a PAIR and share one breakpoint on purpose: exactly one search
+   box exists at every width. Defined adjacently so they cannot drift — when
+   they were tuned separately the feed showed two search fields between 900 and
+   1040px, twenty pixels apart, doing the same thing. */
+[data-search] { display: none; }
+[data-search-alt] { display: flex; }
+@media (min-width: 900px) {
+  [data-search] { display: flex; flex: 1 1 200px; max-width: 340px; }
+  [data-search-alt] { display: none; }
+}
+
+/* Dashboard: matches beside the pipeline. Two thirds / one third, because the
+   match list is the reason the page exists and the pipeline is a glance. */
+[data-dash-two] { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4h); align-items: start; }
+@media (min-width: 900px) { [data-dash-two] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+
+/* Job detail: the score breakdown sticks beside the description on a wide
+   screen and leads on a narrow one — the breakdown is the signature moment, so
+   it must never be something you scroll past the description to reach. */
+[data-detail-grid] { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-5); }
+[data-detail-rail] { order: -1; }
+@media (min-width: 1040px) {
+  [data-detail-grid] { grid-template-columns: minmax(0, 1fr) 400px; gap: var(--s-7); align-items: start; }
+  [data-detail-rail] { order: 0; position: sticky; top: 74px; }
+}
+
+/* Tracker: a real board that scrolls sideways, rather than six columns
+   crushed to 40px each. */
+[data-board] {
+  display: grid; grid-auto-flow: column;
+  grid-auto-columns: minmax(264px, 1fr);
+  gap: var(--s-3);
+  overflow-x: auto;
+  padding-bottom: var(--s-3);
+}
+
+/* Touch targets. A tablet gets the desktop layout and fingers, so this is
+   keyed on the pointer, never on width. WCAG 2.2 SC 2.5.8 is 24px; 44px is
+   the platform guidance and the one that actually feels right. */
+@media (pointer: coarse) {
+  [data-target] { min-height: 44px; min-width: 44px; }
+  [data-target-sm] { min-height: 44px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Reset
+   --------------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* Sticky footer.
+   Without this the footer sits wherever the content ends — mid-screen on a
+   short page like an empty tracker, with a band of dead background beneath it,
+   which reads as a rendering fault rather than as a short page. */
+html, body { min-height: 100%; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  /* An explicit background is required: a transparent body borrows the host's
+     colour and produces the classic flash of the wrong theme. */
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--t-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Contextual alternates and kerning cost nothing and are off by default in
+     some engines. */
+  font-feature-settings: "kern" 1, "calt" 1;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.2; }
+h1 { font-size: var(--t-2xl); letter-spacing: var(--tr-2xl); }
+h2 { font-size: var(--t-xl);  letter-spacing: var(--tr-xl); }
+h3 { font-size: var(--t-lg);  letter-spacing: var(--tr-lg); }
+h4 { font-size: var(--t-md);  letter-spacing: var(--tr-md); }
+p  { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+button { font: inherit; color: inherit; }
+
+img, svg { display: block; max-width: 100%; }
+
+/* Numbers that change must not reflow. Every figure in this product sits in a
+   column that updates, so tabular alignment is correctness, not taste. */
+.mono, .num, td.num, .stat-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.mono { font-family: var(--font-mono); }
+
+/* Focus is always visible. :focus-visible keeps it off mouse clicks while
+   guaranteeing it for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* WCAG 2.2 — 2.4.11 Focus Not Obscured.
+   The header is sticky and the feed is a long list, so tabbing down would push
+   focused cards underneath it. One line of CSS, invisible until tested. */
+:where(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: 96px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Primitives
+   --------------------------------------------------------------------------- */
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+  position: absolute; top: -100%; left: var(--s-3); z-index: 100;
+  padding: var(--s-2) var(--s-4);
+  background: var(--bg-raised); box-shadow: var(--e-2);
+  border-radius: var(--radius);
+}
+.skip-link:focus { top: var(--s-3); }
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--s-5);
+}
+@media (max-width: 640px) { .shell { padding: 0 var(--s-4); } }
+
+.stack   { display: flex; flex-direction: column; gap: var(--s-4); }
+.row     { display: flex; align-items: center; gap: var(--s-3); }
+.row-tight { display: flex; align-items: center; gap: var(--s-2); }
+.spacer  { flex: 1; }
+.wrap    { flex-wrap: wrap; }
+
+/* Text roles. Naming by ROLE not by size is what stops a redesign from
+   becoming a find-and-replace across every component. */
+.t-title    { font-size: var(--t-xl);  letter-spacing: var(--tr-xl);  font-weight: 600; }
+.t-heading  { font-size: var(--t-lg);  letter-spacing: var(--tr-lg);  font-weight: 600; }
+.t-body     { font-size: var(--t-base); }
+.t-small    { font-size: var(--t-sm);  color: var(--fg-muted); }
+.t-micro    { font-size: var(--t-xs);  color: var(--fg-subtle); }
+.t-muted    { color: var(--fg-muted); }
+.t-subtle   { color: var(--fg-subtle); }
+
+/* An eyebrow labels a section without competing with its content. */
+.eyebrow {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* --- Surfaces --- */
+
+.card {
+  background: var(--bg-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--e-1);
+  transition: box-shadow var(--fast) var(--ease),
+              transform var(--fast) var(--ease);
+}
+
+/* Lift on hover, but only 1px. Anything more feels like a toy; 1px reads as
+   the surface acknowledging the pointer. */
+.card-interactive:hover {
+  box-shadow: var(--e-2);
+  transform: translateY(-1px);
+}
+.card-interactive:active { transform: translateY(0); }
+
+.panel {
+  background: var(--bg-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--e-1);
+  padding: var(--s-5);
+}
+
+.panel-head {
+  display: flex; align-items: baseline; gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+/* --- Buttons ---
+   WCAG 2.2 — 2.5.8 Target Size (Minimum): 24x24 CSS px. The compact design
+   pushes toward small icon buttons, which is exactly the risk this addresses. */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--s-2);
+  min-height: 34px; min-width: 34px;
+  padding: 0 var(--s-4);
+  font-size: var(--t-base);
+  font-weight: 500;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--e-1);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--fast) var(--ease),
+              box-shadow var(--fast) var(--ease),
+              transform var(--fast) var(--ease);
+}
+.btn:hover:not(:disabled) { background: var(--bg-hover); box-shadow: var(--e-2); }
+.btn:active:not(:disabled) { background: var(--bg-active); transform: translateY(1px); box-shadow: var(--e-0); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: 0 0 0 1px var(--accent), 0 1px 2px rgb(16 18 24 / 0.12);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: 0 0 0 1px var(--accent-hover), 0 2px 8px var(--ring-accent);
+}
+.btn-primary:active:not(:disabled) { background: var(--accent-hover); }
+
+.btn-ghost { background: transparent; box-shadow: none; }
+.btn-ghost:hover:not(:disabled) { background: var(--bg-hover); box-shadow: none; }
+
+.btn-lg { min-height: 42px; padding: 0 var(--s-5); font-size: var(--t-md); }
+.btn-sm { min-height: 28px; padding: 0 var(--s-3); font-size: var(--t-sm); }
+.btn-block { width: 100%; }
+
+/* --- Form controls --- */
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.label {
+  font-size: var(--t-sm);
+  font-weight: 550;
+  color: var(--fg);
+}
+
+.hint { font-size: var(--t-sm); color: var(--fg-subtle); }
+
+.input, .select, .textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px var(--s-3);
+  font: inherit;
+  font-size: var(--t-base);
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--e-0);
+  transition: box-shadow var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.textarea { min-height: 76px; padding: var(--s-3); resize: vertical; line-height: 1.5; }
+
+/* Placeholder text is text: WCAG makes no exemption for it. */
+.input::placeholder, .textarea::placeholder { color: var(--fg-subtle); }
+
+.input:hover, .select:hover, .textarea:hover { box-shadow: 0 0 0 1px var(--ring-strong); }
+
+/* The focus ring replaces the outline rather than adding to it: a ring that
+   grows from 1px to 2px in the accent colour, with a soft halo. Because it is
+   a shadow, nothing shifts. */
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--ring-accent);
+}
+
+.input[aria-invalid='true'], .textarea[aria-invalid='true'] {
+  box-shadow: 0 0 0 1px var(--shrink), 0 0 0 4px rgb(225 29 72 / 0.18);
+}
+
+.error-text {
+  font-size: var(--t-sm);
+  color: var(--shrink-ink);
+  display: flex; align-items: center; gap: 6px;
+}
+
+.select {
+  appearance: none;
+  padding-right: var(--s-6);
+  /* Inline SVG chevron: no icon font, no extra request. currentColor is not
+     available in a data URI, so the stroke is a fixed mid-grey that reads on
+     both themes. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238a909d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--s-3) center;
+}
+
+/* --- Chips --- */
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px;
+  padding: 2px var(--s-2);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--ring);
+  white-space: nowrap;
+  transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.chip-match  { background: var(--grow-bg);      color: var(--grow-ink);      box-shadow: inset 0 0 0 1px var(--grow-line); }
+.chip-miss   { background: var(--shrink-bg);    color: var(--shrink-ink);    box-shadow: inset 0 0 0 1px var(--shrink-line); }
+.chip-warn   { background: var(--uncertain-bg); color: var(--uncertain-ink); box-shadow: inset 0 0 0 1px var(--uncertain-line); }
+.chip-accent { background: var(--accent-bg);    color: var(--accent-ink);    box-shadow: inset 0 0 0 1px var(--accent-line); }
+.chip-plain  { background: var(--bg-sunken);    color: var(--fg-muted); }
+.chip-accent { background: var(--accent-bg);    color: var(--accent-ink);    box-shadow: inset 0 0 0 1px var(--ring-accent); }
+
+/* A selectable chip is a real control: it must look pressable and report
+   its state to assistive technology via aria-pressed. */
+.chip-toggle { cursor: pointer; border: 0; }
+.chip-toggle:hover { background: var(--bg-hover); }
+.chip-toggle[aria-pressed='true'] {
+  background: var(--accent-bg);
+  color: var(--accent-ink);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.meta {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--t-sm);
+  color: var(--fg-muted);
+}
+.meta-sep { color: var(--fg-faint); } /* non-text */
+
+/* --- Stats --- */
+
+.stat-value {
+  font-size: var(--t-3xl);
+  letter-spacing: var(--tr-3xl);
+  font-weight: 620;
+  line-height: 1.05;
+}
+.stat-label { font-size: var(--t-sm); color: var(--fg-muted); }
+
+/* --- Progress --- */
+
+.progress {
+  height: 4px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--slow) var(--ease);
+}
+
+/* --- Skeletons ---
+   A skeleton that pulses says "loading". A spinner says "blocked". For content
+   that arrives in pieces the first is honest and the second is not. */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 37%, var(--bg-sunken) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* --- Empty states --- */
+
+.empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-8) var(--s-5);
+  text-align: center;
+  color: var(--fg-muted);
+}
+.empty-title { font-size: var(--t-lg); letter-spacing: var(--tr-lg); font-weight: 600; color: var(--fg); }
+
+/* --- Entrance ---
+   Applied to lists that arrive after a fetch. Deliberately small: 4px and
+   130ms is felt rather than seen, which is the point. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: rise var(--slow) var(--ease) both; }
+
+/* --- Scrollbars ---
+   Styled only where a container scrolls, never on the page. */
+.scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.scroll-y::-webkit-scrollbar { width: 8px; }
+.scroll-y::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); }
+.scroll-y::-webkit-scrollbar-track { background: transparent; }
