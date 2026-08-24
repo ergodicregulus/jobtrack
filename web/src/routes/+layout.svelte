@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Brand from '$lib/components/Brand.svelte';
   import '../app.css';
   import { page } from '$app/state';
   import NavProgress from '$lib/components/NavProgress.svelte';
@@ -71,10 +72,7 @@
 {#if !bare}
   <header class="site-header">
     <div class="shell bar">
-      <a class="brand" href={data.signedIn ? '/dashboard' : '/'}>
-        <span class="brand-rail" aria-hidden="true"></span>
-        <span class="brand-name">JobTrack</span>
-      </a>
+      <Brand href={data.signedIn ? '/dashboard' : '/'} />
 
       {#if data.signedIn}
         <nav class="nav" aria-label="Main">
@@ -229,26 +227,8 @@
     height: 58px;
   }
 
-  .brand {
-    /* 24px minimum: it is a link to the dashboard, so WCAG 2.2 SC 2.5.8
-       applies to it exactly as it does to every other control. It measured 23. */
-    display: inline-flex; align-items: center; gap: var(--s-2);
-    min-height: 24px;
-    flex: none;
-    color: var(--fg);
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    font-size: var(--t-md);
-  }
-  .brand:hover { text-decoration: none; }
-
   /* The same rail that marks freshness on every card, used as the wordmark.
      The identity IS the idea. */
-  .brand-rail {
-    width: 3px; height: 17px;
-    background: linear-gradient(var(--grow), color-mix(in oklab, var(--grow) 55%, transparent));
-    border-radius: 2px;
-  }
 
   /* min-width:0 and overflow-x are what stop the nav forcing the PAGE wider.
      A flex item defaults to min-width:auto — it refuses to shrink below its

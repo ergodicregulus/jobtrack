@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Brand from '$lib/components/Brand.svelte';
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import SkillPicker from '$lib/components/SkillPicker.svelte';
@@ -58,10 +59,7 @@
 <div class="wizard">
   <div class="card-wrap">
     <header class="top">
-      <a class="brand" href="/">
-        <span class="brand-rail" aria-hidden="true"></span>
-        <span>JobTrack</span>
-      </a>
+      <Brand />
       <!-- Naming the position explicitly ("Step 2 of 4") rather than showing a
            bare bar is what makes the end feel reachable; an unlabelled bar
            leaves people unsure how much is left. -->
@@ -301,13 +299,6 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 0 var(--s-3);
   }
-
-  .brand {
-    display: inline-flex; align-items: center; gap: var(--s-2);
-    color: var(--fg); font-weight: 650; letter-spacing: -0.02em;
-  }
-  .brand:hover { text-decoration: none; }
-  .brand-rail { width: 3px; height: 16px; background: var(--grow); border-radius: 2px; }
 
   .steps { display: flex; gap: var(--s-1); margin-bottom: var(--s-5); }
   .seg {

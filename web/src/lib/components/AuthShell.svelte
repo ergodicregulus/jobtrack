@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Brand from './Brand.svelte';
   /**
    * The frame shared by sign-in and sign-up.
    *
@@ -35,10 +36,7 @@
 <div class="auth">
   <div class="pane form-pane">
     <div class="form-inner">
-      <a class="brand" href="/">
-        <span class="brand-rail" aria-hidden="true"></span>
-        <span>JobTrack</span>
-      </a>
+      <Brand />
 
       <div class="head">
         <h1>{title}</h1>
@@ -109,14 +107,6 @@
       box-shadow: inset 1px 0 0 0 var(--ring);
     }
   }
-
-  .brand {
-    display: inline-flex; align-items: center; gap: var(--s-2);
-    color: var(--fg); font-weight: 650; letter-spacing: -0.02em;
-    font-size: var(--t-md);
-  }
-  .brand:hover { text-decoration: none; }
-  .brand-rail { width: 3px; height: 17px; background: var(--grow); border-radius: 2px; }
 
   .head { display: flex; flex-direction: column; gap: 6px; }
   .head h1 { font-size: var(--t-2xl); letter-spacing: var(--tr-2xl); }

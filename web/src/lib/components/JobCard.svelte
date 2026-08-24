@@ -159,6 +159,13 @@
         the one thing no competitor can show — had nowhere to be read. Apply is
         still a direct link to the employer, so nothing is interposed between a
         decision and acting on it.
+
+        It is NOT a primary button, though it was. Twenty-five filled buttons
+        down the right edge of a list outweighed twenty-five role titles, which
+        inverts what the page is for: on a list the action is to read, and
+        applying is what you do after. A product whose first principle is that
+        it will not mass-apply for you should not make "Apply" the loudest
+        thing on a page the reader has not read yet.
       -->
       <h3 class="title">
         <a href="/jobs/{job.id}">{job.title}</a>
@@ -281,7 +288,7 @@
   </div>
 
   <div class="actions">
-    <a class="btn btn-primary apply" href={job.apply_url} target="_blank" rel="noopener noreferrer">
+    <a class="btn apply" href={job.apply_url} target="_blank" rel="noopener noreferrer">
       Apply
       <span class="sr-only">at {job.company_name} on {vendor} (opens in a new tab)</span>
     </a>
