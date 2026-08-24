@@ -33,13 +33,9 @@ RULES: list[tuple[str, tuple[str, ...], tuple[str, ...], str]] = [
         "domain holds entities and business rules; everything may import it and "
         "it may import nothing, which is what keeps it testable in isolation",
     ),
-    (
-        "internal/api/",
-        ("github.com/jackc/pgx",),
-        (),
-        "a handler that speaks pgx is also a data layer; queries belong in "
-        "internal/store behind a named method",
-    ),
+    # internal/api is covered by check_db_access.py instead: naming pgx.Tx for
+    # River's client or for a transactional-enqueue callback is legitimate, and
+    # an import ban cannot tell that apart from running a query.
     (
         "internal/store/",
         ("net/http", f"{MOD}/internal/api"),

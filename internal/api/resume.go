@@ -15,6 +15,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/httpx"
 	"github.com/jobtrack/jobtrack/internal/jobs"
 	"github.com/jobtrack/jobtrack/internal/resume"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 // maxResumeBytes matches the limit documented in ADR-0007.
@@ -197,30 +198,17 @@ func (a *API) handleResumeUpload(w http.ResponseWriter, r *http.Request) error {
 		Skills:            []ResumeSkill{},
 	}
 
-	tx, err := a.pool.Begin(ctx)
+	out.ID, out.CreatedAt, err = store.InsertResume(ctx, a.pool, store.NewResume{
+		UserID:          userID,
+		Label:           label,
+		MimeType:        mimeFor(parsed.Format),
+		ByteSize:        len(body),
+		TextEnc:         textEnc,
+		JSONEnc:         jsonEnc,
+		ParseConfidence: parsed.Confidence,
+		ParserVersion:   parsed.ParserVersion,
+	})
 	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-	defer tx.Rollback(ctx)
-
-	// is_default is set only when the user has no other CV. Silently
-	// re-pointing the default at a file someone was merely trying out would
-	// change every score they see without them asking.
-	err = tx.QueryRow(ctx, `
-		INSERT INTO resumes (user_id, label, is_default, blob_key, mime_type, byte_size,
-		                     parsed_text_enc, parsed_json_enc, parse_confidence, parser_version)
-		VALUES ($1, $2,
-		        NOT EXISTS (SELECT 1 FROM resumes WHERE user_id = $1),
-		        '', $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at`,
-		userID, label, mimeFor(parsed.Format), len(body),
-		textEnc, jsonEnc, parsed.Confidence, parsed.ParserVersion).
-		Scan(&out.ID, &out.CreatedAt)
-	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return httpx.ErrInternal(err)
 	}
 
@@ -248,31 +236,16 @@ func (a *API) markKnownSkills(ctx context.Context, userID int64, found []resume.
 		names[i] = f.Canonical
 	}
 
-	// One query for both questions — "does the profile already have this" and
-	// "how is it written" — because they are answered by the same two tables.
-	rows, err := a.pool.Query(ctx, `
-		SELECT s.canonical, s.display_name,
-		       EXISTS (SELECT 1 FROM user_skills us
-		                WHERE us.skill_id = s.id AND us.user_id = $1)
-		  FROM skills s WHERE s.canonical = ANY($2)`, userID, names)
+	rows, err := store.LookupSkills(ctx, a.pool, userID, names)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
 
 	known := map[string]bool{}
 	labels := map[string]string{}
-	for rows.Next() {
-		var canonical, display string
-		var have bool
-		if err := rows.Scan(&canonical, &display, &have); err != nil {
-			return nil, 0, err
-		}
-		known[canonical] = have
-		labels[canonical] = display
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
+	for _, sk := range rows {
+		known[sk.Canonical] = sk.Held
+		labels[sk.Canonical] = sk.Label
 	}
 
 	newCount := 0
@@ -325,11 +298,8 @@ func (a *API) handleResumeApply(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	var jsonEnc []byte
-	err = a.pool.QueryRow(ctx,
-		`SELECT parsed_json_enc FROM resumes WHERE id = $1 AND user_id = $2`,
-		id, userID).Scan(&jsonEnc)
-	if errors.Is(err, pgx.ErrNoRows) {
+	jsonEnc, err := store.ResumeJSON(ctx, a.pool, userID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		return httpx.ErrNotFound()
 	}
 	if err != nil {
@@ -359,52 +329,17 @@ func (a *API) handleResumeApply(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	tx, err := a.pool.Begin(ctx)
-	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-	defer tx.Rollback(ctx)
-
-	// Replace this resume's contribution wholesale rather than merging: the
-	// user has just told us exactly what they want from it, and leaving behind
-	// skills they unchecked would make the review meaningless.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM user_skills WHERE user_id = $1 AND origin = 'resume'`, userID); err != nil {
-		return httpx.ErrInternal(err)
-	}
-	if len(keep) > 0 {
-		// DO NOTHING on conflict, so a skill the user had already declared by
-		// hand keeps origin='user'. Their own statement outranks our inference.
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO user_skills (user_id, skill_id, origin)
-			SELECT $1, s.id, 'resume' FROM skills s WHERE s.canonical = ANY($2)
-			ON CONFLICT (user_id, skill_id) DO NOTHING`, userID, keep); err != nil {
-			return httpx.ErrInternal(err)
-		}
-	}
-
+	var yoe *int
 	if req.SetYears && parsed.YearsOfExperience != nil {
-		if _, err := tx.Exec(ctx,
-			`UPDATE users SET total_yoe = $2, updated_at = now() WHERE id = $1`,
-			userID, int(*parsed.YearsOfExperience+0.5)); err != nil {
-			return httpx.ErrInternal(err)
-		}
+		rounded := int(*parsed.YearsOfExperience + 0.5)
+		yoe = &rounded
 	}
 
-	if _, err := tx.Exec(ctx,
-		`UPDATE resumes SET is_default = (id = $2), updated_at = now() WHERE user_id = $1`,
-		userID, id); err != nil {
-		return httpx.ErrInternal(err)
-	}
-
-	// Enqueued inside the transaction, so "skills saved" and "rescore queued"
-	// are one atomic outcome. A commit that lands without the rescore would
-	// leave every score stale against a profile that just changed materially.
-	if _, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil); err != nil {
-		return httpx.ErrInternal(err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
+	err = store.ApplyResume(ctx, a.pool, userID, id, keep, yoe, func(tx pgx.Tx) error {
+		_, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil)
+		return err
+	})
+	if err != nil {
 		return httpx.ErrInternal(err)
 	}
 

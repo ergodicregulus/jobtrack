@@ -44,6 +44,10 @@ class Func:
 class GoFile:
     path: Path
     package: str = ""
+    # Source with comments and string bodies blanked, newlines preserved. Any
+    # structural scan must use this rather than the raw text, or a keyword in a
+    # doc comment reads as code.
+    code: str = ""
     imports: list[str] = field(default_factory=list)
     literals: list[Literal] = field(default_factory=list)
     funcs: list[Func] = field(default_factory=list)
@@ -131,7 +135,7 @@ def _blank(src: str) -> tuple[str, str, list[Literal]]:
 def read(path: Path) -> GoFile:
     src = path.read_text(errors="replace")
     code, decommented, lits = _blank(src)
-    gf = GoFile(path=path, literals=lits)
+    gf = GoFile(path=path, literals=lits, code=code)
 
     if m := _PACKAGE.search(code):
         gf.package = m.group(1)

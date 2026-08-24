@@ -1,11 +1,3 @@
 # Import-direction violations. See scripts/arch/check_layering.py for the rules.
 #
-# Managed by `make arch-check-update`. Entries may be removed, never added
-# by hand — a new entry means a new violation, and that is what this file
-# exists to prevent.
-
-internal/api/api.go -> github.com/jackc/pgx/v5
-internal/api/api.go -> github.com/jackc/pgx/v5/pgxpool
-internal/api/profile.go -> github.com/jackc/pgx/v5
-internal/api/profile.go -> github.com/jackc/pgx/v5/pgxpool
-internal/api/resume.go -> github.com/jackc/pgx/v5
+# Empty. The rule holds with no exceptions.

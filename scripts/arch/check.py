@@ -30,6 +30,7 @@ ORDER = [
     "check_adr_index.py",
     "check_citations.py",
     "check_layering.py",
+    "check_db_access.py",
     "check_sql_location.py",
     "check_func_length.py",
 ]
