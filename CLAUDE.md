@@ -1,7 +1,12 @@
 # Working agreement for JobTrack
 
-This file is read by AI coding agents and by humans skimming for the house rules. It is deliberately
-short. Everything here is enforced by CI or by review; nothing here is aspirational.
+Read by AI coding agents and by humans skimming for the house rules. Deliberately short.
+
+**Everything here is enforced by a command.** That is not a boast, it is a scar: four rules in the
+previous version of this file were documented and unenforced, and all four had drifted — `sqlc` was
+never adopted, handlers bypassed the store layer, a promised citation gate was never written, and the
+ADR index sat four records stale. Every rule that had a script was still true. So: **if you add a rule
+here, add its check to `scripts/arch/`, or expect it to become false.**
 
 ## The one-paragraph summary
 
@@ -16,17 +21,18 @@ cannot justify.
 1. Read [docs/product/principles.md](docs/product/principles.md). The anti-features section is
    binding — a PR that adds auto-apply, keyword stuffing, or a fabricated match percentage gets
    closed regardless of quality.
-2. Check [docs/architecture/adr/](docs/architecture/adr/) for the decision covering your area. If you
-   want to go against an ADR, write a superseding ADR first; don't argue it in a PR thread.
+2. Check [docs/architecture/adr/](docs/architecture/adr/) for the decision covering your area. To go
+   against an ADR, write a superseding ADR first; don't argue it in a PR thread. The `/adr` skill
+   walks the workflow.
 3. Any user-visible statistic must trace to an entry in
    [docs/research/evidence-ledger.md](docs/research/evidence-ledger.md) with its grade shown.
 
 ## Non-negotiables
 
 **Dependencies are a liability.** Every new module in `go.mod` or `package.json` needs a one-line
-justification in the PR description answering: what does this replace, and what breaks if it is
-abandoned? The standard library is the default. `net/http`'s `ServeMux` (Go 1.22+) routes fine; we do
-not need a router framework.
+justification in the PR description: what does this replace, and what breaks if it is abandoned? The
+standard library is the default. `net/http`'s `ServeMux` (Go 1.22+) routes fine; we do not need a
+router framework.
 
 **Postgres is the only datastore** — plus S3-compatible object storage for blobs, which is not a
 database. No Redis, no Elasticsearch, no separate vector DB, no broker. Full-text via `tsvector`,
@@ -35,6 +41,10 @@ similarity via `pgvector`, queues via River, pub/sub via `LISTEN/NOTIFY`, cache 
 This is not dogma: every alternative has a **numeric trigger** in
 [caching-and-storage.md](docs/architecture/caching-and-storage.md). Proposing Redis is fine — cite the
 metric that fired.
+
+**Layers point one way.** `domain/` imports nothing from `internal/`. SQL lives in `internal/store`
+and the migration packages, not in HTTP handlers. Adapters return `RawPosting` and never persist.
+The scorer never touches a database. → `make arch-check`
 
 **Every migration is backward-compatible with the previous release.** Expand/contract, always.
 `CREATE INDEX CONCURRENTLY`, never a bare `CREATE INDEX` on a populated table. Details in
@@ -65,15 +75,17 @@ Full standard: [docs/engineering/coding-standards.md](docs/engineering/coding-st
 
 ## Common commands
 
-**Everything runs in containers.** The only host prerequisites are Docker and git — no Go, no Node, no
-tool installs. Every `make` target shells into a container; you never need to know that.
+**Everything runs in containers**, except `make arch-check`, which is stdlib Python on the host so it
+stays usable before the stack has ever been started. The only host prerequisites are Docker, git and
+python3.
 
 ```bash
 make dev          # full stack with compose watch: postgres, minio, jaeger, all services
 make check        # everything CI runs. THE definition of done
-make test-unit    # fast, no DB — the one to run constantly
+make arch-check   # architecture invariants. Under a second, no toolchain
+make test         # Go tests
 make test-golden  # source adapters — run after touching ANY adapter, then READ THE DIFF
-make generate     # sqlc + openapi + buf. CI fails if this dirties the tree
+make generate     # TypeScript API types from api/openapi.yaml
 make migrate-new NAME=add_foo
 make migrate-verify   # migrations against the PREVIOUS release's schema
 make drift-check      # live schema vs. migration history
@@ -84,39 +96,70 @@ Details and troubleshooting: [docs/engineering/dev-environment.md](docs/engineer
 
 ## Before you commit
 
-`make check` is the definition of done — not "it compiles", not "my test passes". Hooks give fast
-feedback (< 5 s at commit, < 60 s at push); CI is the real gate.
+`make check` is the definition of done — not "it compiles", not "my test passes".
 
-| Before you… | Do this | Why |
+| Before you… | Do this | Enforced by |
 |---|---|---|
-| Change a `.sql` file | `make generate` | Stale generated code compiles fine and is wrong |
-| Add an endpoint | Edit `api/openapi.yaml` **first** | Handlers and the TS client are generated from it |
-| Change River job args | Read [deployment-zdt §4](docs/operations/deployment-zdt.md#4-queue-compatibility) | Args must stay readable by the previous release |
-| Add a dependency | Say what it replaces and what breaks if abandoned | A budget check fails otherwise |
-| Add a user-visible statistic | Add a ledger entry | CI fails on an uncited citation |
-| Touch a source adapter | `make test-golden`, then **read the diff** | A blind `UPDATE=1` is how golden tests stop working |
-| Propose new infrastructure | Check [caching-and-storage](docs/architecture/caching-and-storage.md) | Every trigger is a number; cite the metric that fired |
+| Change package boundaries or move SQL | `make arch-check` | `scripts/arch/check_layering.py`, `check_sql_location.py` |
+| Write a function longer than 80 lines | Split it, or record why | `scripts/arch/check_func_length.py` |
+| Change `api/openapi.yaml` | `make generate` — spec first, handlers after | `make check-generated` |
+| Add or change an ADR | Update the index table | `scripts/arch/check_adr_index.py` |
+| Cite a statistic | Add a ledger entry with its grade | `scripts/arch/check_citations.py` |
+| Change River job args | Read [deployment-zdt §4](docs/operations/deployment-zdt.md#4-queue-compatibility) | review |
+| Add a dependency | Say what it replaces and what breaks if abandoned | CI dependency budget |
+| Touch a source adapter | `make test-golden`, then **read the diff** | `make test-golden` |
+| Propose new infrastructure | Cite the metric that fired | [caching-and-storage](docs/architecture/caching-and-storage.md) |
 
 Full rules: [docs/engineering/consistency-and-drift.md](docs/engineering/consistency-and-drift.md).
+
+## The invariant baselines are a ratchet
+
+`scripts/arch/baseline/*.txt` records violations that exist today. **New entries fail. Entries that
+stop violating also fail** — so the file has to shrink as debt is paid, and a stale baseline can't
+hide the next regression behind known debt.
+
+```bash
+make arch-check-update   # rewrite the baselines, then READ THE DIFF
+```
+
+A `-` line is debt paid off. A `+` line is new debt and needs a sentence in the commit message.
 
 ## Repository shape
 
 ```
-cmd/            one main.go per binary: api, ingestor, matcher, migrate
-internal/       all application code; nothing here is importable externally
+cmd/            one main.go per binary: api, ingestor, matcher, scheduler, migrate, resume-parser, seed
+internal/
   domain/       entities + business rules; imports nothing from internal/
   source/       one adapter per ATS vendor, each with golden-file tests
-  store/        sqlc-generated queries + hand-written repository wrappers
-  matching/     scoring engine and profiles
+  store/        hand-written SQL behind named repository methods
+  matching/     scoring engine and profiles; no database
+  normalise/    skill vocabulary, compensation and location parsing
   resume/       parsing pipeline
-  http/         handlers, middleware, OpenAPI-generated types
+  jobs/         River workers: ingest, score, maintenance
+  api/          HTTP handlers, middleware, OpenAPI-generated types
+  httpx/        middleware, problem+json, rate limiting
 web/            SvelteKit app
 docs/           this documentation set
 migrations/     numbered, forward-only, expand/contract
+scripts/arch/   the invariant checks that keep this list true
 ```
 
+No ORM and no `sqlc`: queries are hand-written against `pgx`, which ADR-0001 chose deliberately.
 Rationale for the layout (and why there is no `pkg/`):
 [docs/engineering/repository-structure.md](docs/engineering/repository-structure.md).
+
+## Known gaps — real, recorded, being paid down
+
+Named here rather than hidden, because a document that describes an aspiration as a fact is the
+failure mode this file exists to prevent. Live counts: `make arch-check`.
+
+| Gap | Size | Status |
+|---|---|---|
+| SQL in `internal/api` instead of `internal/store` | 36 literals, 9 pgx import edges across 7 files | Ratcheted; being extracted |
+| Functions over 80 lines | 23 | Ratcheted; target is 50 |
+| `internal/store`, `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 4 packages | Open |
+| CSS scattered in `.svelte` blocks rather than `app.css` | 1,809 lines vs 736 | Being consolidated |
+| The interface has no typographic or colour identity | `system-ui` + Tailwind `indigo-600` | See phase-5 §6 |
 
 ## Testing expectations
 
@@ -129,12 +172,13 @@ Rationale for the layout (and why there is no `pkg/`):
 
 ## Performance budgets — enforced in CI
 
-| Budget | Limit |
-|---|---|
-| First-load JS (gzipped, `/jobs`) | ≤ 100 KB |
-| INP p75, 4× CPU throttle | ≤ 200 ms |
-| `GET /v1/jobs` p95 server time | ≤ 120 ms |
-| Ingest → visible, tier A source | ≤ 90 min median |
+| Budget | Limit | Enforced |
+|---|---|---|
+| First-load JS (gzipped, `/jobs`) | ≤ 100 KB | `make bench-budget` |
+| CSS (gzipped) | ≤ 20 KB | `make bench-budget` |
+| INP p75, 4× CPU throttle | ≤ 200 ms | not yet measured |
+| `GET /v1/jobs` p95 server time | ≤ 120 ms | by hand |
+| Ingest → visible, tier A source | ≤ 90 min median | not yet measured |
 
-A PR that regresses a budget fails CI. Raising a budget requires a note in the PR explaining the
-trade — see [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md).
+A PR that regresses an enforced budget fails CI. Raising a budget requires a note in the PR
+explaining the trade — see [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md).

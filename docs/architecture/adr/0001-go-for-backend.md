@@ -1,3 +1,7 @@
+<!-- The sqlc clause below was superseded by ADR-0015 on 2026-08-25: it was never
+     adopted, and pgx v5's RowToStructByName covers the safety it was chosen for.
+     Everything else in this record stands. -->
+
 # ADR-0001 — Go for the backend, standard library first
 
 - **Status:** DECIDED

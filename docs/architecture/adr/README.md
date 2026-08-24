@@ -24,6 +24,8 @@ the other half of.
 | [0011](0011-abstention-credit-calibration.md) | The abstention credit is calibrated to the corpus, not to the scale | DECIDED |
 | [0012](0012-pdf-extraction-via-subprocess.md) | PDF text via a poppler subprocess, in reading order | DECIDED |
 | [0013](0013-freshness-weighting-re-measured.md) | The freshness weighting is not the problem; a thin profile is | DECIDED |
+| [0014](0014-rules-are-enforced-by-scripts.md) | **A project rule is enforced by a script or it is not a rule** | DECIDED |
+| [0015](0015-hand-written-sql-in-a-store-layer.md) | Hand-written SQL behind named store methods; `sqlc` is not adopted | DECIDED |
 
 <!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
      was ever written and nothing references it. Declared here so a reader who
