@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -160,117 +161,150 @@ const maxFeedLimit = 50
 // Every query carries `status = 'live'`, which is not optional — every feed
 // index is partial on it, and omitting the predicate silently drops to a
 // sequential scan over roughly 3x the rows.
-func Feed(ctx context.Context, pool *pgxpool.Pool, f FeedFilter, cursorStr string) (FeedPage, error) {
-	limit := f.Limit
-	if limit <= 0 || limit > maxFeedLimit {
-		limit = 25
-	}
+// feedPredicates accumulates WHERE clauses and the arguments they bind.
+//
+// Positions are assigned by bind() rather than by rewriting "?" placeholders. A
+// helper that renumbers placeholders is the classic source of off-by-one bugs
+// in exactly this kind of code, and a mis-numbered parameter here would
+// silently filter on the wrong value rather than fail.
+type feedPredicates struct {
+	conds []string
+	args  []any
+}
 
-	// Predicates are built explicitly, appending each argument and using its
-	// resulting position. A helper that rewrites "?" placeholders is the classic
-	// source of off-by-one bugs in exactly this kind of code, and a mis-numbered
-	// parameter here would silently filter on the wrong value.
-	var (
-		conds = []string{"p.status = 'live'"}
-		args  []any
-	)
-
-	// The viewer is bound FIRST so its parameter position is fixed at $1
-	// regardless of which filters follow. Binding it last would make the join
-	// clause's position depend on the filter combination, which is exactly the
-	// off-by-one this function's comment warns about.
-	//
-	// A nil UserID binds NULL, so the join matches nothing and every posting
-	// comes back unscored — the correct anonymous behaviour, with no second
-	// query to maintain.
+// newFeedPredicates binds the viewer FIRST, fixing its position at $1
+// regardless of which filters follow. Binding it last would make the join
+// clause's position depend on the filter combination, which is exactly the
+// off-by-one bind() exists to prevent.
+//
+// A nil userID binds NULL, so the join matches nothing and every posting comes
+// back unscored — the correct anonymous behaviour, with no second query to
+// maintain.
+func newFeedPredicates(userID *int64) *feedPredicates {
 	var viewer any
-	if f.UserID != nil {
-		viewer = *f.UserID
+	if userID != nil {
+		viewer = *userID
 	}
-	args = append(args, viewer)
-	const viewerPos = 1
+	return &feedPredicates{
+		conds: []string{"p.status = 'live'"},
+		args:  []any{viewer},
+	}
+}
 
+const viewerPos = 1
+
+// bind appends an argument and returns its 1-based position.
+func (p *feedPredicates) bind(v any) int {
+	p.args = append(p.args, v)
+	return len(p.args)
+}
+
+func (p *feedPredicates) where(format string, pos ...any) {
+	p.conds = append(p.conds, fmt.Sprintf(format, pos...))
+}
+
+func (p *feedPredicates) addLocation(f FeedFilter) {
 	if len(f.Countries) > 0 {
-		args = append(args, f.Countries)
 		// country IS NULL is included deliberately: a posting whose location we
 		// failed to parse must not vanish from a country filter. Our parse
 		// failure is not the user's problem.
-		conds = append(conds, fmt.Sprintf("(p.country = ANY($%d) OR p.country IS NULL)", len(args)))
+		p.where("(p.country = ANY($%d) OR p.country IS NULL)", p.bind(f.Countries))
 	}
 	if len(f.Modes) > 0 {
-		args = append(args, f.Modes)
-		conds = append(conds, fmt.Sprintf("p.mode::text = ANY($%d)", len(args)))
+		p.where("p.mode::text = ANY($%d)", p.bind(f.Modes))
 	}
-	if f.YoE != nil {
-		upper := *f.YoE
-		if f.YoEStretch {
-			upper += 2
-		}
-		args = append(args, upper, *f.YoE)
-		// Low-confidence YoE is treated as unknown rather than excluded, and a
-		// posting with no stated band matches everyone.
-		conds = append(conds, fmt.Sprintf(
-			`(p.yoe_confidence < 0.5 OR p.yoe_min IS NULL
+}
+
+func (p *feedPredicates) addExperience(f FeedFilter) {
+	if f.YoE == nil {
+		return
+	}
+	upper := *f.YoE
+	if f.YoEStretch {
+		upper += 2
+	}
+	// Low-confidence YoE is treated as unknown rather than excluded, and a
+	// posting with no stated band matches everyone.
+	p.where(`(p.yoe_confidence < 0.5 OR p.yoe_min IS NULL
 			  OR (p.yoe_min <= $%d AND (p.yoe_max IS NULL OR p.yoe_max >= $%d)))`,
-			len(args)-1, len(args)))
+		p.bind(upper), p.bind(*f.YoE))
+}
+
+func (p *feedPredicates) addCompensation(f FeedFilter) {
+	switch {
+	case f.CompMin != nil && f.CompDisclosedOnly:
+		p.where("p.comp_min >= $%d", p.bind(*f.CompMin))
+	case f.CompMin != nil:
+		// Undisclosed postings are kept: excluding them would hide ~20% of the
+		// market behind a filter the user did not intend.
+		p.where("(p.comp_min IS NULL OR p.comp_min >= $%d)", p.bind(*f.CompMin))
+	case f.CompDisclosedOnly:
+		p.where("p.comp_min IS NOT NULL")
 	}
-	if f.CompMin != nil {
-		args = append(args, *f.CompMin)
-		if f.CompDisclosedOnly {
-			conds = append(conds, fmt.Sprintf("p.comp_min >= $%d", len(args)))
-		} else {
-			// Undisclosed postings are kept: excluding them would hide ~20% of
-			// the market behind a filter the user did not intend.
-			conds = append(conds, fmt.Sprintf("(p.comp_min IS NULL OR p.comp_min >= $%d)", len(args)))
-		}
-	} else if f.CompDisclosedOnly {
-		conds = append(conds, "p.comp_min IS NOT NULL")
-	}
+}
+
+func (p *feedPredicates) addSource(f FeedFilter) {
 	if f.PostedWithin > 0 {
-		args = append(args, time.Now().Add(-f.PostedWithin))
-		conds = append(conds, fmt.Sprintf("COALESCE(p.posted_at, p.first_seen_at) >= $%d", len(args)))
+		p.where("COALESCE(p.posted_at, p.first_seen_at) >= $%d",
+			p.bind(time.Now().Add(-f.PostedWithin)))
 	}
 	if len(f.Vendors) > 0 {
-		args = append(args, f.Vendors)
-		conds = append(conds, fmt.Sprintf("s.vendor::text = ANY($%d)", len(args)))
+		p.where("s.vendor::text = ANY($%d)", p.bind(f.Vendors))
 	}
 	if len(f.Bands) > 0 {
-		args = append(args, f.Bands)
 		// ujs is LEFT JOINed, so this predicate also drops unscored postings —
 		// intentionally. NULL = ANY(...) is never true.
-		conds = append(conds, fmt.Sprintf("ujs.band = ANY($%d)", len(args)))
+		p.where("ujs.band = ANY($%d)", p.bind(f.Bands))
 	}
+}
+
+func (p *feedPredicates) addSearch(f FeedFilter) {
 	if q := strings.TrimSpace(f.Query); q != "" {
-		args = append(args, q)
-		conds = append(conds, fmt.Sprintf("p.search_tsv @@ websearch_to_tsquery('english', $%d)", len(args)))
+		p.where("p.search_tsv @@ websearch_to_tsquery('english', $%d)", p.bind(q))
 	}
 	if len(f.Skills) > 0 {
-		args = append(args, f.Skills, len(f.Skills))
 		// Require ALL requested skills, not any: a filter that returns postings
 		// matching one of five selections is not a filter.
-		conds = append(conds, fmt.Sprintf(`
+		p.where(`
 			(SELECT count(DISTINCT sk.canonical)
 			   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
 			  WHERE ps.posting_id = p.id AND sk.canonical = ANY($%d)) = $%d`,
-			len(args)-1, len(args)))
+			p.bind(f.Skills), p.bind(len(f.Skills)))
 	}
+}
 
-	sortExpr, sortCol := feedSort(f.Sort)
-
-	if c, ok := decodeCursor(cursorStr); ok {
-		args = append(args, c.SortKey, c.ID)
-		conds = append(conds, fmt.Sprintf("(%s, p.id) < ($%d::text, $%d::bigint)",
-			sortCol, len(args)-1, len(args)))
+func (p *feedPredicates) addCursor(cursorStr string, sort sortMode) {
+	c, ok := decodeCursor(cursorStr)
+	if !ok {
+		return
 	}
+	// The cursor value is cast to the sort column's own type, not the column to
+	// text. Casting the column to text made this comparison `timestamptz <
+	// text`, which Postgres rejects outright — so keyset pagination returned
+	// 500 for every sort mode. See TestFeedCursorPagination.
+	p.where("(%s, p.id) < ($%d::%s, $%d::bigint)",
+		sort.col, p.bind(c.SortKey), sort.cursorCast, p.bind(c.ID))
+}
 
-	args = append(args, limit+1) // one extra row tells us whether more exist
-	limitPos := len(args)
-
-	query := fmt.Sprintf(`
-SELECT p.id, p.title, c.name, c.slug, p.location_raw, p.city, p.country,
+// feedSelect is the projection, held apart from the predicates so the two are
+// read separately — the columns almost never change and the filters often do.
+const feedSelect = `
+SELECT p.id, p.title, c.name, c.slug,
+       -- location_raw is nullable and FeedItem.LocationRaw is a plain string,
+       -- so a NULL fails the scan and takes the whole feed with it. No live row
+       -- is NULL today, but a remote-only posting with no stated location is an
+       -- ordinary thing for an adapter to produce. The detail query already
+       -- COALESCEs this; the feed did not.
+       COALESCE(p.location_raw, '') AS location_raw,
+       p.city, p.country,
        p.mode::text, p.apply_url, s.vendor::text,
        p.comp_min, p.comp_max, p.comp_currency, p.comp_period, p.comp_src::text,
-       p.yoe_min, p.yoe_max, p.yoe_confidence,
+       p.yoe_min, p.yoe_max,
+       -- Same nullable-into-plain-float64 hazard as location_raw above, and
+       -- the only other one in this projection: every remaining non-pointer
+       -- field maps to a NOT NULL column. Zero means "we know nothing about
+       -- the range", which is what NULL means here.
+       COALESCE(p.yoe_confidence, 0) AS yoe_confidence,
        p.posted_at, p.posted_at_is_estimate, p.first_seen_at,
        p.ai_screening_disclosed, p.ai_opt_out_url,
        p.parse_confidence,
@@ -292,45 +326,50 @@ SELECT p.id, p.title, c.name, c.slug, p.location_raw, p.city, p.country,
          ON app.posting_id = p.id AND app.user_id = $%d::bigint
  WHERE %s
  ORDER BY %s DESC, p.id DESC
- LIMIT $%d`,
-		sortExpr, viewerPos, viewerPos, strings.Join(conds, "\n   AND "), sortCol, limitPos)
+ LIMIT $%d`
 
-	rows, err := pool.Query(ctx, query, args...)
+// Feed returns one page of postings matching a filter, scored for the viewer.
+func Feed(ctx context.Context, pool *pgxpool.Pool, f FeedFilter, cursorStr string) (FeedPage, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > maxFeedLimit {
+		limit = 25
+	}
+
+	sort := feedSort(f.Sort)
+
+	p := newFeedPredicates(f.UserID)
+	p.addLocation(f)
+	p.addExperience(f)
+	p.addCompensation(f)
+	p.addSource(f)
+	p.addSearch(f)
+	p.addCursor(cursorStr, sort)
+
+	// One extra row is what tells us whether another page exists.
+	limitPos := p.bind(limit + 1)
+
+	query := fmt.Sprintf(feedSelect, sort.expr, viewerPos, viewerPos,
+		strings.Join(p.conds, "\n   AND "), sort.col, limitPos)
+
+	rows, err := pool.Query(ctx, query, p.args...)
 	if err != nil {
 		return FeedPage{}, fmt.Errorf("feed query: %w", err)
 	}
 	defer rows.Close()
 
+	return collectFeedPage(rows, limit)
+}
+
+// collectFeedPage reads rows into a page and derives the next cursor.
+func collectFeedPage(rows pgx.Rows, limit int) (FeedPage, error) {
 	page := FeedPage{Items: make([]FeedItem, 0, limit)}
 	var lastSortKey string
 
 	for rows.Next() {
-		var it FeedItem
-		var sortKey string
-		// Score columns are nullable: NULL means this posting has not been
-		// scored for this viewer, which is different from a score of zero.
-		var score *float64
-		var band *string
-		var missing []string
-		if err := rows.Scan(
-			&it.ID, &it.Title, &it.CompanyName, &it.CompanySlug, &it.LocationRaw,
-			&it.City, &it.Country, &it.Mode, &it.ApplyURL, &it.Vendor,
-			&it.CompMin, &it.CompMax, &it.CompCurrency, &it.CompPeriod, &it.CompSource,
-			&it.YoEMin, &it.YoEMax, &it.YoEConfidence,
-			&it.PostedAt, &it.PostedAtIsEstimate, &it.FirstSeenAt,
-			&it.AIScreeningDisclosed, &it.AIOptOutURL,
-			&it.ParseConfidence,
-			&it.MustHaveSkills, &it.NiceToHaveSkills,
-			&score, &band, &missing, &it.Saved,
-			&sortKey,
-		); err != nil {
-			return FeedPage{}, fmt.Errorf("scan feed row: %w", err)
+		it, sortKey, err := scanFeedItem(rows)
+		if err != nil {
+			return FeedPage{}, err
 		}
-
-		if score != nil && band != nil {
-			it.Match = &Match{Score: *score, Band: *band, MissingSkills: missing}
-		}
-
 		if len(page.Items) == limit {
 			page.HasMore = true
 			break
@@ -351,21 +390,72 @@ SELECT p.id, p.title, c.name, c.slug, p.location_raw, p.city, p.country,
 	return page, nil
 }
 
+func scanFeedItem(rows pgx.Rows) (FeedItem, string, error) {
+	var it FeedItem
+	var sortKey string
+	// Score columns are nullable: NULL means this posting has not been scored
+	// for this viewer, which is different from a score of zero.
+	var score *float64
+	var band *string
+	var missing []string
+
+	if err := rows.Scan(
+		&it.ID, &it.Title, &it.CompanyName, &it.CompanySlug, &it.LocationRaw,
+		&it.City, &it.Country, &it.Mode, &it.ApplyURL, &it.Vendor,
+		&it.CompMin, &it.CompMax, &it.CompCurrency, &it.CompPeriod, &it.CompSource,
+		&it.YoEMin, &it.YoEMax, &it.YoEConfidence,
+		&it.PostedAt, &it.PostedAtIsEstimate, &it.FirstSeenAt,
+		&it.AIScreeningDisclosed, &it.AIOptOutURL,
+		&it.ParseConfidence,
+		&it.MustHaveSkills, &it.NiceToHaveSkills,
+		&score, &band, &missing, &it.Saved,
+		&sortKey,
+	); err != nil {
+		return it, "", fmt.Errorf("scan feed row: %w", err)
+	}
+
+	if score != nil && band != nil {
+		it.Match = &Match{Score: *score, Band: *band, MissingSkills: missing}
+	}
+	return it, sortKey, nil
+}
+
+// sortMode is one allowlisted ordering.
+//
+// cursorCast is the type the stored cursor value is cast BACK to when
+// comparing. It is not decoration: the cursor is carried as text because it
+// travels in a URL, but comparing a timestamp column against a text parameter
+// is an error in Postgres, and comparing a numeric one against text is worse —
+// it succeeds and orders lexicographically, so 9 sorts after 100.
+type sortMode struct {
+	// expr is the projected sort_key, always cast to text so one cursor format
+	// serves every mode.
+	expr string
+	// col is the bare expression to ORDER BY, in its own type.
+	col string
+	// cursorCast is col's type, for the keyset comparison.
+	cursorCast string
+}
+
 // feedSort maps a sort name to an expression and the column to order by.
 //
 // Allowlisted, never interpolated from user input — this is the one place a
 // feed query could become an injection point.
-func feedSort(name string) (expr, col string) {
+func feedSort(name string) sortMode {
 	switch name {
 	case "comp":
-		return "COALESCE(p.comp_min, 0)::text", "COALESCE(p.comp_min, 0)"
+		return sortMode{"COALESCE(p.comp_min, 0)::text", "COALESCE(p.comp_min, 0)", "numeric"}
 	case "match", "relevance":
 		// Unscored postings sort last rather than as zero: a posting nobody has
 		// scored yet is not a bad match, it is an unknown one, and burying it
 		// among the genuine mismatches would hide new arrivals.
-		return "COALESCE(ujs.score, -1)::text", "COALESCE(ujs.score, -1)"
+		return sortMode{"COALESCE(ujs.score, -1)::text", "COALESCE(ujs.score, -1)", "numeric"}
 	default: // newest
-		return "COALESCE(p.posted_at, p.first_seen_at)::text", "COALESCE(p.posted_at, p.first_seen_at)"
+		return sortMode{
+			"COALESCE(p.posted_at, p.first_seen_at)::text",
+			"COALESCE(p.posted_at, p.first_seen_at)",
+			"timestamptz",
+		}
 	}
 }
 

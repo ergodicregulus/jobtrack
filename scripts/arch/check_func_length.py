@@ -41,6 +41,9 @@ def main() -> int:
             worst = max(worst, fn.lines)
             if fn.lines <= LIMIT:
                 continue
+            # A branch-free function is a data table. See Func.is_data.
+            if fn.is_data:
+                continue
             key = f"{gf.rel}:{fn.name}"
             violations[key] = f"{gf.rel}:{fn.start}: {fn.name} is {fn.lines} lines (limit {LIMIT})"
     code = _ratchet.run(

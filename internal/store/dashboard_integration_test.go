@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 )
@@ -285,4 +286,59 @@ func deref[T any](p *T) any {
 		return "<nil>"
 	}
 	return *p
+}
+
+// TestFeedCursorPagination is a regression test for a bug that made "load more"
+// return 500 for every sort mode.
+//
+// The keyset comparison cast the sort COLUMN to text while the ORDER BY used
+// its native type, so the predicate read `timestamptz < text` — which Postgres
+// rejects. For the numeric sorts it would have been worse if it had compiled:
+// text comparison orders lexicographically, so a salary of 9 sorts after 100.
+//
+// Every sort mode is exercised because the bug was in code shared by all three.
+func TestFeedCursorPagination(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestDB(t)
+
+	userID := seedUser(t, pool, "feed@example.test")
+	for i := range 5 {
+		seedPosting(t, pool, fmt.Sprintf("Engineer %d", i))
+	}
+
+	for _, mode := range []string{"newest", "comp", "match"} {
+		t.Run(mode, func(t *testing.T) {
+			first, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, "")
+			if err != nil {
+				t.Fatalf("first page: %v", err)
+			}
+			if len(first.Items) != 2 {
+				t.Fatalf("first page has %d items, want 2", len(first.Items))
+			}
+			if !first.HasMore || first.NextCursor == "" {
+				t.Fatalf("first page should report more, got HasMore=%v cursor=%q",
+					first.HasMore, first.NextCursor)
+			}
+
+			second, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, first.NextCursor)
+			if err != nil {
+				t.Fatalf("second page: %v", err)
+			}
+			if len(second.Items) == 0 {
+				t.Fatal("second page is empty")
+			}
+
+			// The pages must not overlap, which is the property keyset
+			// pagination exists to provide.
+			seen := map[int64]bool{}
+			for _, it := range first.Items {
+				seen[it.ID] = true
+			}
+			for _, it := range second.Items {
+				if seen[it.ID] {
+					t.Errorf("posting %d appears on both pages", it.ID)
+				}
+			}
+		})
+	}
 }

@@ -34,10 +34,22 @@ class Func:
     name: str
     start: int  # 1-indexed line of `func`
     end: int    # 1-indexed line of the closing brace
+    branches: int = 0  # if / for / switch / case / select statements
 
     @property
     def lines(self) -> int:
         return self.end - self.start + 1
+
+    @property
+    def is_data(self) -> bool:
+        """True for a function that only builds a literal.
+
+        A long table — a skill vocabulary, a route list, a seed fixture — is not
+        hard to read because it is long, and splitting it into `partOne()` and
+        `partTwo()` makes it harder. Length is a proxy for complexity; where
+        there is no branching, the proxy has nothing to stand for.
+        """
+        return self.branches == 0
 
 
 @dataclass
@@ -61,6 +73,7 @@ class GoFile:
         return self.path.name.endswith("_test.go")
 
 
+_BRANCH = re.compile(r"\b(if|for|switch|select|case|go|goto)\b")
 _FUNC = re.compile(r"^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)")
 _PACKAGE = re.compile(r"^package\s+([A-Za-z_][A-Za-z0-9_]*)", re.M)
 _IMPORT_ONE = re.compile(r'^import\s+(?:[.\w]+\s+)?"([^"]+)"', re.M)
@@ -153,7 +166,9 @@ def read(path: Path) -> GoFile:
             # closing brace — a one-line func literal assignment, not a decl.
             start, name = idx, (_FUNC.match(ln).group(1) if _FUNC.match(ln) else "?")
         elif ln == "}" and start is not None:
-            gf.funcs.append(Func(name, start + 1, idx + 1))
+            body = lines[start + 1 : idx]
+            branches = sum(len(_BRANCH.findall(b)) for b in body)
+            gf.funcs.append(Func(name, start + 1, idx + 1, branches))
             start = None
     return gf
 

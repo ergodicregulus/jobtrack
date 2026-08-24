@@ -14,9 +14,6 @@ internal/jobs/client.go:New
 internal/matching/score.go:Score
 internal/migrate/data.go:runOne
 internal/migrate/split.go:splitStatements
-internal/normalise/skills.go:DefaultVocabulary
 internal/resume/text.go:extractPDF
-internal/seed/boards.go:Boards
 internal/source/smartrecruiters/adapter.go:Fetch
-internal/store/feed.go:Feed
 internal/store/postings.go:UpsertPosting
