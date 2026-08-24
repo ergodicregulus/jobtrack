@@ -20,6 +20,19 @@ the other half of.
 | [0006](0006-hybrid-retrieval-and-scoring.md) | Hybrid lexical + vector retrieval, RRF fusion, explainable weighted scoring | DECIDED |
 | [0007](0007-resume-parsing-local-first.md) | Deterministic local parsing; LLM as opt-in enrichment only | DECIDED |
 | [0008](0008-service-decomposition.md) | **Modular monolith, six deployment units, one extracted service** | DECIDED |
+| [0009](0009-score-granularity-and-skill-coverage.md) | Score granularity, and the skill-coverage problem it uncovered | DECIDED |
+| [0011](0011-abstention-credit-calibration.md) | The abstention credit is calibrated to the corpus, not to the scale | DECIDED |
+| [0012](0012-pdf-extraction-via-subprocess.md) | PDF text via a poppler subprocess, in reading order | DECIDED |
+| [0013](0013-freshness-weighting-re-measured.md) | The freshness weighting is not the problem; a thin profile is | DECIDED |
+
+<!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
+     was ever written and nothing references it. Declared here so a reader who
+     notices the hole does not go looking for a lost decision. -->
+
+**Kept honest by `make arch-check`.** `scripts/arch/check_adr_index.py` fails if a record on disk is
+missing from this table, if a status here disagrees with the status in the file, if a supersede link
+points at nothing, or if a number is skipped without a declared gap. This table went four records
+stale before that check existed.
 
 **If you read only one:** [ADR-0008](0008-service-decomposition.md). It answers the
 microservices-vs-monolith question with the actual numbers and sets the extraction triggers.

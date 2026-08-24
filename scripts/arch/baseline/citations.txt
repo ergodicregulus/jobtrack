@@ -1,0 +1,3 @@
+# Unresolvable or misgraded citations.
+#
+# Empty. The rule holds with no exceptions.

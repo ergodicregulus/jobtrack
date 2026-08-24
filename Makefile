@@ -60,9 +60,20 @@ psql: ## Open psql against the dev database
 ##@ Quality gates
 
 .PHONY: check
-check: fmt-check vet lint test build-all web-test bench-budget ## Everything CI runs. THE definition of done
+check: arch-check fmt-check vet lint test build-all web-test bench-budget ## Everything CI runs. THE definition of done
 	@echo ""
 	@echo "  ✓ check passed"
+
+.PHONY: arch-check
+arch-check: ## Architecture invariants: layering, SQL location, function length, ADR index, citations
+	@python3 scripts/arch/check.py
+
+.PHONY: arch-check-update
+arch-check-update: ## Rewrite the invariant baselines, then READ THE DIFF
+	@python3 scripts/arch/check.py --update
+	@echo ""
+	@echo "  Read the diff. A '-' line is debt paid off. A '+' line is new debt,"
+	@echo "  and it needs a sentence in the commit message saying why."
 
 .PHONY: fmt
 fmt: ## Format all Go code

@@ -55,6 +55,15 @@ jobs:
       - name: Documentation links resolve
         run: python3 scripts/check-links.py
 
+      - name: Documented make targets exist
+        run: python3 scripts/check-make-targets.py
+
+      # Runs before the compile-and-test jobs on purpose: it needs no toolchain
+      # and finishes in under a second, so a layering regression is reported in
+      # the first few seconds of CI rather than after the Playwright suite.
+      - name: Architecture invariants
+        run: python3 scripts/arch/check.py
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest

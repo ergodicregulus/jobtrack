@@ -1,0 +1,29 @@
+# Functions longer than 80 lines. Target is 50; lower LIMIT as this empties.
+#
+# Managed by `make arch-check-update`. Entries may be removed, never added
+# by hand — a new entry means a new violation, and that is what this file
+# exists to prevent.
+
+cmd/covcheck/main.go:main
+cmd/resume-parser/main.go:main
+cmd/seed/main.go:seedUsers
+internal/api/dashboard.go:handleDashboard
+internal/api/dashboard.go:handleUpdateSaved
+internal/api/jobs.go:parseFeedFilter
+internal/api/posting.go:handlePosting
+internal/api/resume.go:handleResumeApply
+internal/api/resume.go:handleResumeUpload
+internal/domain/user/profile.go:Apply
+internal/jobs/client.go:New
+internal/jobs/client.go:Work
+internal/jobs/ingest.go:Work
+internal/jobs/score.go:Work
+internal/matching/score.go:Score
+internal/migrate/data.go:runOne
+internal/migrate/split.go:splitStatements
+internal/normalise/skills.go:DefaultVocabulary
+internal/resume/text.go:extractPDF
+internal/seed/boards.go:Boards
+internal/source/smartrecruiters/adapter.go:Fetch
+internal/store/feed.go:Feed
+internal/store/postings.go:UpsertPosting
