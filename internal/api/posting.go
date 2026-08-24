@@ -6,9 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/jobtrack/jobtrack/internal/httpx"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 // Posting is one job in full.
@@ -102,57 +101,30 @@ func (a *API) handlePosting(w http.ResponseWriter, r *http.Request) error {
 		viewer = uid
 	}
 
-	var p Posting
-	var componentsJSON []byte
-	var score, confidence *float64
-	var band *string
-	var computedAt *time.Time
-	var missing []string
-
-	err = a.pool.QueryRow(ctx, `
-		SELECT p.id, p.title, c.name, c.slug, COALESCE(p.location_raw, ''),
-		       COALESCE(p.mode::text, ''), p.apply_url, s.vendor::text,
-		       COALESCE(p.description_html, ''),
-		       p.comp_min, p.comp_max, p.comp_currency, p.comp_period, p.comp_src::text,
-		       p.yoe_min, p.yoe_max, p.yoe_confidence,
-		       p.posted_at, p.posted_at_is_estimate, p.first_seen_at,
-		       p.ai_screening_disclosed, p.ai_disclaimer, p.ai_opt_out_url,
-		       p.parse_confidence,
-		       COALESCE((SELECT array_agg(sk.display_name ORDER BY sk.display_name)
-		                   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
-		                  WHERE ps.posting_id = p.id AND ps.requirement = 'must_have'), '{}'),
-		       COALESCE((SELECT array_agg(sk.display_name ORDER BY sk.display_name)
-		                   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
-		                  WHERE ps.posting_id = p.id AND ps.requirement = 'nice_to_have'), '{}'),
-		       ujs.score, ujs.band, ujs.confidence, ujs.components, ujs.computed_at,
-		       COALESCE(ujs.missing_skills, '{}'),
-		       (app.user_id IS NOT NULL)
-		  FROM job_postings p
-		  JOIN companies c ON c.id = p.company_id
-		  JOIN sources   s ON s.id = p.source_id
-		  LEFT JOIN user_job_scores ujs
-		         ON ujs.posting_id = p.id AND ujs.user_id = $2::bigint
-		  LEFT JOIN applications app
-		         ON app.posting_id = p.id AND app.user_id = $2::bigint
-		 WHERE p.id = $1 AND p.status = 'live'`, id, viewer).
-		Scan(&p.ID, &p.Title, &p.CompanyName, &p.CompanySlug, &p.LocationRaw,
-			&p.Mode, &p.ApplyURL, &p.Vendor, &p.DescriptionHTML,
-			&p.CompMin, &p.CompMax, &p.CompCurrency, &p.CompPeriod, &p.CompSource,
-			&p.YoEMin, &p.YoEMax, &p.YoEConfidence,
-			&p.PostedAt, &p.PostedAtIsEstimate, &p.FirstSeenAt,
-			&p.AIScreeningDisclosed, &p.AIDisclaimer, &p.AIOptOutURL,
-			&p.ParseConfidence, &p.MustHaveSkills, &p.NiceToHaveSkills,
-			&score, &band, &confidence, &componentsJSON, &computedAt,
-			&missing, &p.Saved)
-
+	row, err := store.LoadPostingDetail(ctx, a.pool, id, viewer)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		// Also the answer for a posting that closed: it is no longer live, and
-		// saying "not found" is truer than showing a role nobody can apply to.
+	case errors.Is(err, store.ErrNotFound):
 		return httpx.ErrNotFound()
 	case err != nil:
 		return httpx.ErrInternal(err)
 	}
+
+	p := Posting{
+		ID: row.ID, Title: row.Title, CompanyName: row.CompanyName,
+		CompanySlug: row.CompanySlug, LocationRaw: row.LocationRaw, Mode: row.Mode,
+		ApplyURL: row.ApplyURL, Vendor: row.Vendor, DescriptionHTML: row.DescriptionHTML,
+		CompMin: row.CompMin, CompMax: row.CompMax, CompCurrency: row.CompCurrency,
+		CompPeriod: row.CompPeriod, CompSource: row.CompSource,
+		YoEMin: row.YoEMin, YoEMax: row.YoEMax, YoEConfidence: row.YoEConfidence,
+		PostedAt: row.PostedAt, PostedAtIsEstimate: row.PostedAtIsEstimate,
+		FirstSeenAt:          row.FirstSeenAt,
+		AIScreeningDisclosed: row.AIScreeningDisclosed, AIDisclaimer: row.AIDisclaimer,
+		AIOptOutURL: row.AIOptOutURL, ParseConfidence: row.ParseConfidence,
+		MustHaveSkills: row.MustHaveSkills, NiceToHaveSkills: row.NiceToHaveSkills,
+		Saved: row.Saved,
+	}
+	score, band, confidence := row.Score, row.Band, row.Confidence
+	componentsJSON, computedAt, missing := row.Components, row.ComputedAt, row.Missing
 
 	if score != nil && band != nil {
 		m := &PostingMatch{Score: *score, Band: *band, Missing: missing}

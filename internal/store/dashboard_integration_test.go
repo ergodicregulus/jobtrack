@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"testing"
 )
 
@@ -195,4 +196,93 @@ func TestLoadActivity(t *testing.T) {
 	if w.From == "" || w.To == "" || w.From >= w.To {
 		t.Errorf("window bounds are wrong: %q .. %q", w.From, w.To)
 	}
+}
+
+// TestLoadPostingDetail covers the widest projection in the codebase: 32
+// columns, two correlated array subqueries, two LEFT JOINs and a derived
+// boolean. It is the query most likely to be silently mis-scanned, so it is
+// asserted column by column rather than "no error".
+func TestLoadPostingDetail(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestDB(t)
+
+	userID := seedUser(t, pool, "detail@example.test")
+	postingID := seedPosting(t, pool, "Staff Engineer")
+
+	// Anonymous viewer: both LEFT JOINs miss, so the score fields stay nil.
+	anon, err := LoadPostingDetail(ctx, pool, postingID, nil)
+	if err != nil {
+		t.Fatalf("LoadPostingDetail(anonymous): %v", err)
+	}
+	if anon.Title != "Staff Engineer" || anon.CompanySlug == "" || anon.Vendor != "greenhouse" {
+		t.Errorf("anonymous row = %+v", anon)
+	}
+	if anon.Score != nil || anon.Band != nil {
+		t.Error("anonymous viewer must have no score")
+	}
+	if anon.Saved {
+		t.Error("anonymous viewer must not appear to have saved anything")
+	}
+	if anon.MustHaveSkills == nil || anon.NiceToHaveSkills == nil {
+		t.Error("skill arrays should be empty slices, not nil")
+	}
+
+	// Signed-in viewer with a score and a saved application.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO user_job_scores
+			(user_id, posting_id, score, band, missing_skills, components, confidence, profile_version)
+		VALUES ($1, $2, 77.25, 'plausible', ARRAY['rust'], '[{"name":"skills"}]'::jsonb, 0.8, 'test')`,
+		userID, postingID)
+	if err != nil {
+		t.Fatalf("seed score: %v", err)
+	}
+	if _, err := SaveJob(ctx, pool, userID, postingID); err != nil {
+		t.Fatalf("SaveJob: %v", err)
+	}
+
+	seen, err := LoadPostingDetail(ctx, pool, postingID, userID)
+	if err != nil {
+		t.Fatalf("LoadPostingDetail(viewer): %v", err)
+	}
+	if seen.Score == nil || *seen.Score != 77.25 {
+		t.Errorf("score = %v, want 77.25", seen.Score)
+	}
+	if seen.Band == nil || *seen.Band != "plausible" {
+		t.Errorf("band = %v, want plausible", seen.Band)
+	}
+	// confidence is Postgres `real`, so 0.8 does not survive float32 exactly.
+	// Comparing widened float32 values for equality is the bug this avoids.
+	if seen.Confidence == nil || math.Abs(*seen.Confidence-0.8) > 1e-6 {
+		t.Errorf("confidence = %v, want ~0.8", deref(seen.Confidence))
+	}
+	if len(seen.Components) == 0 {
+		t.Error("components JSON did not scan")
+	}
+	if len(seen.Missing) != 1 || seen.Missing[0] != "rust" {
+		t.Errorf("missing = %v, want [rust]", seen.Missing)
+	}
+	if !seen.Saved {
+		t.Error("saved should be true once an application exists")
+	}
+	if seen.ComputedAt == nil {
+		t.Error("computed_at did not scan")
+	}
+
+	// A closed posting is reported absent, not as an empty row.
+	if _, err := pool.Exec(ctx,
+		`UPDATE job_postings SET status = 'closed' WHERE id = $1`, postingID); err != nil {
+		t.Fatalf("close posting: %v", err)
+	}
+	if _, err := LoadPostingDetail(ctx, pool, postingID, userID); err != ErrNotFound {
+		t.Errorf("closed posting = %v, want ErrNotFound", err)
+	}
+}
+
+// deref prints a pointer's value, so a failure message says what was wrong
+// rather than where it was stored.
+func deref[T any](p *T) any {
+	if p == nil {
+		return "<nil>"
+	}
+	return *p
 }

@@ -8,7 +8,6 @@ cmd/covcheck/main.go:main
 cmd/resume-parser/main.go:main
 cmd/seed/main.go:seedUsers
 internal/api/jobs.go:parseFeedFilter
-internal/api/posting.go:handlePosting
 internal/api/resume.go:handleResumeApply
 internal/api/resume.go:handleResumeUpload
 internal/domain/user/profile.go:Apply

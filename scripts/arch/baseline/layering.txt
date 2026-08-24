@@ -6,7 +6,6 @@
 
 internal/api/api.go -> github.com/jackc/pgx/v5
 internal/api/api.go -> github.com/jackc/pgx/v5/pgxpool
-internal/api/posting.go -> github.com/jackc/pgx/v5
 internal/api/profile.go -> github.com/jackc/pgx/v5
 internal/api/profile.go -> github.com/jackc/pgx/v5/pgxpool
 internal/api/resume.go -> github.com/jackc/pgx/v5

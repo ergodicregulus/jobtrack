@@ -49,9 +49,7 @@ func (a *API) handleJobs(w http.ResponseWriter, r *http.Request) error {
 	// query because it belongs to the VIEWER, not to any posting, and folding it
 	// into the row query would repeat one timestamp across every row.
 	if f.UserID != nil {
-		var since *time.Time
-		if err := a.pool.QueryRow(r.Context(),
-			`SELECT previous_visit_at FROM users WHERE id = $1`, *f.UserID).Scan(&since); err == nil {
+		if since, err := store.PreviousVisit(r.Context(), a.pool, *f.UserID); err == nil {
 			page.SinceLastVisit = since
 		}
 		// A failure here is not worth failing the feed over: the reader loses a
