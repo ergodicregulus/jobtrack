@@ -12,6 +12,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/httpx"
 	"github.com/jobtrack/jobtrack/internal/jobs"
 	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 func (a *API) handleGetProfile(w http.ResponseWriter, r *http.Request) error {
@@ -94,52 +95,11 @@ func (a *API) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request) e
 // saveProfile persists the profile, its skills, and the rescore request
 // atomically.
 func (a *API) saveProfile(ctx context.Context, userID int64, p user.Profile, complete bool) error {
-	tx, err := a.pool.Begin(ctx)
+	err := store.SaveProfile(ctx, a.pool, userID, p, complete, func(tx pgx.Tx) error {
+		_, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil)
+		return err
+	})
 	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE users SET
-			first_name     = $2,
-			last_name      = $3,
-			current_title  = NULLIF($4, ''),
-			target_title   = NULLIF($5, ''),
-			total_yoe      = $6,
-			pref_countries = $7,
-			pref_modes     = $8::work_mode[],
-			pref_comp_min  = NULLIF($9, 0),
-			pref_currency  = NULLIF($10, ''),
-			onboarded_at   = CASE WHEN $11 THEN COALESCE(onboarded_at, now()) ELSE onboarded_at END,
-			updated_at     = now()
-		 WHERE id = $1 AND deleted_at IS NULL`,
-		userID, p.FirstName, p.LastName, p.CurrentTitle, p.TargetTitle,
-		p.TotalYoE, p.Countries, p.Modes, p.CompMin, p.Currency, complete); err != nil {
-		return httpx.ErrInternal(err)
-	}
-
-	// Replace the user-declared skills wholesale. Skills inferred from a resume
-	// carry origin='resume' and are left alone: a user editing their profile is
-	// not implicitly retracting what their CV says.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM user_skills WHERE user_id = $1 AND origin = 'user'`, userID); err != nil {
-		return httpx.ErrInternal(err)
-	}
-	if len(p.Skills) > 0 {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO user_skills (user_id, skill_id, origin)
-			SELECT $1, s.id, 'user' FROM skills s WHERE s.canonical = ANY($2)
-			ON CONFLICT (user_id, skill_id) DO NOTHING`, userID, p.Skills); err != nil {
-			return httpx.ErrInternal(err)
-		}
-	}
-
-	if _, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil); err != nil {
-		return httpx.ErrInternal(err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return httpx.ErrInternal(err)
 	}
 	return nil
@@ -159,73 +119,17 @@ func incompleteProfileError(missing []string) error {
 	return httpx.ErrBadRequest("profile is incomplete", fields...)
 }
 
+// loadProfile reads a profile and translates the store's absence sentinel into
+// the HTTP shape. The store must not know about status codes; this is where
+// that translation belongs.
 func loadProfile(ctx context.Context, pool *pgxpool.Pool, userID int64) (user.Profile, error) {
-	var p user.Profile
-	var onboardedAt *string
-
-	err := pool.QueryRow(ctx, `
-		SELECT COALESCE(u.first_name, ''),
-		       COALESCE(u.last_name, ''),
-		       COALESCE(u.current_title, ''),
-		       COALESCE(u.target_title, ''),
-		       COALESCE(u.total_yoe, 0),
-		       (u.total_yoe IS NOT NULL),
-		       COALESCE(u.pref_countries, '{}'),
-		       COALESCE(u.pref_modes, '{}')::text[],
-		       COALESCE(u.pref_comp_min, 0),
-		       COALESCE(u.pref_currency, ''),
-		       u.onboarded_at::text,
-		       COALESCE(ARRAY(
-		           SELECT s.canonical FROM user_skills us
-		             JOIN skills s ON s.id = us.skill_id
-		            WHERE us.user_id = u.id AND us.origin = 'user'
-		            ORDER BY s.canonical
-		       ), '{}'),
-		       COALESCE(ARRAY(
-		           SELECT s.canonical FROM user_skills us
-		             JOIN skills s ON s.id = us.skill_id
-		            WHERE us.user_id = u.id AND us.origin = 'resume'
-		            ORDER BY s.canonical
-		       ), '{}')
-		  FROM users u
-		 WHERE u.id = $1 AND u.deleted_at IS NULL`, userID).
-		Scan(&p.FirstName, &p.LastName, &p.CurrentTitle, &p.TargetTitle,
-			&p.TotalYoE, &p.YoEStated, &p.Countries, &p.Modes, &p.CompMin,
-			&p.Currency, &onboardedAt, &p.Skills, &p.ResumeSkills)
-
+	p, err := store.LoadProfile(ctx, pool, userID)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, store.ErrNotFound):
 		return p, httpx.ErrNotFound()
 	case err != nil:
 		return p, httpx.ErrInternal(err)
 	}
-
-	p.Onboarded = onboardedAt != nil
-
-	// Labels for exactly the skills this user has. Read from the skills table
-	// rather than recomputed, so the profile and the job cards can never write
-	// the same technology two different ways.
-	p.SkillLabels = map[string]string{}
-	all := append(append([]string{}, p.Skills...), p.ResumeSkills...)
-	if len(all) > 0 {
-		rows, err := pool.Query(ctx,
-			`SELECT canonical, display_name FROM skills WHERE canonical = ANY($1)`, all)
-		if err != nil {
-			return p, httpx.ErrInternal(err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var canonical, display string
-			if err := rows.Scan(&canonical, &display); err != nil {
-				return p, httpx.ErrInternal(err)
-			}
-			p.SkillLabels[canonical] = display
-		}
-		if err := rows.Err(); err != nil {
-			return p, httpx.ErrInternal(err)
-		}
-	}
-
 	return p, nil
 }
 

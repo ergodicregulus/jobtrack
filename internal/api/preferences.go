@@ -5,10 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/jobtrack/jobtrack/internal/domain/user"
 	"github.com/jobtrack/jobtrack/internal/httpx"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 // ThemeCookieName carries the resolved theme for server-side rendering.
@@ -53,9 +52,7 @@ func (a *API) handlePatchPreferences(w http.ResponseWriter, r *http.Request) err
 	}
 
 	userID := httpx.UserIDFromContext(r.Context())
-	if _, err := a.pool.Exec(r.Context(),
-		`UPDATE users SET preferences = $2, updated_at = now() WHERE id = $1`,
-		userID, prefs); err != nil {
+	if err := store.SavePreferences(r.Context(), a.pool, userID, prefs); err != nil {
 		return httpx.ErrInternal(err)
 	}
 
@@ -67,13 +64,9 @@ func (a *API) handlePatchPreferences(w http.ResponseWriter, r *http.Request) err
 func (a *API) loadPreferences(r *http.Request) (user.Preferences, error) {
 	userID := httpx.UserIDFromContext(r.Context())
 
-	var prefs user.Preferences
-	err := a.pool.QueryRow(r.Context(),
-		`SELECT preferences FROM users WHERE id = $1 AND deleted_at IS NULL`,
-		userID).Scan(&prefs)
-
+	prefs, err := store.LoadPreferences(r.Context(), a.pool, userID)
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, store.ErrNotFound):
 		return prefs, httpx.ErrNotFound()
 	case err != nil:
 		return prefs, httpx.ErrInternal(err)

@@ -5,20 +5,8 @@
 # exists to prevent.
 
 cmd/scheduler/main.go :: SELECT pg_try_advisory_lock($1)
-internal/api/auth.go :: INSERT INTO users (email, password_hash) VALUES ($1, $2)
-internal/api/auth.go :: SELECT id, email, email_verified_at FROM users WHERE id
-internal/api/auth.go :: SELECT id, password_hash FROM users WHERE email = $1 AND
-internal/api/auth.go :: UPDATE users SET password_hash = $2, updated_at = now()
-internal/api/auth.go :: UPDATE users SET previous_visit_at = CASE WHEN last_acti
 internal/api/jobs.go :: SELECT previous_visit_at FROM users WHERE id = $1
 internal/api/posting.go :: SELECT p.id, p.title, c.name, c.slug, COALESCE(p.locatio
-internal/api/preferences.go :: SELECT preferences FROM users WHERE id = $1 AND deleted_
-internal/api/preferences.go :: UPDATE users SET preferences = $2, updated_at = now() WH
-internal/api/profile.go :: DELETE FROM user_skills WHERE user_id = $1 AND origin =
-internal/api/profile.go :: INSERT INTO user_skills (user_id, skill_id, origin) SELE
-internal/api/profile.go :: SELECT COALESCE(u.first_name, ''), COALESCE(u.last_name,
-internal/api/profile.go :: SELECT canonical, display_name FROM skills WHERE canonic
-internal/api/profile.go :: UPDATE users SET first_name = $2, last_name = $3, curren
 internal/api/resume.go :: DELETE FROM user_skills WHERE user_id = $1 AND origin =
 internal/api/resume.go :: INSERT INTO resumes (user_id, label, is_default, blob_ke
 internal/api/resume.go :: INSERT INTO user_skills (user_id, skill_id, origin) SELE

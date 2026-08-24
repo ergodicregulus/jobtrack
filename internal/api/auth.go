@@ -12,10 +12,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/jobtrack/jobtrack/internal/auth"
 	"github.com/jobtrack/jobtrack/internal/httpx"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 type credentials struct {
@@ -56,13 +55,8 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) error {
 		return httpx.ErrInternal(err)
 	}
 
-	var userID int64
-	err = a.pool.QueryRow(r.Context(),
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
-		 ON CONFLICT (email) DO NOTHING
-		 RETURNING id`, email, hash).Scan(&userID)
-
-	if errors.Is(err, pgx.ErrNoRows) {
+	userID, err := store.CreateUser(r.Context(), a.pool, email, hash)
+	if errors.Is(err, store.ErrEmailTaken) {
 		// The address is already registered. Say nothing that confirms it:
 		// return the same 202 shape, issue no session, and send a "someone tried
 		// to register with your address" email out of band instead.
@@ -127,12 +121,11 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) error {
 		userID int64
 		hash   *string
 	)
-	err = a.pool.QueryRow(r.Context(),
-		`SELECT id, password_hash FROM users WHERE email = $1 AND deleted_at IS NULL`,
-		email).Scan(&userID, &hash)
+	cred, err := store.FindCredentials(r.Context(), a.pool, email)
+	userID, hash = cred.UserID, cred.Hash
 
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, store.ErrNotFound):
 		// Spend the same time as a real verify. Returning early here would make
 		// response latency a user-enumeration oracle — the classic mistake in
 		// this exact code path.
@@ -157,9 +150,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	// raising the policy would only ever protect new accounts.
 	if auth.NeedsRehash(*hash) {
 		if newHash, err := auth.HashPassword(in.Password); err == nil {
-			if _, err := a.pool.Exec(r.Context(),
-				`UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`,
-				userID, newHash); err != nil {
+			if err := store.SetPasswordHash(r.Context(), a.pool, userID, newHash); err != nil {
 				// Not fatal to the login — log and continue.
 				a.log.WarnContext(r.Context(), "password rehash failed", "user_id", userID, "error", err)
 			}
@@ -199,22 +190,15 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) error {
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) error {
 	userID := httpx.UserIDFromContext(r.Context())
 
-	var out meResponse
-	var verifiedAt *time.Time
-	err := a.pool.QueryRow(r.Context(),
-		`SELECT id, email, email_verified_at FROM users
-		  WHERE id = $1 AND deleted_at IS NULL`, userID).
-		Scan(&out.ID, &out.Email, &verifiedAt)
-
-	if errors.Is(err, pgx.ErrNoRows) {
+	acct, err := store.LoadAccount(r.Context(), a.pool, userID)
+	if errors.Is(err, store.ErrNotFound) {
 		return httpx.ErrNotFound()
 	}
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}
-	out.EmailVerified = verifiedAt != nil
 
-	httpx.WriteJSON(r.Context(), w, a.log, http.StatusOK, out)
+	httpx.WriteJSON(r.Context(), w, a.log, http.StatusOK, meResponse(acct))
 	return nil
 }
 
@@ -267,20 +251,7 @@ func (a *API) touchVisit(ctx context.Context, userID int64) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 
-		if _, err := a.pool.Exec(ctx, `
-			UPDATE users
-			   SET previous_visit_at = CASE
-			         WHEN last_active_at IS NULL
-			           OR last_active_at < now() - $2::interval
-			         THEN COALESCE(last_active_at, now())
-			         ELSE previous_visit_at
-			       END,
-			       last_active_at = now()
-			 WHERE id = $1
-			   AND (last_active_at IS NULL OR last_active_at < now() - interval '1 minute')`,
-			userID, visitGap.String()); err != nil {
-			a.log.WarnContext(ctx, "could not record visit", "error", err)
-		}
+		store.RecordVisit(ctx, a.pool, userID, visitGap, a.log)
 	}()
 }
 
