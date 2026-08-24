@@ -11,9 +11,6 @@ internal/api/jobs.go:parseFeedFilter
 internal/api/resume.go:handleResumeUpload
 internal/domain/user/profile.go:Apply
 internal/jobs/client.go:New
-internal/jobs/client.go:Work
-internal/jobs/ingest.go:Work
-internal/jobs/score.go:Work
 internal/matching/score.go:Score
 internal/migrate/data.go:runOne
 internal/migrate/split.go:splitStatements

@@ -80,46 +80,11 @@ func (w *ScheduleSourcesWorker) Work(ctx context.Context, job *river.Job[Schedul
 	// Selecting then updating separately would let a second scheduler tick pick
 	// up the same rows before the first had marked them, producing duplicate
 	// fetches — the politeness violation this design exists to prevent.
-	rows, err := w.Deps.Pool.Query(ctx, `
-		WITH due AS (
-			SELECT id FROM sources
-			 WHERE next_poll_at <= now()
-			   AND tier <> 'paused'
-			   AND (disabled_until IS NULL OR disabled_until < now())
-			 ORDER BY next_poll_at
-			 LIMIT $1
-			 FOR UPDATE SKIP LOCKED
-		)
-		UPDATE sources s
-		   SET next_poll_at = now() + CASE s.tier
-		         WHEN 'a' THEN $2::interval
-		         WHEN 'b' THEN $3::interval
-		         ELSE $4::interval
-		       END
-		         -- Jitter so 500 tier-A sources do not all fire on the hour.
-		         + (random() * interval '5 minutes'),
-		       updated_at = now()
-		  FROM due
-		 WHERE s.id = due.id
-		RETURNING s.id`,
-		limit,
+	ids, err := store.ClaimDueSources(ctx, w.Deps.Pool, limit,
 		w.Deps.Cfg.Ingest.TierAInterval.String(),
 		w.Deps.Cfg.Ingest.TierBInterval.String(),
 		w.Deps.Cfg.Ingest.TierCInterval.String())
 	if err != nil {
-		return fmt.Errorf("select due sources: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
 		return err
 	}
 	if len(ids) == 0 {
@@ -149,37 +114,22 @@ type FetchSourceWorker struct {
 func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSourceArgs]) error {
 	d := w.Deps
 
-	var (
-		src     source.Source
-		vendor  string
-		etag    *string
-		lastMod *string
-		hash    []byte
-		cursor  int
-	)
-	err := d.Pool.QueryRow(ctx, `
-		SELECT id, company_id, vendor::text, board_token, etag, last_modified,
-		       content_hash, detail_cursor
-		  FROM sources WHERE id = $1`, job.Args.SourceID).
-		Scan(&src.ID, &src.CompanyID, &vendor, &src.BoardToken, &etag, &lastMod, &hash, &cursor)
-	if errors.Is(err, pgx.ErrNoRows) {
+	src, err := store.LoadSource(ctx, d.Pool, job.Args.SourceID)
+	if errors.Is(err, store.ErrNotFound) {
 		// The source was deleted between scheduling and running. Not an error.
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("load source %d: %w", job.Args.SourceID, err)
+		return err
 	}
-	src.Vendor = source.Vendor(vendor)
 
-	if !job.Args.Force {
-		src.ETag = deref(etag)
-		src.LastModified = deref(lastMod)
-		src.ContentHash = hash
+	// Force means "ignore the validators and re-read the board", not "throw
+	// away the bodies we already fetched": the detail cursor is carried either
+	// way, because resetting it would restart a large board's sweep from the
+	// top every time.
+	if job.Args.Force {
+		src.ETag, src.LastModified, src.ContentHash = "", "", nil
 	}
-	// The cursor is carried even under Force. Force means "ignore the validators
-	// and re-read the board", not "throw away the bodies we already fetched" —
-	// resetting it would restart a large board's sweep from the top every time.
-	src.DetailCursor = cursor
 
 	adapter, ok := d.adapterFor(src.Vendor)
 	if !ok {
@@ -203,14 +153,7 @@ func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSource
 	if result.NotModified {
 		// The common path — roughly 90% of polls. Record that we looked, and
 		// do no further work.
-		_, err := d.Pool.Exec(ctx, `
-			UPDATE sources
-			   SET last_polled_at = now(), consecutive_errors = 0,
-			       etag = COALESCE(NULLIF($2,''), etag),
-			       last_modified = COALESCE(NULLIF($3,''), last_modified),
-			       updated_at = now()
-			 WHERE id = $1`, src.ID, result.ETag, result.LastModified)
-		return err
+		return store.MarkPollUnchanged(ctx, d.Pool, src.ID, result.ETag, result.LastModified)
 	}
 
 	upserted, changed, err := w.persist(ctx, src, result)
@@ -272,15 +215,8 @@ func (w *FetchSourceWorker) persist(ctx context.Context, src source.Source, resu
 			return err
 		}
 
-		if _, err := tx.Exec(ctx, `
-			UPDATE sources
-			   SET last_polled_at = now(), last_changed_at = now(),
-			       consecutive_errors = 0, disabled_until = NULL,
-			       etag = NULLIF($2,''), last_modified = NULLIF($3,''),
-			       content_hash = $4, detail_cursor = $5, updated_at = now()
-			 WHERE id = $1`,
-			src.ID, result.ETag, result.LastModified, result.ContentHash,
-			result.DetailCursor); err != nil {
+		if err := store.MarkPollSucceeded(ctx, tx, src.ID, result.ETag,
+			result.LastModified, result.ContentHash, result.DetailCursor); err != nil {
 			return err
 		}
 
@@ -313,19 +249,11 @@ func (w *FetchSourceWorker) handleFetchError(ctx context.Context, src source.Sou
 
 	// Circuit breaker: five consecutive failures pauses the source for six
 	// hours, so one broken board cannot consume a worker slot forever.
-	_, err := d.Pool.Exec(ctx, `
-		UPDATE sources
-		   SET consecutive_errors = consecutive_errors + 1,
-		       last_polled_at = now(),
-		       disabled_until = CASE
-		           WHEN $2::interval > interval '0' THEN now() + $2::interval
-		           WHEN consecutive_errors + 1 >= 5 THEN now() + interval '6 hours'
-		           ELSE disabled_until
-		       END,
-		       updated_at = now()
-		 WHERE id = $1`, src.ID, disableFor.String())
-	if err != nil {
-		d.Log.ErrorContext(ctx, "could not record source failure", "source_id", src.ID, "error", err)
+	// Logged rather than returned: the fetch error below is the one worth
+	// reporting, and losing the breaker update must not mask it.
+	if err := store.MarkPollFailed(ctx, d.Pool, src.ID, disableFor.String()); err != nil {
+		d.Log.ErrorContext(ctx, "could not record source failure",
+			"source_id", src.ID, "error", err)
 	}
 
 	// A dead board is a fact, not a transient failure: returning an error would
@@ -336,11 +264,4 @@ func (w *FetchSourceWorker) handleFetchError(ctx context.Context, src source.Sou
 		return nil
 	}
 	return fetchErr
-}
-
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }

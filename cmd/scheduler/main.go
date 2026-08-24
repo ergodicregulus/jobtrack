@@ -17,6 +17,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/jobs"
 	"github.com/jobtrack/jobtrack/internal/migrate"
 	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/jobtrack/jobtrack/internal/store"
 	"github.com/jobtrack/jobtrack/internal/version"
 	"github.com/jobtrack/jobtrack/migrations"
 )
@@ -76,8 +77,8 @@ func main() {
 		}
 		defer conn.Release()
 
-		var acquired bool
-		if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, leaderLockKey).Scan(&acquired); err != nil {
+		acquired, err := store.TryAdvisoryLock(ctx, conn, leaderLockKey)
+		if err != nil {
 			return err
 		}
 		if !acquired {

@@ -1,24 +1,3 @@
 # Direct database calls outside internal/store and the migration packages.
 #
-# Managed by `make arch-check-update`. Entries may be removed, never added
-# by hand — a new entry means a new violation, and that is what this file
-# exists to prevent.
-
-cmd/scheduler/main.go :: QueryRow :: if err := conn.QueryRow(ctx, `
-internal/auth/session.go :: Exec :: _, err := s.pool.Exec(ctx,
-internal/auth/session.go :: Exec :: _, err := s.pool.Exec(ctx, `
-internal/auth/session.go :: Exec :: tag, err := s.pool.Exec(ctx,
-internal/auth/session.go :: QueryRow :: err := s.pool.QueryRow(ctx, `
-internal/jobs/client.go :: Exec :: tag, err := w.Deps.Pool.Exec(ctx, `
-internal/jobs/client.go :: Query :: rows, err := w.Deps.Pool.Query(ctx, `
-internal/jobs/dedupe.go :: Exec :: tag, err := w.Deps.Pool.Exec(ctx, q, companyID)
-internal/jobs/ingest.go :: Exec :: _, err := d.Pool.Exec(ctx, `
-internal/jobs/ingest.go :: Exec :: if _, err := tx.Exec(ctx, `
-internal/jobs/ingest.go :: Query :: rows, err := w.Deps.Pool.Query(ctx, `
-internal/jobs/ingest.go :: QueryRow :: err := d.Pool.QueryRow(ctx, `
-internal/jobs/score.go :: Exec :: if _, err := d.Pool.Exec(ctx, `
-internal/jobs/score.go :: Exec :: if _, err := w.Deps.Pool.Exec(ctx,
-internal/jobs/score.go :: Query :: rows, err := w.Deps.Pool.Query(ctx, `
-internal/jobs/score.go :: Query :: rows, err := w.Deps.Pool.Query(ctx, q, activeWin
-internal/jobs/score.go :: QueryRow :: err := d.Pool.QueryRow(ctx, `
-internal/jobs/score.go :: QueryRow :: row := d.Pool.QueryRow(ctx, `
+# Empty. The rule holds with no exceptions.

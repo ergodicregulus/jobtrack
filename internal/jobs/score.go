@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 // ScorePostingWorker scores one posting for the users it could plausibly suit.
@@ -31,7 +32,7 @@ type ScorePostingWorker struct {
 const activeWindow = 30 * 24 * time.Hour
 
 func (w *ScorePostingWorker) Work(ctx context.Context, job *river.Job[ScorePostingArgs]) error {
-	posting, err := loadPosting(ctx, w.Deps, job.Args.PostingID)
+	posting, err := store.PostingForScoring(ctx, w.Deps.Pool, job.Args.PostingID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // closed or deleted between enqueue and run
 	}
@@ -61,10 +62,8 @@ func (w *ScorePostingWorker) Work(ctx context.Context, job *river.Job[ScorePosti
 	// anything left on an older version is by definition no longer applicable.
 	// Deleting it is also the correct answer on its own terms: a score the
 	// current rules would not produce should not be shown.
-	if _, err := w.Deps.Pool.Exec(ctx,
-		`DELETE FROM user_job_scores WHERE posting_id = $1 AND profile_version <> $2`,
-		posting.ID, w.Scorer.Version()); err != nil {
-		return fmt.Errorf("prune superseded scores for posting %d: %w", posting.ID, err)
+	if err := store.PruneSupersededScores(ctx, w.Deps.Pool, posting.ID, w.Scorer.Version()); err != nil {
+		return err
 	}
 
 	if len(profiles) == 0 {
@@ -81,56 +80,7 @@ func (w *ScorePostingWorker) Work(ctx context.Context, job *river.Job[ScorePosti
 
 // candidateProfiles selects users this posting could plausibly suit.
 func (w *ScorePostingWorker) candidateProfiles(ctx context.Context, j matching.Posting) ([]matching.Profile, error) {
-	const q = `
-SELECT u.id, COALESCE(u.total_yoe, 0), u.pref_countries, u.pref_modes,
-       COALESCE(u.pref_comp_min, 0), COALESCE(u.pref_currency, ''),
-       COALESCE(
-         (SELECT jsonb_object_agg(s.canonical, COALESCE(us.years, 0))
-            FROM user_skills us JOIN skills s ON s.id = us.skill_id
-           WHERE us.user_id = u.id),
-         '{}'::jsonb)
-  FROM users u
- WHERE u.deleted_at IS NULL
-   AND u.onboarded_at IS NOT NULL
-   -- Active users only. This is the difference between ~4 and ~12 sustained
-   -- cores at year-2 volume, and it costs nothing in user-visible quality.
-   AND u.last_active_at > now() - $1::interval
-   -- Coarse geography match. A remote posting suits everyone, and a user who
-   -- stated no preference has not ruled anything out.
-   AND (
-        $2 = 'remote'
-     OR cardinality(u.pref_countries) = 0
-     OR $3 = ''
-     OR $3 = ANY(u.pref_countries)
-   )`
-
-	rows, err := w.Deps.Pool.Query(ctx, q, activeWindow.String(), j.Mode, j.Country)
-	if err != nil {
-		return nil, fmt.Errorf("select candidate profiles: %w", err)
-	}
-	defer rows.Close()
-
-	var out []matching.Profile
-	for rows.Next() {
-		var (
-			p         matching.Profile
-			countries []string
-			modes     []string
-			skills    []byte
-		)
-		if err := rows.Scan(&p.UserID, &p.TotalYoE, &countries, &modes,
-			&p.CompMin, &p.Currency, &skills); err != nil {
-			return nil, err
-		}
-		p.Countries, p.Modes = countries, modes
-		p.ParseConfidence = 1.0 // self-declared profile; a resume would lower this
-		p.Skills = map[string]float64{}
-		if len(skills) > 0 {
-			_ = json.Unmarshal(skills, &p.Skills)
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
+	return store.CandidateProfiles(ctx, w.Deps.Pool, activeWindow.String(), j.Mode, j.Country)
 }
 
 // ScoreUserWorker rescores every live posting for one user.
@@ -144,7 +94,7 @@ type ScoreUserWorker struct {
 }
 
 func (w *ScoreUserWorker) Work(ctx context.Context, job *river.Job[ScoreUserArgs]) error {
-	profile, err := loadProfile(ctx, w.Deps, job.Args.UserID)
+	profile, err := store.ProfileForScoring(ctx, w.Deps.Pool, job.Args.UserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -157,76 +107,30 @@ func (w *ScoreUserWorker) Work(ctx context.Context, job *river.Job[ScoreUserArgs
 	// the user will actually page through.
 	const cap = 2000
 
-	rows, err := w.Deps.Pool.Query(ctx, `
-		SELECT p.id, p.yoe_min, p.yoe_max, p.yoe_confidence,
-		       COALESCE(p.country,''), p.mode::text,
-		       p.comp_min, p.comp_max, COALESCE(p.comp_currency,''),
-		       COALESCE(p.posted_at, p.first_seen_at), p.parse_confidence,
-		       COALESCE((SELECT array_agg(s.canonical)
-		                   FROM posting_skills ps JOIN skills s ON s.id = ps.skill_id
-		                  WHERE ps.posting_id = p.id AND ps.requirement = 'must_have'), '{}'),
-		       -- Nice-to-haves, falling back to merely-mentioned skills when the
-		       -- posting has no requirements section we could parse.
-		       --
-		       -- 73.7% of everything the extractor finds lands as 'mentioned',
-		       -- because the must/nice split needs an explicit "Requirements"
-		       -- heading and most postings do not have one. Discarding all of it
-		       -- meant 28,056 successfully-extracted skills were thrown away and
-		       -- the skills component abstained on three postings in four.
-		       --
-		       -- "The posting talks about Kafka" is weaker evidence than "the
-		       -- posting requires Kafka", and it is not nothing. Treating it as a
-		       -- nice-to-have weights it lower, and the evidence-weighting in the
-		       -- scorer damps it further because such a posting states little.
-		       -- Where a real requirements section exists this changes nothing.
-		       COALESCE((
-		         SELECT array_agg(s.canonical)
-		           FROM posting_skills ps JOIN skills s ON s.id = ps.skill_id
-		          WHERE ps.posting_id = p.id
-		            AND ps.requirement = CASE
-		                  WHEN EXISTS (
-		                    SELECT 1 FROM posting_skills q
-		                     WHERE q.posting_id = p.id
-		                       AND q.requirement IN ('must_have','nice_to_have')
-		                  ) THEN 'nice_to_have'::skill_requirement
-		                  ELSE 'mentioned'::skill_requirement
-		                END
-		       ), '{}')
-		  FROM job_postings p
-		 WHERE p.status = 'live'
-		 ORDER BY COALESCE(p.posted_at, p.first_seen_at) DESC
-		 LIMIT $1`, cap)
+	postings, err := store.PostingsForScoring(ctx, w.Deps.Pool, cap)
 	if err != nil {
-		return fmt.Errorf("select postings to score: %w", err)
+		return err
 	}
-	defer rows.Close()
 
 	var (
 		scored int
-		batch  = make([]scoreRow, 0, scoreFlushSize)
+		batch  = make([]store.ScoreRow, 0, scoreFlushSize)
 	)
-	for rows.Next() {
-		j, err := scanPosting(rows)
-		if err != nil {
-			return err
-		}
+	for _, j := range postings {
 		row, err := newScoreRow(profile.UserID, j, w.Scorer.Score(profile, j))
 		if err != nil {
 			return err
 		}
 		batch = append(batch, row)
 		if len(batch) == scoreFlushSize {
-			if err := flushScores(ctx, w.Deps, batch, w.Scorer.Version()); err != nil {
+			if err := store.UpsertScores(ctx, w.Deps.Pool, batch, w.Scorer.Version()); err != nil {
 				return err
 			}
 			batch = batch[:0]
 		}
 		scored++
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := flushScores(ctx, w.Deps, batch, w.Scorer.Version()); err != nil {
+	if err := store.UpsertScores(ctx, w.Deps.Pool, batch, w.Scorer.Version()); err != nil {
 		return err
 	}
 
@@ -236,104 +140,10 @@ func (w *ScoreUserWorker) Work(ctx context.Context, job *river.Job[ScoreUserArgs
 
 // --- shared helpers ---------------------------------------------------------
 
-func loadPosting(ctx context.Context, d *Deps, id int64) (matching.Posting, error) {
-	row := d.Pool.QueryRow(ctx, `
-		SELECT p.id, p.yoe_min, p.yoe_max, p.yoe_confidence,
-		       COALESCE(p.country,''), p.mode::text,
-		       p.comp_min, p.comp_max, COALESCE(p.comp_currency,''),
-		       COALESCE(p.posted_at, p.first_seen_at), p.parse_confidence,
-		       COALESCE((SELECT array_agg(s.canonical)
-		                   FROM posting_skills ps JOIN skills s ON s.id = ps.skill_id
-		                  WHERE ps.posting_id = p.id AND ps.requirement = 'must_have'), '{}'),
-		       -- Nice-to-haves, falling back to merely-mentioned skills when the
-		       -- posting has no requirements section we could parse.
-		       --
-		       -- 73.7% of everything the extractor finds lands as 'mentioned',
-		       -- because the must/nice split needs an explicit "Requirements"
-		       -- heading and most postings do not have one. Discarding all of it
-		       -- meant 28,056 successfully-extracted skills were thrown away and
-		       -- the skills component abstained on three postings in four.
-		       --
-		       -- "The posting talks about Kafka" is weaker evidence than "the
-		       -- posting requires Kafka", and it is not nothing. Treating it as a
-		       -- nice-to-have weights it lower, and the evidence-weighting in the
-		       -- scorer damps it further because such a posting states little.
-		       -- Where a real requirements section exists this changes nothing.
-		       COALESCE((
-		         SELECT array_agg(s.canonical)
-		           FROM posting_skills ps JOIN skills s ON s.id = ps.skill_id
-		          WHERE ps.posting_id = p.id
-		            AND ps.requirement = CASE
-		                  WHEN EXISTS (
-		                    SELECT 1 FROM posting_skills q
-		                     WHERE q.posting_id = p.id
-		                       AND q.requirement IN ('must_have','nice_to_have')
-		                  ) THEN 'nice_to_have'::skill_requirement
-		                  ELSE 'mentioned'::skill_requirement
-		                END
-		       ), '{}')
-		  FROM job_postings p
-		 WHERE p.id = $1 AND p.status = 'live'`, id)
-	return scanPosting(row)
-}
-
-type scannable interface{ Scan(...any) error }
-
-func scanPosting(row scannable) (matching.Posting, error) {
-	var j matching.Posting
-	err := row.Scan(&j.ID, &j.YoEMin, &j.YoEMax, &j.YoEConfidence,
-		&j.Country, &j.Mode, &j.CompMin, &j.CompMax, &j.CompCurrency,
-		&j.PostedAt, &j.ParseConfidence, &j.MustHaveSkills, &j.NiceToHaveSkills)
-	return j, err
-}
-
-func loadProfile(ctx context.Context, d *Deps, userID int64) (matching.Profile, error) {
-	var (
-		p         matching.Profile
-		countries []string
-		modes     []string
-		skills    []byte
-	)
-	err := d.Pool.QueryRow(ctx, `
-		SELECT u.id, COALESCE(u.total_yoe,0), u.pref_countries, u.pref_modes,
-		       COALESCE(u.pref_comp_min,0), COALESCE(u.pref_currency,''),
-		       COALESCE(
-		         (SELECT jsonb_object_agg(s.canonical, COALESCE(us.years,0))
-		            FROM user_skills us JOIN skills s ON s.id = us.skill_id
-		           WHERE us.user_id = u.id),
-		         '{}'::jsonb)
-		  FROM users u
-		 WHERE u.id = $1 AND u.deleted_at IS NULL`, userID).
-		Scan(&p.UserID, &p.TotalYoE, &countries, &modes, &p.CompMin, &p.Currency, &skills)
-	if err != nil {
-		return p, err
-	}
-
-	p.Countries, p.Modes = countries, modes
-	p.ParseConfidence = 1.0
-	p.Skills = map[string]float64{}
-	if len(skills) > 0 {
-		_ = json.Unmarshal(skills, &p.Skills)
-	}
-	return p, nil
-}
-
-// upsertScore writes one score.
-//
-// profile_version is stamped on every row so we can always answer "which model
-// produced this?" — without it, a weight change silently produces a feed mixing
-// old and new scores with no way to tell them apart.
-// scoreRow is one user's score for one posting, shaped for the bulk insert.
-// The JSON tags are the column names jsonb_to_recordset destructures below.
-type scoreRow struct {
-	UserID        int64           `json:"user_id"`
-	PostingID     int64           `json:"posting_id"`
-	Score         float64         `json:"score"`
-	Band          string          `json:"band"`
-	Components    json.RawMessage `json:"components"`
-	Confidence    float64         `json:"confidence"`
-	MissingSkills []string        `json:"missing_skills"`
-}
+// profile_version is stamped on every row by store.UpsertScores, so we can
+// always answer "which model produced this?" Without it a weight change
+// silently produces a feed mixing old and new scores with no way to tell them
+// apart.
 
 // scoreFlushSize bounds one statement's payload.
 //
@@ -343,13 +153,13 @@ type scoreRow struct {
 // sweeps the whole live corpus, so this must be bounded by something.
 const scoreFlushSize = 500
 
-func newScoreRow(userID int64, posting matching.Posting, r matching.Result) (scoreRow, error) {
+func newScoreRow(userID int64, posting matching.Posting, r matching.Result) (store.ScoreRow, error) {
 	components, err := json.Marshal(r.Components)
 	if err != nil {
-		return scoreRow{}, fmt.Errorf("marshal components user=%d posting=%d: %w",
+		return store.ScoreRow{}, fmt.Errorf("marshal components user=%d posting=%d: %w",
 			userID, posting.ID, err)
 	}
-	return scoreRow{
+	return store.ScoreRow{
 		UserID:        userID,
 		PostingID:     posting.ID,
 		Score:         float64(r.Score),
@@ -372,38 +182,6 @@ func newScoreRow(userID int64, posting matching.Posting, r matching.Result) (sco
 // jsonb_to_recordset rather than unnest() because missing_skills is itself an
 // array per row, and Postgres arrays are rectangular: a ragged array of arrays
 // has no unnest form, while JSON carries it exactly.
-func flushScores(ctx context.Context, d *Deps, rows []scoreRow, version string) error {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	payload, err := json.Marshal(rows)
-	if err != nil {
-		return fmt.Errorf("marshal %d scores: %w", len(rows), err)
-	}
-
-	if _, err := d.Pool.Exec(ctx, `
-		INSERT INTO user_job_scores
-		    (user_id, posting_id, resume_id, score, band, components, confidence,
-		     profile_version, missing_skills)
-		SELECT x.user_id, x.posting_id, NULL, x.score, x.band, x.components,
-		       x.confidence, $2, x.missing_skills
-		  FROM jsonb_to_recordset($1::jsonb) AS x(
-		       user_id bigint, posting_id bigint, score real, band text,
-		       components jsonb, confidence real, missing_skills text[])
-		ON CONFLICT (user_id, posting_id) DO UPDATE
-		   SET score = EXCLUDED.score,
-		       band = EXCLUDED.band,
-		       components = EXCLUDED.components,
-		       confidence = EXCLUDED.confidence,
-		       profile_version = EXCLUDED.profile_version,
-		       missing_skills = EXCLUDED.missing_skills,
-		       computed_at = now()`,
-		payload, version); err != nil {
-		return fmt.Errorf("upsert %d scores: %w", len(rows), err)
-	}
-	return nil
-}
 
 // upsertScores writes every score for one posting in a single statement.
 //
@@ -420,7 +198,7 @@ func flushScores(ctx context.Context, d *Deps, rows []scoreRow, version string) 
 // has no unnest form, while JSON carries it exactly.
 func upsertScores(ctx context.Context, d *Deps, posting matching.Posting,
 	profiles []matching.Profile, scorer *matching.Scorer) error {
-	rows := make([]scoreRow, 0, len(profiles))
+	rows := make([]store.ScoreRow, 0, len(profiles))
 	for _, p := range profiles {
 		row, err := newScoreRow(p.UserID, posting, scorer.Score(p, posting))
 		if err != nil {
@@ -428,13 +206,13 @@ func upsertScores(ctx context.Context, d *Deps, posting matching.Posting,
 		}
 		rows = append(rows, row)
 		if len(rows) == scoreFlushSize {
-			if err := flushScores(ctx, d, rows, scorer.Version()); err != nil {
+			if err := store.UpsertScores(ctx, d.Pool, rows, scorer.Version()); err != nil {
 				return err
 			}
 			rows = rows[:0]
 		}
 	}
-	return flushScores(ctx, d, rows, scorer.Version())
+	return store.UpsertScores(ctx, d.Pool, rows, scorer.Version())
 }
 
 // missingSkills lifts the skills gap out of the component breakdown so the feed

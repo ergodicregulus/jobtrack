@@ -1,30 +1,3 @@
 # SQL statements outside internal/store and the migration packages.
 #
-# Managed by `make arch-check-update`. Entries may be removed, never added
-# by hand — a new entry means a new violation, and that is what this file
-# exists to prevent.
-
-cmd/scheduler/main.go :: SELECT pg_try_advisory_lock($1)
-internal/auth/session.go :: DELETE FROM sessions WHERE expires_at < now() - interval
-internal/auth/session.go :: DELETE FROM sessions WHERE id = $1
-internal/auth/session.go :: DELETE FROM sessions WHERE user_id = $1
-internal/auth/session.go :: INSERT INTO sessions (id, user_id, expires_at, user_agen
-internal/auth/session.go :: UPDATE sessions SET last_used_at = now() WHERE id = $1 A
-internal/jobs/client.go :: DELETE FROM user_job_scores s WHERE s.posting_id IN ( SE
-internal/jobs/client.go :: SELECT DISTINCT s.posting_id FROM user_job_scores s JOIN
-internal/jobs/client.go :: UPDATE sources s SET tier = CASE -- Someone is watching
-internal/jobs/dedupe.go :: WITH candidates AS ( SELECT DISTINCT ON (a.id) a.id AS l
-internal/jobs/dedupe.go :: WITH ranked AS ( SELECT p.id, first_value(p.id) OVER ( P
-internal/jobs/ingest.go :: SELECT id, company_id, vendor::text, board_token, etag,
-internal/jobs/ingest.go :: UPDATE sources SET consecutive_errors = consecutive_erro
-internal/jobs/ingest.go :: UPDATE sources SET last_polled_at = now(), consecutive_e
-internal/jobs/ingest.go :: UPDATE sources SET last_polled_at = now(), last_changed_
-internal/jobs/ingest.go :: WITH due AS ( SELECT id FROM sources WHERE next_poll_at
-internal/jobs/ingest.go :: select due sources: %w
-internal/jobs/score.go :: DELETE FROM user_job_scores WHERE posting_id = $1 AND pr
-internal/jobs/score.go :: INSERT INTO user_job_scores (user_id, posting_id, resume
-internal/jobs/score.go :: SELECT p.id, p.yoe_min, p.yoe_max, p.yoe_confidence, COA
-internal/jobs/score.go :: SELECT u.id, COALESCE(u.total_yoe, 0), u.pref_countries,
-internal/jobs/score.go :: SELECT u.id, COALESCE(u.total_yoe,0), u.pref_countries,
-internal/jobs/score.go :: select candidate profiles: %w
-internal/jobs/score.go :: select postings to score: %w
+# Empty. The rule holds with no exceptions.

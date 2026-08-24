@@ -10,8 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 const (
@@ -78,12 +79,9 @@ func (s *SessionStore) Create(ctx context.Context, userID int64, userAgent strin
 	id := hashToken(token)
 	expires := time.Now().Add(s.ttl)
 
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO sessions (id, user_id, expires_at, user_agent, ip_hash)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		id, userID, expires, truncate(userAgent, 512), ipHash)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("auth: create session: %w", err)
+	if err := store.CreateSession(ctx, s.pool, id, userID, expires,
+		truncate(userAgent, 512), ipHash); err != nil {
+		return "", time.Time{}, fmt.Errorf("auth: %w", err)
 	}
 	return token, expires, nil
 }
@@ -95,44 +93,30 @@ func (s *SessionStore) Validate(ctx context.Context, token string) (*Session, er
 	}
 	id := hashToken(token)
 
-	var sess Session
-	err := s.pool.QueryRow(ctx, `
-		UPDATE sessions
-		   SET last_used_at = now()
-		 WHERE id = $1 AND expires_at > now()
-		 RETURNING user_id, expires_at`, id).
-		Scan(&sess.UserID, &sess.ExpiresAt)
-
-	if errors.Is(err, pgx.ErrNoRows) {
+	userID, expires, err := store.TouchSession(ctx, s.pool, id)
+	if errors.Is(err, store.ErrSessionInvalid) {
 		return nil, ErrSessionInvalid
 	}
 	if err != nil {
-		return nil, fmt.Errorf("auth: validate session: %w", err)
+		return nil, fmt.Errorf("auth: %w", err)
 	}
-	return &sess, nil
+	return &Session{UserID: userID, ExpiresAt: expires}, nil
 }
 
 // Revoke deletes one session. Takes effect on the very next request.
 func (s *SessionStore) Revoke(ctx context.Context, token string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, hashToken(token))
-	return err
+	return store.DeleteSession(ctx, s.pool, hashToken(token))
 }
 
 // RevokeAllForUser is used on password change and on "sign out everywhere".
 func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID int64) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
-	return err
+	return store.DeleteUserSessions(ctx, s.pool, userID)
 }
 
 // DeleteExpired is called by the scheduler. Expired rows are already rejected
 // by Validate, so this is housekeeping rather than a security control.
 func (s *SessionStore) DeleteExpired(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM sessions WHERE expires_at < now() - interval '30 days'`)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+	return store.DeleteExpiredSessions(ctx, s.pool)
 }
 
 func hashToken(token string) []byte {

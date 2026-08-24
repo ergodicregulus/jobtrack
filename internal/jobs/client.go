@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/jobtrack/jobtrack/internal/store"
 )
 
 // Role selects which queues a process consumes.
@@ -180,22 +181,11 @@ type RetierSourcesWorker struct {
 }
 
 func (w *RetierSourcesWorker) Work(ctx context.Context, job *river.Job[RetierSourcesArgs]) error {
-	tag, err := w.Deps.Pool.Exec(ctx, `
-		UPDATE sources s
-		   SET tier = CASE
-		       -- Someone is watching this company: poll it every 2 hours.
-		       WHEN EXISTS (SELECT 1 FROM watched_companies wc WHERE wc.company_id = s.company_id)
-		            THEN 'a'::source_tier
-		       WHEN s.last_changed_at > now() - interval '7 days'  THEN 'a'::source_tier
-		       WHEN s.last_changed_at > now() - interval '30 days' THEN 'b'::source_tier
-		       ELSE 'c'::source_tier
-		   END,
-		   updated_at = now()
-		 WHERE s.tier <> 'paused'`)
+	tag, err := store.RetierSources(ctx, w.Deps.Pool)
 	if err != nil {
-		return fmt.Errorf("retier sources: %w", err)
+		return err
 	}
-	w.Deps.Log.InfoContext(ctx, "source tiers recomputed", "sources", tag.RowsAffected())
+	w.Deps.Log.InfoContext(ctx, "source tiers recomputed", "sources", tag)
 	return nil
 }
 
@@ -227,28 +217,8 @@ func (w *RescoreStaleWorker) Work(ctx context.Context, job *river.Job[RescoreSta
 	// DISTINCT posting_id: one scoring job re-scores a posting for every user it
 	// suits, so enqueuing per (user, posting) row would multiply the work by the
 	// user count for no benefit.
-	rows, err := w.Deps.Pool.Query(ctx, `
-		SELECT DISTINCT s.posting_id
-		  FROM user_job_scores s
-		  JOIN job_postings p ON p.id = s.posting_id
-		 WHERE s.profile_version <> $1
-		   AND p.status = 'live'
-		 LIMIT $2`, w.Version, limit)
+	ids, err := store.StaleScorePostings(ctx, w.Deps.Pool, w.Version, limit)
 	if err != nil {
-		return fmt.Errorf("find stale scores: %w", err)
-	}
-
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		return err
 	}
 
@@ -263,17 +233,11 @@ func (w *RescoreStaleWorker) Work(ctx context.Context, job *river.Job[RescoreSta
 	//
 	// Bounded like everything else here: a delete that takes a lock
 	// proportional to corpus size is an outage waiting for a big enough corpus.
-	tag, err := w.Deps.Pool.Exec(ctx, `
-		DELETE FROM user_job_scores s
-		 WHERE s.posting_id IN (
-		   SELECT id FROM job_postings
-		    WHERE status <> 'live'
-		    LIMIT $1
-		 )`, limit)
+	tag, err := store.SweepDeadScores(ctx, w.Deps.Pool, limit)
 	if err != nil {
-		return fmt.Errorf("collect scores for closed postings: %w", err)
+		return err
 	}
-	if n := tag.RowsAffected(); n > 0 {
+	if n := tag; n > 0 {
 		w.Deps.Log.InfoContext(ctx, "scores collected for closed postings", "rows", n)
 	}
 
