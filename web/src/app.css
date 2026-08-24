@@ -6,7 +6,7 @@
  *
  * 1. ONE ACCENT. EVERYTHING ELSE IS NEUTRAL.
  *    Restraint is what separates a premium interface from a busy one. A single
- *    indigo carries interaction; the semantic colours (teal/rose/amber) appear
+ *    ink-blue carries interaction; the semantic colours (teal/rose/amber) appear
  *    ONLY as small signals — a rail, a dot, a chip border — never as large
  *    surfaces. An earlier revision tinted whole card backgrounds and the result
  *    read as a chart, not a product.
@@ -46,6 +46,47 @@
    Tokens
    --------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+   Typefaces — self-hosted, 40 KB total
+   ---------------------------------------------------------------------------
+
+   Self-hosted rather than linked: the CSP forbids a third-party origin, and a
+   CDN request on the critical path costs a DNS lookup and a TLS handshake
+   before a single glyph arrives.
+
+   INSTRUMENT SANS carries the whole interface. A grotesque, not a serif — the
+   serif-display-on-warm-cream pairing has become the single most recognisable
+   machine-generated look, and adopting it would have solved the stated problem
+   by walking into a newer version of it. The character here comes from the
+   setting: heavy and tightly tracked at display sizes, normal at reading sizes.
+
+   Its width axis was tested and dropped. It cost 27 KB — 57 KB against 30 KB
+   for weight alone — which is most of the type budget for one stylistic
+   device, on the critical path, for a condensed headline. Weight and scale do
+   the same work for free.
+
+   IBM PLEX MONO sets every measured value: scores, counts, salaries, dates.
+   Not decoration. A score is a measurement and it reads as one in a face where
+   the digits are the same width, and `font-variant-numeric: tabular-nums`
+   means a column of them does not jitter between rows.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/instrument-sans-var.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/ibm-plex-mono-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Light palette. Defined on bare :root so it is the fallback for everything,
      including a client that never resolves a media query.
@@ -54,33 +95,36 @@
      value failed contrast (noted individually below). The neutrals are warm —
      hue ~30, chroma held low — not the blue-grey a default Tailwind-ish palette
      produces. Pure #f5f5f5 reads as unfinished; a warm cast reads as chosen,
-     and it is what makes the indigo accent look deliberate rather than
-     stock. */
+     and it is what makes the ink accent look deliberate rather than stock.
+
+     The accent itself is generated, not chosen: see scripts/palette.mjs. It
+     was Tailwind indigo-600 until 2026-08-25, which palette.test.ts now
+     forbids by name. */
   --bg:            #fbfaf9;
   --bg-raised:     #ffffff;
-  --bg-sunken:     #f6f5f3;
-  --bg-hover:      #efedea;
-  --bg-active:     #e7e4e0;
+  --bg-sunken:     #f6f4f2;
+  --bg-hover:      #eeebe8;
+  --bg-active:     #e6e2de;
 
-  --fg:            #1c1b19;
-  --fg-muted:      #57534e;
+  --fg:            #1e1b19;
+  --fg-muted:      #55524e;
   /* Every token below carries real text, so every one clears WCAG 1.4.3 AA
      (4.5:1) against the surface it sits on. --fg-subtle was #8a909d, which
      measured 3.20:1 and failed — it is used for timestamps, the "via
      Greenhouse" attribution and every micro label, none of which are
      decorative. Contrast is computed by tokens.test.ts, never eyeballed. */
-  --fg-subtle:     #6b645f;
+  --fg-subtle:     #6d6a65;
   /* NON-TEXT ONLY: icons, separators, disabled glyphs. Clears the 3:1 that
      WCAG 1.4.11 requires of meaningful non-text, and nothing more. It was
      #b0b5bf (2.06:1), which failed even that. If you need it for text, you
      need --fg-subtle instead — the test enforces this. */
-  --fg-faint:      #8c857e;
+  --fg-faint:      #96918c;
 
   /* Rings, not borders. Alpha so they compose over any surface, and tinted
      with the ink rather than pure black so they stay in the warm family. */
   --ring:          rgb(28 27 25 / 0.11);
   --ring-strong:   rgb(28 27 25 / 0.22);
-  --ring-accent:   rgb(79 70 229 / 0.35);
+  --ring-accent:   rgb(26 58 104 / 0.30);
 
   /* Legacy aliases: existing components still set `border: 1px solid`. These
      are --ring flattened over --bg, so a border and a ring read identically. */
@@ -88,14 +132,14 @@
   --border-strong: #d0cdc8;
 
   /* The one accent. */
-  --accent:        #4f46e5;
-  --accent-hover:  #4338ca;
-  --accent-ink:    #3730a3;
-  --accent-bg:     rgb(79 70 229 / 0.09);
+  --accent:        #1a3a68;
+  --accent-hover:  #0a2752;
+  --accent-ink:    #1a3a68;
+  --accent-bg:     rgb(26 58 104 / 0.08);
   /* Chip and control outlines, one per direction. A hairline in the family's
      own hue reads as part of the chip; a neutral one reads as a box drawn
      around it. */
-  --accent-line:   rgb(79 70 229 / 0.35);
+  --accent-line:   rgb(26 58 104 / 0.30);
   --accent-fg:     #ffffff;
 
   /* Direction colours: signal weight only.
@@ -105,23 +149,23 @@
      surface it failed AA the moment a score number was painted with it. The
      fill is the design's; the ink is that hue taken one step darker. */
   --grow:          #0d9488;
-  --grow-ink:      #0f766e;
+  --grow-ink:      #0a6355;
   --grow-bg:       rgb(13 148 136 / 0.10);
   --grow-line:     rgb(13 148 136 / 0.34);
 
   --shrink:        #e11d48;
-  --shrink-ink:    #be123c;
+  --shrink-ink:    #9d2a39;
   --shrink-bg:     rgb(225 29 72 / 0.09);
   --shrink-line:   rgb(225 29 72 / 0.34);
 
   --uncertain:     #b45309;
   /* One step darker than the fill. #b45309 measured 4.39:1 against its own
      composited tint — under AA, and it carries the word "estimated". */
-  --uncertain-ink: #92400e;
+  --uncertain-ink: #804d0c;
   --uncertain-bg:  rgb(180 83 9 / 0.10);
   --uncertain-line: rgb(180 83 9 / 0.34);
 
-  --focus:         #4f46e5;
+  --focus:         #1a3a68;
 
   /* Spacing: a 4px grid. Fewer steps than a typical scale, on purpose —
      constraint is what makes a dense layout stay coherent. */
@@ -152,9 +196,10 @@
 
   /* System stack: zero font bytes, and it renders before any webfont could
      have finished downloading. */
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+  /* The fallback stack is metric-adjacent so the swap does not reflow. */
+  --font: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   /* Type scale. Tracking tightens as size grows — this is the detail that most
      separates "crafted" from "default". At 14px and below, normal tracking is
@@ -192,49 +237,49 @@
    The :not() guard is what makes the toggle win in BOTH directions. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg:            #131211;
-    --bg-raised:     #1a1917;
-    --bg-sunken:     #211f1d;
-    --bg-hover:      #2a2724;
-    --bg-active:     #332f2b;
+    --bg:            #0d0c0a;
+    --bg-raised:     #171513;
+    --bg-sunken:     #090706;
+    --bg-hover:      #22201d;
+    --bg-active:     #2c2a26;
 
-    --fg:            #f4f1ee;
-    --fg-muted:      #a8a29e;
-    --fg-subtle:     #9c948c;
-    --fg-faint:      #847c74;
+    --fg:            #eeecea;
+    --fg-muted:      #b4b0ac;
+    --fg-subtle:     #95918d;
+    --fg-faint:      #6c6864;
 
     /* Light rings on dark: a hairline of light is how a raised surface reads
        as raised when there is no shadow to cast. */
     --ring:          rgb(255 255 255 / 0.11);
     --ring-strong:   rgb(255 255 255 / 0.24);
-    --ring-accent:   rgb(129 140 248 / 0.42);
+    --ring-accent:   rgb(154 185 232 / 0.42);
 
     --border:        #2b2825;
     --border-strong: #3d3833;
 
-    --accent:        #818cf8;
-    --accent-hover:  #a5b4fc;
-    --accent-ink:    #a5b4fc;
-    --accent-bg:     rgb(129 140 248 / 0.13);
-    --accent-line:   rgb(129 140 248 / 0.42);
-    --accent-fg:     #17161c;
+    --accent:        #9ab9e8;
+    --accent-hover:  #b9d3f9;
+    --accent-ink:    #9ab9e8;
+    --accent-bg:     rgb(154 185 232 / 0.13);
+    --accent-line:   rgb(154 185 232 / 0.42);
+    --accent-fg:     #080d16;
 
     --grow:          #2dd4bf;
-    --grow-ink:      #2dd4bf;
+    --grow-ink:      #6fd3be;
     --grow-bg:       rgb(45 212 191 / 0.12);
     --grow-line:     rgb(45 212 191 / 0.38);
 
     --shrink:        #fb7185;
-    --shrink-ink:    #fb7185;
+    --shrink-ink:    #f69a9d;
     --shrink-bg:     rgb(251 113 133 / 0.12);
     --shrink-line:   rgb(251 113 133 / 0.38);
 
     --uncertain:     #fbbf24;
-    --uncertain-ink: #fbbf24;
+    --uncertain-ink: #ebb077;
     --uncertain-bg:  rgb(251 191 36 / 0.12);
     --uncertain-line: rgb(251 191 36 / 0.38);
 
-    --focus:         #818cf8;
+    --focus:         #9ab9e8;
 
     --e-0: 0 0 0 1px var(--ring);
     --e-1: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.4);
@@ -247,47 +292,47 @@
 
 /* The explicit dark choice repeats the overrides so the toggle beats the OS. */
 :root[data-theme='dark'] {
-  --bg:            #131211;
-  --bg-raised:     #1a1917;
-  --bg-sunken:     #211f1d;
-  --bg-hover:      #2a2724;
-  --bg-active:     #332f2b;
+  --bg:            #0d0c0a;
+  --bg-raised:     #171513;
+  --bg-sunken:     #090706;
+  --bg-hover:      #22201d;
+  --bg-active:     #2c2a26;
 
-  --fg:            #f4f1ee;
-  --fg-muted:      #a8a29e;
-  --fg-subtle:     #9c948c;
-  --fg-faint:      #847c74;
+  --fg:            #eeecea;
+  --fg-muted:      #b4b0ac;
+  --fg-subtle:     #95918d;
+  --fg-faint:      #6c6864;
 
   --ring:          rgb(255 255 255 / 0.11);
   --ring-strong:   rgb(255 255 255 / 0.24);
-  --ring-accent:   rgb(129 140 248 / 0.42);
+  --ring-accent:   rgb(154 185 232 / 0.42);
 
   --border:        #2b2825;
   --border-strong: #3d3833;
 
-  --accent:        #818cf8;
-  --accent-hover:  #a5b4fc;
-  --accent-ink:    #a5b4fc;
-  --accent-bg:     rgb(129 140 248 / 0.13);
-  --accent-line:   rgb(129 140 248 / 0.42);
-  --accent-fg:     #17161c;
+  --accent:        #9ab9e8;
+  --accent-hover:  #b9d3f9;
+  --accent-ink:    #9ab9e8;
+  --accent-bg:     rgb(154 185 232 / 0.13);
+  --accent-line:   rgb(154 185 232 / 0.42);
+  --accent-fg:     #080d16;
 
   --grow:          #2dd4bf;
-  --grow-ink:      #2dd4bf;
+  --grow-ink:      #6fd3be;
   --grow-bg:       rgb(45 212 191 / 0.12);
   --grow-line:     rgb(45 212 191 / 0.38);
 
   --shrink:        #fb7185;
-  --shrink-ink:    #fb7185;
+  --shrink-ink:    #f69a9d;
   --shrink-bg:     rgb(251 113 133 / 0.12);
   --shrink-line:   rgb(251 113 133 / 0.38);
 
   --uncertain:     #fbbf24;
-  --uncertain-ink: #fbbf24;
+  --uncertain-ink: #ebb077;
   --uncertain-bg:  rgb(251 191 36 / 0.12);
   --uncertain-line: rgb(251 191 36 / 0.38);
 
-  --focus:         #818cf8;
+  --focus:         #9ab9e8;
 
   --e-0: 0 0 0 1px var(--ring);
   --e-1: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.4);

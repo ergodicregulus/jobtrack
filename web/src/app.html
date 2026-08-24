@@ -7,6 +7,30 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 
     <!--
+      Preloaded because both faces are used above the fold on every page, and a
+      font discovered only when the CSS parses arrives one round trip late —
+      long enough to see the fallback and then watch it swap.
+
+      crossorigin is required even though these are same-origin: fonts are
+      fetched in CORS mode, and without it the preload is discarded and fetched
+      a second time, which is worse than not preloading at all.
+    -->
+    <link
+      rel="preload"
+      href="%sveltekit.assets%/fonts/instrument-sans-var.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="%sveltekit.assets%/fonts/ibm-plex-mono-500.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <!--
       The theme is stamped onto <html> by the server, from a cookie mirroring the
       user's stored preference. That is the only way to avoid a flash of the
       wrong theme: the browser cannot know the preference before first paint,

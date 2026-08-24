@@ -20,7 +20,7 @@ test('the whole product, as one stranger walks it', async ({ page }) => {
   // --- land on it, and understand what it is -------------------------------
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText(
-    /scored against what you actually have/i
+    /tells you what it doesn't know/i
   );
   // "understand what it is" means the claim is legible AND checkable: real
   // figures, not "thousands of opportunities".

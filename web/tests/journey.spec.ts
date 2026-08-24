@@ -348,7 +348,10 @@ test.describe('activity is recorded from real movement', () => {
 test.describe('routing guards', () => {
   test('signed-out visitors get the landing page, not an empty dashboard', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('link', { name: /create an account/i })).toBeVisible();
+    // .first(): the landing page offers the same action at the top and at the
+    // bottom, which is deliberate. This test is about which page a signed-out
+    // visitor lands on, not about how many times it invites them in.
+    await expect(page.getByRole('link', { name: /create an account/i }).first()).toBeVisible();
   });
 
   test('protected pages redirect to sign-in and return you afterwards', async ({ page }) => {
