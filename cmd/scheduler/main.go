@@ -57,7 +57,7 @@ func main() {
 		app.Fatal(err)
 	}
 
-	client, err := jobs.New(ctx, deps, jobs.RoleScheduler)
+	client, err := jobs.New(deps, jobs.RoleScheduler)
 	if err != nil {
 		a.Log.Error("could not build river client", "error", err)
 		a.Close(ctx)

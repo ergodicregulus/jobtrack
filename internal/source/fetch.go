@@ -45,12 +45,12 @@ type Request struct {
 // Body is nil exactly when NotModified is true — there is nothing to parse and
 // no caller should try.
 type Response struct {
-	Body        []byte
-	StatusCode  int
-	ETag        string
+	Body         []byte
+	StatusCode   int
+	ETag         string
 	LastModified string
 	ContentHash  []byte
-	NotModified bool
+	NotModified  bool
 
 	// RetryAfterHeader is the raw header, set only on a 429. Kept raw rather
 	// than parsed so Do stays a classifier and the caller decides what to do

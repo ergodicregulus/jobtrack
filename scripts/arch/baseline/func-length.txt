@@ -4,15 +4,5 @@
 # by hand — a new entry means a new violation, and that is what this file
 # exists to prevent.
 
-cmd/covcheck/main.go:main
 cmd/resume-parser/main.go:main
-cmd/seed/main.go:seedUsers
-internal/api/resume.go:handleResumeUpload
-internal/domain/user/profile.go:Apply
-internal/jobs/client.go:New
-internal/matching/score.go:Score
-internal/migrate/data.go:runOne
 internal/migrate/split.go:splitStatements
-internal/resume/text.go:extractPDF
-internal/source/smartrecruiters/adapter.go:Fetch
-internal/store/postings.go:UpsertPosting

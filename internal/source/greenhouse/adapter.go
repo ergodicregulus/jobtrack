@@ -311,4 +311,3 @@ func parseTime(s string) (time.Time, error) {
 	}
 	return time.Time{}, fmt.Errorf("greenhouse: unrecognised time %q", s)
 }
-

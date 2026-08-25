@@ -173,4 +173,3 @@ func TestParse_MalformedBodyIsAnErrorNotAnEmptyBoard(t *testing.T) {
 		t.Fatal("malformed JSON parsed without error; absent postings would be closed")
 	}
 }
-

@@ -125,55 +125,17 @@ func (a *API) handleResumeUpload(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	userID := httpx.UserIDFromContext(ctx)
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxResumeBytes+1))
+	body, err := readUpload(r)
 	if err != nil {
-		return httpx.ErrBadRequest("could not read the upload")
-	}
-	if len(body) == 0 {
-		return httpx.ErrBadRequest("no file was uploaded")
-	}
-	if len(body) > maxResumeBytes {
-		return httpx.ErrUnprocessable("That file is larger than 5 MB. A CV that size is " +
-			"usually an image export, which applicant tracking systems cannot read either.")
+		return err
 	}
 
-	parsed, err := a.parser.parse(ctx, body)
+	parsed, err := a.parseResume(ctx, body, userID)
 	if err != nil {
-		var apiErr *httpx.APIError
-		if errors.As(err, &apiErr) {
-			return apiErr
-		}
-		a.log.ErrorContext(ctx, "resume parse failed", "error", err, "user_id", userID)
-
-		// The parser being down is OUR outage and a temporary one, so the user
-		// is told to try again rather than shown "internal server error" and
-		// left wondering whether their CV is the problem. It is a separate
-		// deployment precisely so it can fail alone; the error should reflect
-		// that rather than implicate the whole product.
-		if errors.Is(err, errParserUnreachable) {
-			return httpx.ErrUnavailable("Our CV reader is temporarily unavailable. " +
-				"Nothing is wrong with your file — please try again in a moment.")
-		}
-		return httpx.ErrInternal(err)
+		return err
 	}
 
-	// The original file is deliberately NOT stored.
-	//
-	// ADR-0007 is privacy-driven, and the least risky place for a CV is nowhere.
-	// We keep the extracted text (encrypted) and the structured parse, which is
-	// everything the product needs — including re-running an improved parser
-	// over the text later. What is lost is re-EXTRACTION from the original
-	// bytes after an extractor change; that is a real cost, accepted in
-	// exchange for not holding a bucket full of people's CVs.
-	textEnc, err := a.crypt.SealString(parsed.Text)
-	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-	jsonBytes, err := json.Marshal(parsed.Result)
-	if err != nil {
-		return httpx.ErrInternal(err)
-	}
-	jsonEnc, err := a.crypt.Seal(jsonBytes)
+	textEnc, jsonEnc, err := a.seal(parsed)
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}
@@ -216,6 +178,73 @@ func (a *API) handleResumeUpload(w http.ResponseWriter, r *http.Request) error {
 
 	httpx.WriteJSON(ctx, w, a.log, http.StatusCreated, out)
 	return nil
+}
+
+// readUpload reads the body under a cap, one byte over the limit so the
+// oversize case is detectable rather than silently truncated.
+func readUpload(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxResumeBytes+1))
+	if err != nil {
+		return nil, httpx.ErrBadRequest("could not read the upload")
+	}
+	if len(body) == 0 {
+		return nil, httpx.ErrBadRequest("no file was uploaded")
+	}
+	if len(body) > maxResumeBytes {
+		return nil, httpx.ErrUnprocessable("That file is larger than 5 MB. A CV that size is " +
+			"usually an image export, which applicant tracking systems cannot read either.")
+	}
+	return body, nil
+}
+
+// parseResume calls the parser and turns its failures into something a person
+// can act on.
+func (a *API) parseResume(ctx context.Context, body []byte, userID int64) (*parseResponse, error) {
+	parsed, err := a.parser.parse(ctx, body)
+	if err == nil {
+		return parsed, nil
+	}
+
+	var apiErr *httpx.APIError
+	if errors.As(err, &apiErr) {
+		return nil, apiErr
+	}
+	a.log.ErrorContext(ctx, "resume parse failed", "error", err, "user_id", userID)
+
+	// The parser being down is OUR outage and a temporary one, so the user is
+	// told to try again rather than shown "internal server error" and left
+	// wondering whether their CV is the problem. It is a separate deployment
+	// precisely so it can fail alone; the error should reflect that rather than
+	// implicate the whole product.
+	if errors.Is(err, errParserUnreachable) {
+		return nil, httpx.ErrUnavailable("Our CV reader is temporarily unavailable. " +
+			"Nothing is wrong with your file — please try again in a moment.")
+	}
+	return nil, httpx.ErrInternal(err)
+}
+
+// seal encrypts the two things we keep.
+//
+// The original file is deliberately NOT among them. ADR-0007 is privacy-driven,
+// and the least risky place for a CV is nowhere. We keep the extracted text and
+// the structured parse, which is everything the product needs — including
+// re-running an improved parser over the text later. What is lost is
+// re-EXTRACTION from the original bytes after an extractor change; that is a
+// real cost, accepted in exchange for not holding a bucket full of people's CVs.
+func (a *API) seal(parsed *parseResponse) (textEnc, jsonEnc []byte, err error) {
+	textEnc, err = a.crypt.SealString(parsed.Text)
+	if err != nil {
+		return nil, nil, err
+	}
+	jsonBytes, err := json.Marshal(parsed.Result)
+	if err != nil {
+		return nil, nil, err
+	}
+	jsonEnc, err = a.crypt.Seal(jsonBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textEnc, jsonEnc, nil
 }
 
 // markKnownSkills annotates each proposed skill with whether the profile has it.

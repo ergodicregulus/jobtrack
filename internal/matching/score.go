@@ -286,14 +286,7 @@ func (s *Scorer) Score(p Profile, j Posting) Result {
 	// Below the floor we understood too little of the posting to say anything.
 	// Refusing to score is more honest than scoring fragments.
 	if j.ParseConfidence < s.cfg.MinPostingParseConfidence {
-		return Result{
-			Score: 0, Band: BandUnlikely, Confidence: 0,
-			Headline: "Not enough detail in this posting to score it",
-			Components: []Component{{
-				Name: "parse", Neutral: true,
-				Detail: "We could not read enough of this posting to compare it fairly",
-			}},
-		}
+		return unreadable()
 	}
 
 	components := []Component{
@@ -304,13 +297,74 @@ func (s *Scorer) Score(p Profile, j Posting) Result {
 		s.scoreFreshness(j),
 	}
 
-	// Neutral components are excluded from BOTH numerator and denominator, so
-	// abstaining never drags the score down. A posting with no stated salary
-	// scores exactly as if compensation were not a criterion at all.
-	var earned, available float64
-	// skillsEvidence is how much the posting told us about its requirements.
-	// Zero when it listed none at all — the abstention path below.
-	skillsEvidence := 0.0
+	earned, available, skillsEvidence := s.tally(components)
+
+	score := 0.0
+	if available > 0 {
+		score = math.Round((earned/available)*1000) / 10
+	}
+
+	band, confidence := s.temper(score, math.Min(p.ParseConfidence, j.ParseConfidence), skillsEvidence)
+
+	return Result{
+		Score:      score,
+		Band:       band,
+		Components: components,
+		Confidence: confidence,
+		Headline:   headlineFor(components),
+	}
+}
+
+// unreadable is the result for a posting we could not parse well enough to
+// compare fairly. Zero with a stated reason, not a low score — a low score is a
+// claim about fit, and we are not making one.
+func unreadable() Result {
+	return Result{
+		Score: 0, Band: BandUnlikely, Confidence: 0,
+		Headline: "Not enough detail in this posting to score it",
+		Components: []Component{{
+			Name: "parse", Neutral: true,
+			Detail: "We could not read enough of this posting to compare it fairly",
+		}},
+	}
+}
+
+// tally sums the components, and credits the skills weight when it abstained.
+//
+// Neutral components are excluded from BOTH numerator and denominator, so
+// abstaining never drags the score down. A posting with no stated salary scores
+// exactly as if compensation were not a criterion at all.
+//
+// SKILLS ABSTENTION IS NOT LIKE THE OTHERS, and treating it as though it were
+// produced the worst class of error this scorer can make.
+//
+// Observed in real data: "Professional Services Commercial Lead" scored 98 for a
+// backend engineer. The posting listed no recognisable skills, so the 40-point
+// skills component abstained and vanished from the denominator, leaving the
+// score to be decided entirely by "you are remote, your years are in range, it
+// was posted today". Every one of those was true. The role was not an
+// engineering job at all.
+//
+// Salary is genuinely optional — a role is not a worse fit for failing to
+// publish one. Skills are the only component that establishes the posting is
+// even in the reader's field, so abstaining there means we do not know whether
+// this is a match, and the result must say so rather than quietly reporting
+// near-certainty about the fraction we could measure.
+//
+// The unknown weight is therefore credited rather than removed, which pulls the
+// score toward the population's own expectation in exact proportion to how much
+// we could not read.
+//
+// The credit was 0.5 — the midpoint of the SCALE — until it was measured against
+// the corpus. Readable postings earn a mean of 0.236, so half marks for reading
+// nothing put the FLOOR of the unreadable population (42.3) above the MEDIAN of
+// the readable one (39.2): a posting we understood nothing about was guaranteed
+// to outrank half the postings we understood. 42 of the top 100 matches were
+// roles we could not read. See ADR-0011.
+//
+// skillsEvidence is how much the posting told us about its requirements. Zero
+// when it listed none at all, which is the abstention path.
+func (s *Scorer) tally(components []Component) (earned, available, skillsEvidence float64) {
 	for _, c := range components {
 		if c.Name == "skills" && !c.Neutral {
 			skillsEvidence = c.Evidence
@@ -322,74 +376,40 @@ func (s *Scorer) Score(p Profile, j Posting) Result {
 		available += c.Max
 	}
 
-	// Skills abstention is NOT like the others, and treating it as though it
-	// were produced the worst class of error this scorer can make.
-	//
-	// Observed in real data: "Professional Services Commercial Lead" scored 98
-	// for a backend engineer. The posting listed no recognisable skills, so the
-	// 40-point skills component abstained and vanished from the denominator,
-	// leaving the score to be decided entirely by "you are remote, your years
-	// are in range, it was posted today". Every one of those was true. The role
-	// was not an engineering job at all.
-	//
-	// Salary is genuinely optional — a role is not a worse fit for failing to
-	// publish one. Skills are the only component that establishes the posting is
-	// even in the reader's field, so abstaining there means we do not know
-	// whether this is a match, and the result must say so rather than quietly
-	// reporting near-certainty about the fraction we could measure.
-	//
-	// The unknown weight is therefore credited rather than removed, which pulls
-	// the score toward the population's own expectation in exact proportion to
-	// how much we could not read.
-	//
-	// The credit was 0.5 — the midpoint of the SCALE — until it was measured
-	// against the corpus. Readable postings earn a mean of 0.236, so half marks
-	// for reading nothing put the FLOOR of the unreadable population (42.3)
-	// above the MEDIAN of the readable one (39.2): a posting we understood
-	// nothing about was guaranteed to outrank half the postings we understood.
-	// 42 of the top 100 matches were roles we could not read. See ADR-0011.
 	if skillsEvidence == 0 {
 		skillsMax := s.cfg.Weights.Skills
 		earned += skillsMax * s.cfg.AbstentionCredit
 		available += skillsMax
 	}
+	return earned, available, skillsEvidence
+}
 
-	score := 0.0
-	if available > 0 {
-		score = math.Round((earned/available)*1000) / 10
+// temper caps the band and degrades confidence when the skills evidence is
+// partial. The score itself is left alone: it is arithmetic, and these two are
+// the claims made ABOUT it.
+//
+// A strong-match claim requires having actually read the requirements. Damping
+// the skills component alone is not enough, because the other four can still
+// carry a thin posting into the top band on their own: a marketing role that is
+// remote, in the right experience range and posted today scores 81 with its
+// skills already discounted. Every one of those facts is true and none of them
+// says the job is in the reader's field.
+//
+// So the band — the part a user reads as a claim rather than a number — is
+// capped whenever the evidence behind it is partial.
+func (s *Scorer) temper(score, confidence, skillsEvidence float64) (Band, float64) {
+	band := s.bandFor(score)
+	if skillsEvidence >= 1 {
+		return band, confidence
 	}
 
-	confidence := math.Min(p.ParseConfidence, j.ParseConfidence)
-
-	band := s.bandFor(score)
-
-	// A strong-match claim requires having actually read the requirements.
-	//
-	// Damping the skills component alone is not enough, because the other four
-	// components can still carry a thin posting into the top band on their own:
-	// a marketing role that is remote, in the right experience range and posted
-	// today scores 81 with its skills already discounted. Every one of those
-	// facts is true and none of them says the job is in the reader's field.
-	//
-	// So the band — the part a user reads as a claim rather than a number — is
-	// capped whenever the evidence behind it is partial.
-	if skillsEvidence < 1 && band == BandStrong {
+	if band == BandStrong {
 		band = BandPlausible
 	}
-	if skillsEvidence < 1 {
-		// Confidence degrades smoothly rather than by a fixed factor, so a
-		// posting stating one of two expected skills is not treated the same as
-		// one stating nothing at all.
-		confidence *= 0.5 + 0.5*skillsEvidence
-	}
-
-	return Result{
-		Score:      score,
-		Band:       band,
-		Components: components,
-		Confidence: confidence,
-		Headline:   headlineFor(components),
-	}
+	// Confidence degrades smoothly rather than by a fixed factor, so a posting
+	// stating one of two expected skills is not treated the same as one stating
+	// nothing at all.
+	return band, confidence * (0.5 + 0.5*skillsEvidence)
 }
 
 func (s *Scorer) bandFor(score float64) Band {

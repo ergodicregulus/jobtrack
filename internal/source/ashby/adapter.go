@@ -285,13 +285,9 @@ func applyCompensation(p *source.RawPosting, j *wireJob) {
 	p.CompIsStructured = true
 }
 
-
-
 func valueOr(p *float64, def float64) float64 {
 	if p == nil {
 		return def
 	}
 	return *p
 }
-
-

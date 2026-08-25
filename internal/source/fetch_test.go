@@ -11,13 +11,13 @@ import (
 // and used `> 0` rather than `>= 0` — without anything failing.
 func TestParseRetryAfter(t *testing.T) {
 	cases := map[string]time.Duration{
-		"120":                             2 * time.Minute,
-		"":                                0,
-		"garbage":                         0,
-		"Wed, 21 Oct 2015 07:28:00 GMT":   0, // past date: never a negative wait
-		"  30  ":                          30 * time.Second,
-		"0":                               0,
-		"-5":                              0,
+		"120":                           2 * time.Minute,
+		"":                              0,
+		"garbage":                       0,
+		"Wed, 21 Oct 2015 07:28:00 GMT": 0, // past date: never a negative wait
+		"  30  ":                        30 * time.Second,
+		"0":                             0,
+		"-5":                            0,
 	}
 	for in, want := range cases {
 		if got := ParseRetryAfter(in); got != want {

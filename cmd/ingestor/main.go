@@ -55,7 +55,7 @@ func main() {
 		Vocab: vocab,
 	}
 
-	client, err := jobs.New(ctx, deps, jobs.RoleIngestor)
+	client, err := jobs.New(deps, jobs.RoleIngestor)
 	if err != nil {
 		a.Log.Error("could not build river client", "error", err)
 		a.Close(ctx)

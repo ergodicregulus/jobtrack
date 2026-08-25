@@ -176,7 +176,7 @@ func pruneBoards(ctx context.Context, a *app.App) (int64, error) {
 func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) error {
 	deps := &jobs.Deps{Pool: a.Pool, Log: a.Log, Cfg: a.Cfg, Vocab: vocab}
 
-	client, err := jobs.New(ctx, deps, jobs.RoleIngestor)
+	client, err := jobs.New(deps, jobs.RoleIngestor)
 	if err != nil {
 		return err
 	}
@@ -243,87 +243,99 @@ func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) erro
 
 // seedUsers creates the demo accounts, already onboarded so the dashboard has
 // something to show on first login.
+// demo is one seeded account. Three of them, spanning the profile shapes the
+// scoring engine behaves differently for: a mid-level engineer, a senior with a
+// narrow remote preference, and a graduate with no current title.
+type demo struct {
+	Email, First, Last, Title, Target string
+	YoE                               float64
+	Countries, Modes                  []string
+	CompMin                           float64
+	Currency                          string
+	Skills                            []string
+	Prefs                             string
+}
+
+var demos = []demo{
+	{
+		Email: "dev@jobtrack.local", First: "Arjun", Last: "Mehta",
+		Title: "Software Engineer", Target: "Senior Backend Engineer",
+		YoE: 2, Countries: []string{"IN"}, Modes: []string{"remote", "hybrid", "onsite"},
+		CompMin: 2_500_000, Currency: "INR",
+		Skills: []string{"python", "postgresql", "docker", "aws", "django", "linux", "git"},
+		Prefs:  `{"theme":"system","density":"compact"}`,
+	},
+	{
+		Email: "senior@jobtrack.local", First: "Priya", Last: "Sharma",
+		Title: "Senior Backend Engineer", Target: "Staff Engineer",
+		YoE: 7, Countries: []string{"IN", "GB"}, Modes: []string{"remote"},
+		CompMin: 6_000_000, Currency: "INR",
+		Skills: []string{"go", "kubernetes", "kafka", "postgresql", "terraform", "observability", "aws"},
+		Prefs:  `{"theme":"dark","density":"compact"}`,
+	},
+	{
+		Email: "grad@jobtrack.local", First: "Sam", Last: "Okafor",
+		Title: "", Target: "Software Engineer",
+		YoE: 0, Countries: []string{"US", "GB"}, Modes: []string{"remote", "hybrid"},
+		CompMin: 90_000, Currency: "USD",
+		Skills: []string{"javascript", "typescript", "react", "git", "sql"},
+		Prefs:  `{"theme":"light","density":"comfortable"}`,
+	},
+}
+
 func seedUsers(ctx context.Context, a *app.App) error {
 	hash, err := auth.HashPassword("dev-password-please")
 	if err != nil {
 		return err
 	}
 
-	type demo struct {
-		Email, First, Last, Title, Target string
-		YoE                               float64
-		Countries, Modes                  []string
-		CompMin                           float64
-		Currency                          string
-		Skills                            []string
-		Prefs                             string
-	}
-
-	demos := []demo{
-		{
-			Email: "dev@jobtrack.local", First: "Arjun", Last: "Mehta",
-			Title: "Software Engineer", Target: "Senior Backend Engineer",
-			YoE: 2, Countries: []string{"IN"}, Modes: []string{"remote", "hybrid", "onsite"},
-			CompMin: 2_500_000, Currency: "INR",
-			Skills: []string{"python", "postgresql", "docker", "aws", "django", "linux", "git"},
-			Prefs:  `{"theme":"system","density":"compact"}`,
-		},
-		{
-			Email: "senior@jobtrack.local", First: "Priya", Last: "Sharma",
-			Title: "Senior Backend Engineer", Target: "Staff Engineer",
-			YoE: 7, Countries: []string{"IN", "GB"}, Modes: []string{"remote"},
-			CompMin: 6_000_000, Currency: "INR",
-			Skills: []string{"go", "kubernetes", "kafka", "postgresql", "terraform", "observability", "aws"},
-			Prefs:  `{"theme":"dark","density":"compact"}`,
-		},
-		{
-			Email: "grad@jobtrack.local", First: "Sam", Last: "Okafor",
-			Title: "", Target: "Software Engineer",
-			YoE: 0, Countries: []string{"US", "GB"}, Modes: []string{"remote", "hybrid"},
-			CompMin: 90_000, Currency: "USD",
-			Skills: []string{"javascript", "typescript", "react", "git", "sql"},
-			Prefs:  `{"theme":"light","density":"comfortable"}`,
-		},
-	}
-
 	for _, d := range demos {
-		var userID int64
-		err := a.Pool.QueryRow(ctx, `
-			INSERT INTO users (email, password_hash, email_verified_at, preferences,
-			                   first_name, last_name, current_title, target_title,
-			                   total_yoe, pref_countries, pref_modes, pref_comp_min,
-			                   pref_currency, onboarded_at, last_active_at)
-			VALUES ($1,$2,now(),$3::jsonb,$4,$5,NULLIF($6,''),$7,$8,$9,$10::work_mode[],$11,$12,now(),now())
-			ON CONFLICT (email) DO UPDATE
-			   SET password_hash = EXCLUDED.password_hash,
-			       preferences = EXCLUDED.preferences,
-			       first_name = EXCLUDED.first_name,
-			       last_name = EXCLUDED.last_name,
-			       current_title = EXCLUDED.current_title,
-			       target_title = EXCLUDED.target_title,
-			       total_yoe = EXCLUDED.total_yoe,
-			       pref_countries = EXCLUDED.pref_countries,
-			       pref_modes = EXCLUDED.pref_modes,
-			       pref_comp_min = EXCLUDED.pref_comp_min,
-			       pref_currency = EXCLUDED.pref_currency,
-			       onboarded_at = COALESCE(users.onboarded_at, now()),
-			       last_active_at = now(),
-			       updated_at = now()
-			RETURNING id`,
-			d.Email, hash, d.Prefs, d.First, d.Last, d.Title, d.Target,
-			d.YoE, d.Countries, d.Modes, d.CompMin, d.Currency).Scan(&userID)
-		if err != nil {
-			return fmt.Errorf("seed user %s: %w", d.Email, err)
-		}
-
-		if _, err := a.Pool.Exec(ctx, `
-			INSERT INTO user_skills (user_id, skill_id, origin)
-			SELECT $1, s.id, 'user' FROM skills s WHERE s.canonical = ANY($2)
-			ON CONFLICT (user_id, skill_id) DO NOTHING`, userID, d.Skills); err != nil {
-			return fmt.Errorf("seed skills for %s: %w", d.Email, err)
+		if err := upsertDemoUser(ctx, a, d, hash); err != nil {
+			return err
 		}
 	}
 
 	a.Log.Info("demo users ready", "count", len(demos), "password", "dev-password-please")
+	return nil
+}
+
+// upsertDemoUser writes one account and its skills. Idempotent, so `make seed`
+// can be re-run against a database that already has them.
+func upsertDemoUser(ctx context.Context, a *app.App, d demo, hash string) error {
+	var userID int64
+	err := a.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, email_verified_at, preferences,
+		                   first_name, last_name, current_title, target_title,
+		                   total_yoe, pref_countries, pref_modes, pref_comp_min,
+		                   pref_currency, onboarded_at, last_active_at)
+		VALUES ($1,$2,now(),$3::jsonb,$4,$5,NULLIF($6,''),$7,$8,$9,$10::work_mode[],$11,$12,now(),now())
+		ON CONFLICT (email) DO UPDATE
+		   SET password_hash = EXCLUDED.password_hash,
+		       preferences = EXCLUDED.preferences,
+		       first_name = EXCLUDED.first_name,
+		       last_name = EXCLUDED.last_name,
+		       current_title = EXCLUDED.current_title,
+		       target_title = EXCLUDED.target_title,
+		       total_yoe = EXCLUDED.total_yoe,
+		       pref_countries = EXCLUDED.pref_countries,
+		       pref_modes = EXCLUDED.pref_modes,
+		       pref_comp_min = EXCLUDED.pref_comp_min,
+		       pref_currency = EXCLUDED.pref_currency,
+		       onboarded_at = COALESCE(users.onboarded_at, now()),
+		       last_active_at = now(),
+		       updated_at = now()
+		RETURNING id`,
+		d.Email, hash, d.Prefs, d.First, d.Last, d.Title, d.Target,
+		d.YoE, d.Countries, d.Modes, d.CompMin, d.Currency).Scan(&userID)
+	if err != nil {
+		return fmt.Errorf("seed user %s: %w", d.Email, err)
+	}
+
+	if _, err := a.Pool.Exec(ctx, `
+		INSERT INTO user_skills (user_id, skill_id, origin)
+		SELECT $1, s.id, 'user' FROM skills s WHERE s.canonical = ANY($2)
+		ON CONFLICT (user_id, skill_id) DO NOTHING`, userID, d.Skills); err != nil {
+		return fmt.Errorf("seed skills for %s: %w", d.Email, err)
+	}
 	return nil
 }

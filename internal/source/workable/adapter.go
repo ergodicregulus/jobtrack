@@ -44,8 +44,8 @@ func (a *Adapter) Vendor() source.Vendor { return source.VendorWorkable }
 // --- wire types -------------------------------------------------------------
 
 type boardResponse struct {
-	Name string     `json:"name"`
-	Jobs []wireJob  `json:"jobs"`
+	Name string    `json:"name"`
+	Jobs []wireJob `json:"jobs"`
 }
 
 type wireJob struct {

@@ -40,7 +40,7 @@ func main() {
 	// Insert-only River client: the API enqueues work, never performs it.
 	// Started implicitly — an insert-only client needs no worker goroutines, so
 	// there is nothing to start or stop.
-	rc, err := jobs.New(ctx, &jobs.Deps{
+	rc, err := jobs.New(&jobs.Deps{
 		Pool:  a.Pool,
 		Log:   a.Log,
 		Cfg:   a.Cfg,

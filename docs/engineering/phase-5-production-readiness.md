@@ -754,8 +754,15 @@ model — replaying one is a redirect. Auto-named from the active facets,
 confirmed inline rather than by a toast, and one may be marked default and
 applied to a bare `/jobs`.
 
-Still open: dismissed postings, results-per-page and default-sort persistence,
-and the digest email — the last because it is the only new infrastructure.
+**Dismissed postings, results-per-page and default-sort: built 2026-08-25.**
+Hiding collapses a card to an undo strip rather than removing it — a row that
+vanishes under the cursor makes the list jump and leaves nothing to click if the
+click was wrong. Page size and sort live in the existing preferences jsonb,
+since nothing filters or joins on them, and precedence is URL → stored
+preference → the product's opinion.
+
+Still open: the digest email, the only item here needing new infrastructure
+(§8.4).
 
 ### Block D — The voice
 

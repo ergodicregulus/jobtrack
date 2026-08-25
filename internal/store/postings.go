@@ -73,8 +73,13 @@ type UpsertResult struct {
 // Runs inside the caller's transaction so the posting write and the jobs it
 // triggers commit together. There is no window where a posting exists without
 // its scoring job, which is the entire reason this system needs no outbox.
-func UpsertPosting(ctx context.Context, tx pgx.Tx, p Posting) (UpsertResult, error) {
-	const q = `
+// upsertPostingSQL is the write path for every ingested posting.
+//
+// At package scope rather than inside UpsertPosting because it is 70 lines of
+// SQL wrapped around 20 lines of Go, and burying it made the function read as
+// though it were long when the only long thing is the statement. Same reason
+// postingScoringColumns sits at package scope in feed.go.
+const upsertPostingSQL = `
 INSERT INTO job_postings (
     source_id, company_id, external_id, requisition_id,
     title, title_normalised, description_html, description_text,
@@ -148,9 +153,10 @@ ON CONFLICT (source_id, external_id) DO UPDATE SET
 RETURNING id, (xmax = 0) AS created,
           (job_postings.updated_at = job_postings.created_at) AS untouched`
 
+func UpsertPosting(ctx context.Context, tx pgx.Tx, p Posting) (UpsertResult, error) {
 	var res UpsertResult
 	var untouched bool
-	err := tx.QueryRow(ctx, q,
+	err := tx.QueryRow(ctx, upsertPostingSQL,
 		p.SourceID, p.CompanyID, p.ExternalID, p.RequisitionID,
 		p.Title, p.TitleNormalised, p.DescriptionHTML, p.DescriptionText,
 		p.ApplyURL, p.PostingURL,

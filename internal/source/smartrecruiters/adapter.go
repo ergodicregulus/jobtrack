@@ -147,6 +147,32 @@ type wireSection struct {
 // what actually saves work: an unchanged board hashes identically and the whole
 // detail phase is skipped.
 func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchResult, error) {
+	all, result, err := a.listBoard(ctx, src)
+	if err != nil || result.NotModified {
+		return result, err
+	}
+
+	start, unchanged := sweepStart(src, result.ContentHash, len(all))
+	if unchanged {
+		result.NotModified = true
+		result.DetailCursor = start
+		return result, nil
+	}
+
+	end := min(start+maxDetailFetches, len(all))
+	filled := a.fillDescriptions(ctx, src, all[start:end])
+	result.DetailCursor = cursorAfter(ctx, filled, start, end)
+	result.Postings = a.convertAll(all, src.BoardToken)
+	return result, nil
+}
+
+// listBoard walks every page and hashes the bodies as it goes.
+//
+// The hash covers the concatenated pages rather than any one of them, so it
+// changes when ANY page does. Only the first page carries the conditional
+// request and the validators: a 304 there means the board is unchanged and the
+// remaining pages need not be fetched at all.
+func (a *Adapter) listBoard(ctx context.Context, src source.Source) ([]wireJob, source.FetchResult, error) {
 	var (
 		all    []wireJob
 		result source.FetchResult
@@ -159,27 +185,11 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 
 		body, res, err := a.get(ctx, url, src, page == 0)
 		if err != nil {
-			return source.FetchResult{}, err
+			return nil, source.FetchResult{}, err
 		}
 		if page == 0 {
-			result.StatusCode = res.StatusCode
-			result.ETag = res.Header.Get("ETag")
-			result.LastModified = res.Header.Get("Last-Modified")
-			result.RetryAfter = source.ParseRetryAfter(res.Header.Get("Retry-After"))
-
-			if res.StatusCode == http.StatusNotModified {
-				result.NotModified = true
-				if result.ETag == "" {
-					result.ETag = src.ETag
-				}
-				if result.LastModified == "" {
-					result.LastModified = src.LastModified
-				}
-				return result, nil
-			}
-			if res.StatusCode != http.StatusOK {
-				return result, fmt.Errorf("smartrecruiters: %s returned %d",
-					src.BoardToken, res.StatusCode)
+			if done, err := firstPage(&result, src, res); done || err != nil {
+				return nil, result, err
 			}
 		}
 
@@ -187,7 +197,7 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 
 		var lr listResponse
 		if err := json.Unmarshal(body, &lr); err != nil {
-			return result, fmt.Errorf("smartrecruiters: decode page %d: %w", page, err)
+			return nil, result, fmt.Errorf("smartrecruiters: decode page %d: %w", page, err)
 		}
 		all = append(all, lr.Content...)
 
@@ -199,60 +209,85 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 	}
 
 	result.ContentHash = hash.Sum(nil)
+	return all, result, nil
+}
 
-	// Resume the sweep where the last poll stopped. A board larger than the
-	// budget takes several polls to come round once, and until it has, an
-	// identical board is NOT a reason to skip the detail phase — the postings
-	// past the cursor still have no body.
-	start := src.DetailCursor
-	if start >= len(all) {
-		// The board has been swept. Now an identical board means identical
-		// postings, and skipping is the difference between one request per poll
-		// and hundreds.
-		if len(src.ContentHash) > 0 && string(result.ContentHash) == string(src.ContentHash) {
-			result.NotModified = true
-			result.DetailCursor = start
-			return result, nil
-		}
-		// The board moved. Sweep again from the top: positions shift as postings
-		// open and close, so there is no position that is reliably "the new
-		// ones", and a second pass also refreshes bodies that have been edited.
-		start = 0
+// firstPage records the validators and classifies the status. Returns true when
+// the caller should stop — a 304, which is the common case.
+func firstPage(result *source.FetchResult, src source.Source, res *http.Response) (bool, error) {
+	result.StatusCode = res.StatusCode
+	result.ETag = res.Header.Get("ETag")
+	result.LastModified = res.Header.Get("Last-Modified")
+	result.RetryAfter = source.ParseRetryAfter(res.Header.Get("Retry-After"))
+
+	switch {
+	case res.StatusCode == http.StatusNotModified:
+		result.NotModified = true
+		// Carry forward what we sent: a 304 need not repeat them, and dropping
+		// them turns every later poll into a full walk of the board.
+		result.ETag = source.FirstNonEmpty(result.ETag, src.ETag)
+		result.LastModified = source.FirstNonEmpty(result.LastModified, src.LastModified)
+		return true, nil
+	case res.StatusCode != http.StatusOK:
+		return true, fmt.Errorf("smartrecruiters: %s returned %d", src.BoardToken, res.StatusCode)
 	}
+	return false, nil
+}
 
-	end := start + maxDetailFetches
-	if end > len(all) {
-		end = len(all)
+// sweepStart decides where the detail phase resumes, and whether it can be
+// skipped entirely.
+//
+// A board larger than the per-poll budget takes several polls to come round
+// once, and until it has, an identical board is NOT a reason to skip the detail
+// phase — the postings past the cursor still have no body. Only once the sweep
+// has completed does an identical board mean identical postings, and skipping
+// is then the difference between one request per poll and hundreds.
+//
+// When the board has been swept AND has changed, the sweep restarts from the
+// top: positions shift as postings open and close, so there is no position that
+// is reliably "the new ones", and a second pass also refreshes bodies that have
+// been edited.
+func sweepStart(src source.Source, hash []byte, total int) (start int, unchanged bool) {
+	start = src.DetailCursor
+	if start < total {
+		return start, false
 	}
-	filled := a.fillDescriptions(ctx, src, all[start:end])
+	if len(src.ContentHash) > 0 && string(hash) == string(src.ContentHash) {
+		return start, true
+	}
+	return 0, false
+}
 
-	// Only step over a window we actually read.
-	//
-	// A body we could not fetch is fine — it leaves a posting scoring honestly
-	// as an abstention, and the next full pass retries it. A window where we
-	// fetched NOTHING is a different event: it means the run was cut off (a
-	// cancelled context, an exhausted pool), and stepping over it would skip
-	// those postings until the sweep came round again. That happened on the
-	// first live run — two boards advanced 250 places having filled nothing,
-	// while the database pool was saturated.
+// cursorAfter steps over only a window we actually read.
+//
+// A body we could not fetch is fine — it leaves a posting scoring honestly as an
+// abstention, and the next full pass retries it. A window where we fetched
+// NOTHING is a different event: it means the run was cut off (a cancelled
+// context, an exhausted pool), and stepping over it would skip those postings
+// until the sweep came round again. That happened on the first live run — two
+// boards advanced 250 places having filled nothing, while the database pool was
+// saturated.
+func cursorAfter(ctx context.Context, filled, start, end int) int {
 	if filled == 0 && ctx.Err() != nil {
-		result.DetailCursor = start
-	} else {
-		result.DetailCursor = end
+		return start
 	}
+	return end
+}
 
+// convertAll maps the wire jobs, dropping any it cannot read.
+//
+// One malformed posting must not lose the other 4,801. The board is someone
+// else's data and will contain surprises.
+func (a *Adapter) convertAll(all []wireJob, boardToken string) []source.RawPosting {
 	postings := make([]source.RawPosting, 0, len(all))
 	for i := range all {
-		p, err := a.convert(&all[i], src.BoardToken)
+		p, err := a.convert(&all[i], boardToken)
 		if err != nil {
-			// One malformed posting must not lose the other 4,801. The board is
-			// someone else's data and will contain surprises.
 			continue
 		}
 		postings = append(postings, p)
 	}
-	result.Postings = postings
-	return result, nil
+	return postings
 }
 
 // fillDescriptions performs the second phase over one window of the board,
@@ -516,5 +551,3 @@ func workplaceOf(l wireLoc) string {
 		return ""
 	}
 }
-
-

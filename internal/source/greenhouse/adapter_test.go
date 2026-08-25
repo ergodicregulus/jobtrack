@@ -323,7 +323,6 @@ func TestParseTime(t *testing.T) {
 	}
 }
 
-
 // --- Fetch behaviour, via a stub transport (never a live ATS) ---------------
 
 type stubClient struct {

@@ -27,23 +27,59 @@ const (
 )
 
 // New builds a River client for the given role.
-func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error) {
+// New builds the River client for one role.
+//
+// Deliberately takes no context: it registers workers and constructs a client,
+// performing no I/O and honouring no cancellation. It carried a ctx parameter
+// that was never used in the body, which promises a cancellation contract this
+// function does not keep — a reader has to check to find that out.
+func New(d *Deps, role Role) (*river.Client[pgx.Tx], error) {
 	d.Init()
 
-	// EVERY role registers EVERY worker; only the queue map decides what a
-	// process actually executes.
-	//
-	// This is not redundancy. River validates on insert that the job kind is
-	// present in the inserting client's worker bundle, so a process must know
-	// about every kind it *enqueues*, not merely the ones it *runs*. Registering
-	// per role looks tidier and is a trap: the ingestor enqueues score_posting
-	// inside the same transaction that writes the postings, so a missing
-	// registration failed that insert, rolled the transaction back, and threw
-	// away a completely successful fetch. Nothing was written, the job retried,
-	// and the symptom was an ingestion pipeline that ran forever at zero rows.
-	//
-	// Registration is free — it is a map entry, not a goroutine. Work only
-	// happens for queues named in cfg.Queues below.
+	queues, err := queuesFor(role)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &river.Config{
+		Queues:  queues,
+		Workers: registerWorkers(d),
+		Logger:  d.Log,
+		// Retries back off and jitter. The default is sensible; the ceiling
+		// matters because a vendor outage should not retry every 30s for hours.
+		RetryPolicy: &river.DefaultClientRetryPolicy{},
+		// Completed jobs are pruned rather than accumulating. Without this the
+		// river_job table becomes the largest in the database.
+		JobTimeout: 10 * time.Minute,
+	}
+	// The API is excluded because it takes no queues and does no maintenance.
+	if role != RoleEnqueuer {
+		cfg.PeriodicJobs = periodicJobs()
+	}
+
+	client, err := river.NewClient(riverpgxv5.New(d.Pool), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create river client: %w", err)
+	}
+	d.River = client
+	return client, nil
+}
+
+// registerWorkers builds the bundle. EVERY role registers EVERY worker; only
+// the queue map decides what a process actually executes.
+//
+// This is not redundancy. River validates on insert that the job kind is present
+// in the inserting client's worker bundle, so a process must know about every
+// kind it *enqueues*, not merely the ones it *runs*. Registering per role looks
+// tidier and is a trap: the ingestor enqueues score_posting inside the same
+// transaction that writes the postings, so a missing registration failed that
+// insert, rolled the transaction back, and threw away a completely successful
+// fetch. Nothing was written, the job retried, and the symptom was an ingestion
+// pipeline that ran forever at zero rows.
+//
+// Registration is free — it is a map entry, not a goroutine. Work only happens
+// for queues named in queuesFor.
+func registerWorkers(d *Deps) *river.Workers {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &FetchSourceWorker{Deps: d})
 	river.AddWorker(workers, &DedupeCompanyWorker{Deps: d})
@@ -52,7 +88,11 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
 	river.AddWorker(workers, &RetentionSweepWorker{Deps: d})
 	river.AddWorker(workers, &RollupSourceDailyWorker{Deps: d})
+	return workers
+}
 
+// queuesFor decides what this process actually runs.
+func queuesFor(role Role) (map[string]river.QueueConfig, error) {
 	queues := map[string]river.QueueConfig{}
 
 	switch role {
@@ -71,88 +111,68 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	default:
 		return nil, fmt.Errorf("unknown river role %q", role)
 	}
+	return queues, nil
+}
 
-	cfg := &river.Config{
-		Queues:  queues,
-		Workers: workers,
-		Logger:  d.Log,
-		// Retries back off and jitter. The default is sensible; the ceiling
-		// matters because a vendor outage should not retry every 30s for hours.
-		RetryPolicy: &river.DefaultClientRetryPolicy{},
-		// Completed jobs are pruned rather than accumulating. Without this the
-		// river_job table becomes the largest in the database.
-		JobTimeout: 10 * time.Minute,
+// periodicJobs is configured on EVERY worker role, not just the scheduler.
+//
+// The obvious design — put them only on the scheduler, which is a singleton —
+// is wrong, and quietly so. River gates its periodic job enqueuer on ITS OWN
+// leader election, which is global across every client connected to the database
+// and is not something a particular process can be guaranteed to win.
+// Configuring the list only on the scheduler means that whenever the ingestor
+// happens to win the election, the leader runs an empty periodic list and
+// NOTHING is ever enqueued.
+//
+// Observed exactly that: the scheduler logged "scheduler is leader" from its own
+// advisory lock, held it correctly, and still enqueued nothing for twenty
+// minutes, because a different client held River's leadership.
+//
+// Configuring the same list everywhere is both simpler and safe: River runs the
+// enqueuer only on the leader, so the jobs still fire exactly once no matter
+// which process wins. The double-enqueue this was trying to avoid is prevented
+// by River's election, not by our process topology.
+func periodicJobs() []*river.PeriodicJob {
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ScheduleSourcesArgs{Limit: 200}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return RetierSourcesArgs{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		// Daily, and NOT RunOnStart: nothing depends on it being prompt, and a
+		// deploy loop would otherwise run a table sweep on every restart for no
+		// benefit.
+		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return PruneSessionsArgs{}, nil },
+			nil,
+		),
+		// Daily, and RunOnStart. A retention obligation that waits up to 24
+		// hours after a deploy to first run is 24 hours of holding data past its
+		// stated period, and the sweep is cheap enough that running it on every
+		// start costs nothing.
+		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return RetentionSweepArgs{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		// Hourly, not daily: today's row is incomplete until the day ends, and a
+		// chart that only updates at midnight looks broken to anyone who checks
+		// it during the day. RunOnStart so a fresh deploy has a populated chart
+		// rather than an empty one.
+		river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return RollupSourceDailyArgs{Days: 2}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
 	}
-
-	// Periodic jobs are configured on EVERY worker role, not just the scheduler.
-	//
-	// The obvious design — put them only on the scheduler, which is a singleton
-	// — is wrong, and quietly so. River gates its periodic job enqueuer on ITS
-	// OWN leader election, which is global across every client connected to the
-	// database and is not something a particular process can be guaranteed to
-	// win. Configuring the list only on the scheduler means that whenever the
-	// ingestor happens to win the election, the leader runs an empty
-	// periodic list and NOTHING is ever enqueued.
-	//
-	// Observed exactly that: the scheduler logged "scheduler is leader" from its
-	// own advisory lock, held it correctly, and still enqueued nothing for
-	// twenty minutes, because a different client held River's leadership.
-	//
-	// Configuring the same list everywhere is both simpler and safe: River runs
-	// the enqueuer only on the leader, so the jobs still fire exactly once no
-	// matter which process wins. The double-enqueue this was trying to avoid is
-	// prevented by River's election, not by our process topology.
-	//
-	// The API is excluded because it takes no queues and does no maintenance.
-	if role != RoleEnqueuer {
-		cfg.PeriodicJobs = []*river.PeriodicJob{
-			river.NewPeriodicJob(
-				river.PeriodicInterval(1*time.Minute),
-				func() (river.JobArgs, *river.InsertOpts) {
-					return ScheduleSourcesArgs{Limit: 200}, nil
-				},
-				&river.PeriodicJobOpts{RunOnStart: true},
-			),
-			river.NewPeriodicJob(
-				river.PeriodicInterval(1*time.Hour),
-				func() (river.JobArgs, *river.InsertOpts) { return RetierSourcesArgs{}, nil },
-				&river.PeriodicJobOpts{RunOnStart: true},
-			),
-			// Daily, and NOT RunOnStart: nothing depends on it being prompt,
-			// and a deploy loop would otherwise run a table sweep on every
-			// restart for no benefit.
-			river.NewPeriodicJob(
-				river.PeriodicInterval(24*time.Hour),
-				func() (river.JobArgs, *river.InsertOpts) { return PruneSessionsArgs{}, nil },
-				nil,
-			),
-			// Daily, and RunOnStart. A retention obligation that waits up to
-			// 24 hours after a deploy to first run is 24 hours of holding data
-			// past its stated period, and the sweep is cheap enough that
-			// running it on every start costs nothing.
-			river.NewPeriodicJob(
-				river.PeriodicInterval(24*time.Hour),
-				func() (river.JobArgs, *river.InsertOpts) { return RetentionSweepArgs{}, nil },
-				&river.PeriodicJobOpts{RunOnStart: true},
-			),
-			// Hourly, not daily: today's row is incomplete until the day ends,
-			// and a chart that only updates at midnight looks broken to anyone
-			// who checks it during the day. RunOnStart so a fresh deploy has a
-			// populated chart rather than an empty one.
-			river.NewPeriodicJob(
-				river.PeriodicInterval(1*time.Hour),
-				func() (river.JobArgs, *river.InsertOpts) { return RollupSourceDailyArgs{Days: 2}, nil },
-				&river.PeriodicJobOpts{RunOnStart: true},
-			),
-		}
-	}
-
-	client, err := river.NewClient(riverpgxv5.New(d.Pool), cfg)
-	if err != nil {
-		return nil, fmt.Errorf("create river client: %w", err)
-	}
-	d.River = client
-	return client, nil
 }
 
 // Migrate applies River's own schema.

@@ -194,32 +194,9 @@ func (r *DataRunner) load(ctx context.Context, version int64) (DataMigrationStat
 func (r *DataRunner) runOne(ctx context.Context, dm DataMigration, cursor []byte) error {
 	log := r.log.With("version", dm.Version(), "name", dm.Name())
 
-	// Refuse to run ahead of the schema it depends on.
-	var schemaOK bool
-	if err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version >= $1 AND NOT dirty)`,
-		dm.RequiresSchemaVersion()).Scan(&schemaOK); err != nil {
-		return fmt.Errorf("check schema dependency: %w", err)
-	}
-	if !schemaOK {
-		log.Warn("waiting for schema migration", "requires", dm.RequiresSchemaVersion())
-		return nil
-	}
-
-	// Claim it. The WHERE clause is the lock: two schedulers racing means one
-	// UPDATE affects zero rows and that instance backs off.
-	ct, err := r.pool.Exec(ctx,
-		`UPDATE data_migrations
-		    SET state = 'running', attempts = attempts + 1, app_version = $2,
-		        started_at = COALESCE(started_at, now()), updated_at = now()
-		  WHERE version = $1 AND state IN ('pending','failed')`,
-		dm.Version(), r.appVersion)
-	if err != nil {
-		return fmt.Errorf("claim: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		log.Debug("already claimed by another instance")
-		return nil
+	claimed, err := r.claim(ctx, dm, log)
+	if err != nil || !claimed {
+		return err
 	}
 
 	if total, err := dm.EstimateTotal(ctx, r.pool); err == nil && total > 0 {
@@ -229,43 +206,14 @@ func (r *DataRunner) runOne(ctx context.Context, dm DataMigration, cursor []byte
 
 	log.Info("data migration started")
 	start := time.Now()
-	var processed int64
 
-	for {
-		if err := ctx.Err(); err != nil {
-			// Shutdown mid-backfill is normal and safe: the cursor is
-			// persisted after every batch, so the next tick resumes here.
-			_, _ = r.pool.Exec(context.WithoutCancel(ctx),
-				`UPDATE data_migrations SET state='pending', updated_at=now() WHERE version=$1`,
-				dm.Version())
-			log.Info("data migration paused for shutdown", "rows_done", processed)
-			return nil
-		}
-
-		next, rows, done, err := dm.Batch(ctx, r.pool, cursor)
-		if err != nil {
-			_, _ = r.pool.Exec(context.WithoutCancel(ctx),
-				`UPDATE data_migrations SET state='failed', last_error=$2, updated_at=now() WHERE version=$1`,
-				dm.Version(), err.Error())
-			return fmt.Errorf("batch: %w", err)
-		}
-
-		processed += rows
-		cursor = next
-
-		if _, err := r.pool.Exec(ctx,
-			`UPDATE data_migrations SET cursor=$2, rows_done=rows_done+$3, updated_at=now() WHERE version=$1`,
-			dm.Version(), cursor, rows); err != nil {
-			return fmt.Errorf("persist cursor: %w", err)
-		}
-
-		if done {
-			break
-		}
-		select {
-		case <-ctx.Done():
-		case <-time.After(r.BatchPause):
-		}
+	processed, err := r.runBatches(ctx, dm, cursor, log)
+	if err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		// Paused, not finished. runBatches has already reset the state.
+		return nil
 	}
 
 	if _, err := r.pool.Exec(ctx,
@@ -278,6 +226,93 @@ func (r *DataRunner) runOne(ctx context.Context, dm DataMigration, cursor []byte
 	log.Info("data migration complete",
 		"rows", processed, "duration_s", int64(time.Since(start).Seconds()))
 	return nil
+}
+
+// claim takes ownership of a migration, or reports that it cannot.
+//
+// The WHERE clause IS the lock: two schedulers racing means one UPDATE affects
+// zero rows and that instance backs off. No advisory lock, no coordination —
+// the row is the mutex.
+//
+// It also refuses to run ahead of the schema it depends on, which is why this
+// returns (false, nil) rather than an error for both cases: neither "someone
+// else has it" nor "the schema is not ready yet" is a failure, and treating them
+// as one would fill the log with alarms on every tick of a healthy system.
+func (r *DataRunner) claim(ctx context.Context, dm DataMigration, log *slog.Logger) (bool, error) {
+	var schemaOK bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version >= $1 AND NOT dirty)`,
+		dm.RequiresSchemaVersion()).Scan(&schemaOK); err != nil {
+		return false, fmt.Errorf("check schema dependency: %w", err)
+	}
+	if !schemaOK {
+		log.Warn("waiting for schema migration", "requires", dm.RequiresSchemaVersion())
+		return false, nil
+	}
+
+	ct, err := r.pool.Exec(ctx,
+		`UPDATE data_migrations
+		    SET state = 'running', attempts = attempts + 1, app_version = $2,
+		        started_at = COALESCE(started_at, now()), updated_at = now()
+		  WHERE version = $1 AND state IN ('pending','failed')`,
+		dm.Version(), r.appVersion)
+	if err != nil {
+		return false, fmt.Errorf("claim: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		log.Debug("already claimed by another instance")
+		return false, nil
+	}
+	return true, nil
+}
+
+// runBatches walks the migration to completion, persisting the cursor after
+// every batch.
+//
+// Shutdown mid-backfill is normal and safe precisely because of that: the state
+// goes back to 'pending' and the next tick resumes from the stored cursor. The
+// WithoutCancel is load-bearing — writing the pause with the cancelled context
+// would fail, and the migration would look 'running' forever with no process
+// running it.
+func (r *DataRunner) runBatches(
+	ctx context.Context, dm DataMigration, cursor []byte, log *slog.Logger,
+) (int64, error) {
+	var processed int64
+
+	for {
+		if err := ctx.Err(); err != nil {
+			_, _ = r.pool.Exec(context.WithoutCancel(ctx),
+				`UPDATE data_migrations SET state='pending', updated_at=now() WHERE version=$1`,
+				dm.Version())
+			log.Info("data migration paused for shutdown", "rows_done", processed)
+			return processed, nil
+		}
+
+		next, rows, done, err := dm.Batch(ctx, r.pool, cursor)
+		if err != nil {
+			_, _ = r.pool.Exec(context.WithoutCancel(ctx),
+				`UPDATE data_migrations SET state='failed', last_error=$2, updated_at=now() WHERE version=$1`,
+				dm.Version(), err.Error())
+			return processed, fmt.Errorf("batch: %w", err)
+		}
+
+		processed += rows
+		cursor = next
+
+		if _, err := r.pool.Exec(ctx,
+			`UPDATE data_migrations SET cursor=$2, rows_done=rows_done+$3, updated_at=now() WHERE version=$1`,
+			dm.Version(), cursor, rows); err != nil {
+			return processed, fmt.Errorf("persist cursor: %w", err)
+		}
+
+		if done {
+			return processed, nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(r.BatchPause):
+		}
+	}
 }
 
 // DataStatus is one row for `migrate status`.

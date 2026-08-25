@@ -132,7 +132,6 @@ func (a *Adapter) Parse(body []byte) ([]source.RawPosting, error) {
 		return nil, fmt.Errorf("personio: %w: %v", source.ErrMalformed, err)
 	}
 
-
 	out := make([]source.RawPosting, 0, len(f.Positions))
 	for i := range f.Positions {
 		p, err := a.convert(&f.Positions[i])

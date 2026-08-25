@@ -42,32 +42,65 @@ const sampleSize = 1500
 // are counted and reported rather than silently dropped.
 const readableMin = 400
 
+// coverage is what one run measured.
+type coverage struct {
+	live, unreadable     int // whole corpus
+	sampled, zero        int // the sample
+	skillTotal, withMust int
+}
+
+func (c coverage) readable() int { return c.live - c.unreadable }
+
 func main() {
 	ctx := context.Background()
 
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "connect:", err)
-		os.Exit(1)
+		fatal("connect", err)
 	}
 	defer pool.Close()
 
-	// The corpus totals come first and cover every live posting, so a body we
-	// never fetched is visible as itself rather than as an absence.
-	var live, unreadable int
-	if err := pool.QueryRow(ctx, `
+	var c coverage
+	if err := corpusTotals(ctx, pool, &c); err != nil {
+		fatal("totals", err)
+	}
+
+	vocab := normalise.DefaultVocabulary()
+	if err := sampleSkills(ctx, pool, vocab, &c); err != nil {
+		fatal("sample", err)
+	}
+	if c.sampled == 0 {
+		fmt.Println("no postings to sample — is the corpus seeded?")
+		return
+	}
+
+	report(c, len(vocab.Canonicals()))
+}
+
+func fatal(what string, err error) {
+	fmt.Fprintln(os.Stderr, what+":", err)
+	os.Exit(1)
+}
+
+// corpusTotals counts every live posting first, so a body we never fetched is
+// visible as itself rather than as an absence.
+func corpusTotals(ctx context.Context, pool *pgxpool.Pool, c *coverage) error {
+	return pool.QueryRow(ctx, `
 		SELECT count(*),
 		       count(*) FILTER (WHERE coalesce(length(description_text), 0) <= $1)
 		  FROM job_postings
-		 WHERE status = 'live'`, readableMin).Scan(&live, &unreadable); err != nil {
-		fmt.Fprintln(os.Stderr, "totals:", err)
-		os.Exit(1)
-	}
+		 WHERE status = 'live'`, readableMin).Scan(&c.live, &c.unreadable)
+}
 
-	// Ordered by a hash of the id, not by the id. `ORDER BY id LIMIT n` is not a
-	// sample — it is the oldest n rows, which meant the first board ever
-	// ingested, and every vendor added afterwards was invisible here. Hashing
-	// keeps the run reproducible while spreading the sample across the corpus.
+// sampleSkills extracts over a reproducible sample of readable postings.
+//
+// Ordered by a hash of the id, not by the id. `ORDER BY id LIMIT n` is not a
+// sample — it is the oldest n rows, which meant the first board ever ingested,
+// and every vendor added afterwards was invisible here. Hashing keeps the run
+// reproducible while spreading the sample across the corpus.
+func sampleSkills(
+	ctx context.Context, pool *pgxpool.Pool, vocab *normalise.Vocabulary, c *coverage,
+) error {
 	rows, err := pool.Query(ctx, `
 		SELECT description_text
 		  FROM job_postings
@@ -75,68 +108,60 @@ func main() {
 		 ORDER BY md5(id::text)
 		 LIMIT $1`, sampleSize, readableMin)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "query:", err)
-		os.Exit(1)
+		return err
 	}
 	defer rows.Close()
 
-	vocab := normalise.DefaultVocabulary()
-
-	var sampled, zero, skillTotal, withMust int
 	for rows.Next() {
 		var description string
 		if err := rows.Scan(&description); err != nil {
-			fmt.Fprintln(os.Stderr, "scan:", err)
-			os.Exit(1)
+			return err
 		}
-		sampled++
+		c.sampled++
 
 		skills := vocab.ExtractSkills(description)
-		skillTotal += len(skills)
+		c.skillTotal += len(skills)
 		if len(skills) == 0 {
-			zero++
+			c.zero++
 		}
 		for _, s := range skills {
 			if s.Requirement == normalise.MustHave {
-				withMust++
+				c.withMust++
 				break
 			}
 		}
 	}
-	if err := rows.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "rows:", err)
-		os.Exit(1)
-	}
-	if sampled == 0 {
-		fmt.Println("no postings to sample — is the corpus seeded?")
-		return
-	}
+	return rows.Err()
+}
 
-	pct := func(n, of int) float64 {
-		if of == 0 {
-			return 0
-		}
-		return 100 * float64(n) / float64(of)
+func pct(n, of int) float64 {
+	if of == 0 {
+		return 0
 	}
-	readable := live - unreadable
+	return 100 * float64(n) / float64(of)
+}
 
-	fmt.Printf("vocabulary          %d canonical skills\n", len(vocab.Canonicals()))
+func report(c coverage, canonicals int) {
+	readable := c.readable()
+
+	fmt.Printf("vocabulary          %d canonical skills\n", canonicals)
 	fmt.Println()
-	fmt.Printf("live postings       %d\n", live)
+	fmt.Printf("live postings       %d\n", c.live)
 	fmt.Printf("  no body to read   %d (%.1f%%)  — ingestion, not the vocabulary\n",
-		unreadable, pct(unreadable, live))
-	fmt.Printf("  readable          %d (%.1f%%)\n", readable, pct(readable, live))
+		c.unreadable, pct(c.unreadable, c.live))
+	fmt.Printf("  readable          %d (%.1f%%)\n", readable, pct(readable, c.live))
 	fmt.Println()
-	fmt.Printf("sampled             %d of the %d readable\n", sampled, readable)
-	fmt.Printf("zero skills found   %d (%.1f%% of the sample)\n", zero, pct(zero, sampled))
-	fmt.Printf("average per posting %.2f\n", float64(skillTotal)/float64(sampled))
-	fmt.Printf("with a must-have    %d (%.1f%% of the sample)\n", withMust, pct(withMust, sampled))
+	fmt.Printf("sampled             %d of the %d readable\n", c.sampled, readable)
+	fmt.Printf("zero skills found   %d (%.1f%% of the sample)\n", c.zero, pct(c.zero, c.sampled))
+	fmt.Printf("average per posting %.2f\n", float64(c.skillTotal)/float64(c.sampled))
+	fmt.Printf("with a must-have    %d (%.1f%% of the sample)\n", c.withMust, pct(c.withMust, c.sampled))
 	fmt.Println()
 
 	// A posting with no body yields no skills, so corpus-wide coverage is the
 	// unreadable share plus the sampled zero rate over the rest. Stated as a
 	// projection because only the sample was extracted, not the whole corpus.
-	projected := pct(unreadable, live) + pct(zero, sampled)*float64(readable)/float64(max(live, 1))
+	projected := pct(c.unreadable, c.live) +
+		pct(c.zero, c.sampled)*float64(readable)/float64(max(c.live, 1))
 	fmt.Printf("projected corpus-wide zero-skill share: %.1f%%\n", projected)
 	fmt.Println("  (unreadable postings + the sampled zero rate across the readable ones)")
 	fmt.Println()

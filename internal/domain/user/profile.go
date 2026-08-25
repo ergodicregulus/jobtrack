@@ -136,41 +136,62 @@ const (
 // onboarding, the profile page and any future import path. A rule enforced in
 // one handler is a rule that will be missing from the second one.
 func (p *Profile) Apply(u ProfileUpdate) error {
-	if u.FirstName != nil {
-		v := strings.TrimSpace(*u.FirstName)
-		if err := checkLen("first_name", v, maxNameLen); err != nil {
+	// Ordered, and the first failure wins. A partially applied update is worse
+	// than a rejected one: the caller believes nothing changed.
+	for _, step := range []func(ProfileUpdate) error{
+		p.applyText,
+		p.applyExperience,
+		p.applyPreferences,
+		p.applySkills,
+	} {
+		if err := step(u); err != nil {
 			return err
 		}
-		p.FirstName = v
 	}
-	if u.LastName != nil {
-		v := strings.TrimSpace(*u.LastName)
-		if err := checkLen("last_name", v, maxNameLen); err != nil {
+	return nil
+}
+
+// applyText handles the four free-text fields, which differ only in their name
+// and their length cap. Written as a table because four copies of trim-then-
+// check-length is four places for the caps to drift apart.
+func (p *Profile) applyText(u ProfileUpdate) error {
+	for _, f := range []struct {
+		name string
+		src  *string
+		dst  *string
+		max  int
+	}{
+		{"first_name", u.FirstName, &p.FirstName, maxNameLen},
+		{"last_name", u.LastName, &p.LastName, maxNameLen},
+		{"current_title", u.CurrentTitle, &p.CurrentTitle, maxTitleLen},
+		{"target_title", u.TargetTitle, &p.TargetTitle, maxTitleLen},
+	} {
+		if f.src == nil {
+			continue
+		}
+		v := strings.TrimSpace(*f.src)
+		if err := checkLen(f.name, v, f.max); err != nil {
 			return err
 		}
-		p.LastName = v
+		*f.dst = v
 	}
-	if u.CurrentTitle != nil {
-		v := strings.TrimSpace(*u.CurrentTitle)
-		if err := checkLen("current_title", v, maxTitleLen); err != nil {
-			return err
-		}
-		p.CurrentTitle = v
+	return nil
+}
+
+func (p *Profile) applyExperience(u ProfileUpdate) error {
+	if u.TotalYoE == nil {
+		return nil
 	}
-	if u.TargetTitle != nil {
-		v := strings.TrimSpace(*u.TargetTitle)
-		if err := checkLen("target_title", v, maxTitleLen); err != nil {
-			return err
-		}
-		p.TargetTitle = v
+	if v := *u.TotalYoE; v < 0 || v > maxYoE {
+		return fmt.Errorf("total_yoe must be between 0 and %d", maxYoE)
 	}
-	if u.TotalYoE != nil {
-		v := *u.TotalYoE
-		if v < 0 || v > maxYoE {
-			return fmt.Errorf("total_yoe must be between 0 and %d", maxYoE)
-		}
-		p.TotalYoE = v
-	}
+	p.TotalYoE = *u.TotalYoE
+	return nil
+}
+
+// applyPreferences handles what the reader is looking for, as opposed to what
+// they are. These four are the ones the feed filters on.
+func (p *Profile) applyPreferences(u ProfileUpdate) error {
 	if u.Countries != nil {
 		out := make([]string, 0, len(*u.Countries))
 		for _, c := range *u.Countries {
@@ -206,23 +227,33 @@ func (p *Profile) Apply(u ProfileUpdate) error {
 		}
 		p.Currency = v
 	}
-	if u.Skills != nil {
-		if len(*u.Skills) > maxSkills {
-			return fmt.Errorf("at most %d skills", maxSkills)
-		}
-		out := make([]string, 0, len(*u.Skills))
-		for _, s := range *u.Skills {
-			s = strings.ToLower(strings.TrimSpace(s))
-			if s == "" {
-				continue
-			}
-			if len(s) > 64 {
-				return fmt.Errorf("skill %q is too long", s)
-			}
-			out = append(out, s)
-		}
-		p.Skills = dedupe(out)
+	return nil
+}
+
+// applySkills drops blanks silently but rejects anything too long.
+//
+// The asymmetry is deliberate: an empty entry is a UI artefact of a chip input
+// and the user did not mean it, while a 200-character "skill" is either a
+// mistake or an attempt to store something else in the field.
+func (p *Profile) applySkills(u ProfileUpdate) error {
+	if u.Skills == nil {
+		return nil
 	}
+	if len(*u.Skills) > maxSkills {
+		return fmt.Errorf("at most %d skills", maxSkills)
+	}
+	out := make([]string, 0, len(*u.Skills))
+	for _, s := range *u.Skills {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" {
+			continue
+		}
+		if len(s) > 64 {
+			return fmt.Errorf("skill %q is too long", s)
+		}
+		out = append(out, s)
+	}
+	p.Skills = dedupe(out)
 	return nil
 }
 
