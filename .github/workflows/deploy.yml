@@ -51,8 +51,8 @@ jobs:
       packages: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: sigstore/cosign-installer@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
 
       # Verified by IDENTITY, not by "is it signed" — anyone can sign anything.
       # The assertion is that this exact digest was signed by a workflow in this
@@ -80,7 +80,7 @@ jobs:
       # An image that was clean at build time is not clean forever. This is the
       # check that catches a CVE published between the release and the deploy.
       - name: Re-scan published images against today's vulnerability data
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e # v6
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository }}/api:${{ env.VERSION }}
           severity-cutoff: critical
@@ -92,9 +92,9 @@ jobs:
     needs: [verify]
     environment: ${{ inputs.environment || 'staging' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415 # v4
 
       - name: Kubeconfig
         run: |
@@ -128,8 +128,8 @@ jobs:
     needs: [migrate]
     environment: ${{ inputs.environment || 'staging' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-kubectl@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415 # v4
 
       - name: Kubeconfig
         run: |

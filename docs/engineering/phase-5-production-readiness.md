@@ -94,8 +94,8 @@ Stated plainly, because the plan in Part II is mostly about these.
 | **A third of the corpus has no description yet** | SmartRecruiters bodies fill at 250/poll; Bosch is ~26% through its first real sweep |
 | **The model has no notion of field or seniority** | `current_title` and `target_title` exist; the scorer uses neither. "Product Support Specialist" scores 84.6 for a backend engineer |
 | **Only 14.6% of postings disclose salary** | 1,969 of 13,445. Compensation filters are therefore weak by data, not by design |
-| **No CD, no signed artefacts, no SBOM** | CI builds images; nothing signs, attests, scans or ships them |
-| **No load testing, no accessibility gate in CI** | `make ui-audit` is a local command. Budgets exist for `/v1/jobs` and `/v1/me/dashboard` and are checked by hand |
+| ~~No CD, no signed artefacts, no SBOM~~ | **Corrected 2026-08-25.** `release.yml` generates an SBOM (`anchore/sbom-action`), scans (`anchore/scan-action`), signs keylessly (`cosign`) and attaches SLSA provenance; `deploy.yml` verifies the signature by identity before rollout |
+| **No load testing** | Still true. `make ui-audit` is **no longer** local-only — CI runs it in the `accessibility` job and uploads screenshots on failure. Server-side latency budgets are still checked by hand |
 
 ---
 
