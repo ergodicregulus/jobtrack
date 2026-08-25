@@ -2,17 +2,22 @@ package httpx
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jobtrack/jobtrack/internal/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/jobtrack/jobtrack/internal/telemetry"
 )
 
 // Middleware wraps a handler.
@@ -38,10 +43,6 @@ const (
 )
 
 // RequestIDFromContext returns the per-request identifier.
-func RequestIDFromContext(ctx context.Context) string {
-	id, _ := ctx.Value(ctxKeyRequestID).(string)
-	return id
-}
 
 // UserIDFromContext returns the authenticated user, or 0.
 func UserIDFromContext(ctx context.Context) int64 {
@@ -78,10 +79,10 @@ func Tracing(serviceName string) Middleware {
 			next.ServeHTTP(rw, r.WithContext(ctx))
 
 			span.SetAttributes(
-				attrInt("http.response.status_code", rw.status),
+				attribute.Int("http.response.status_code", rw.status),
 			)
 			if rw.status >= 500 {
-				span.SetStatus(codesError, http.StatusText(rw.status))
+				span.SetStatus(codes.Error, http.StatusText(rw.status))
 			}
 		})
 	}
@@ -383,12 +384,6 @@ func KeyByIP(trustedProxies []string) func(*http.Request) string {
 }
 
 // KeyBySession rate-limits authenticated traffic per user.
-func KeyBySession(r *http.Request) string {
-	if id := UserIDFromContext(r.Context()); id != 0 {
-		return "u:" + itoa(id)
-	}
-	return ""
-}
 
 // responseRecorder captures the status and byte count for logging and tracing.
 type responseRecorder struct {
@@ -435,4 +430,25 @@ func routePattern(r *http.Request) string {
 		return p
 	}
 	return r.URL.Path
+}
+
+// errPanic is the sentinel a recovered panic is reported as.
+var errPanic = errors.New("panic recovered")
+
+// randomHex returns n cryptographically random bytes, hex encoded.
+// Panics on failure: a system whose CSPRNG is broken must not keep serving.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+// stackTrace captures the stack for panic logging, bounded so a deep recursion
+// panic cannot emit a megabyte log line.
+func stackTrace() string {
+	buf := make([]byte, 8192)
+	n := runtime.Stack(buf, false)
+	return string(buf[:n])
 }

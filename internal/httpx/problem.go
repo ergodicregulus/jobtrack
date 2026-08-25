@@ -73,11 +73,6 @@ func ErrUnauthorized() *APIError {
 		Title: "Authentication required"}
 }
 
-func ErrForbidden() *APIError {
-	return &APIError{Status: http.StatusForbidden, Kind: "forbidden",
-		Title: "Not permitted"}
-}
-
 // ErrNotFound is returned both when something does not exist and when it exists
 // but is not visible to this user. Distinguishing them would let an
 // unauthenticated caller enumerate valid IDs.

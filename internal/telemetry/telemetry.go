@@ -201,6 +201,3 @@ func TraceIDFromContext(ctx context.Context) string {
 }
 
 // StartSpan is a thin wrapper so call sites do not each pick a tracer name.
-func StartSpan(ctx context.Context, pkg, name string) (context.Context, trace.Span) {
-	return Tracer(pkg).Start(ctx, name)
-}

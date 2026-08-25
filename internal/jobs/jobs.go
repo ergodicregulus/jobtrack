@@ -100,6 +100,21 @@ func (RetierSourcesArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
 }
 
+// PruneSessionsArgs deletes session rows that expired long ago.
+//
+// Housekeeping, not a security control: an expired session is already rejected
+// at validation, so leaving the row costs storage rather than safety. It was
+// nonetheless unbounded — every login writes a row and, until this job existed,
+// nothing ever removed one. store.DeleteExpiredSessions had a doc comment
+// saying "called by the scheduler" and no caller anywhere.
+type PruneSessionsArgs struct{}
+
+func (PruneSessionsArgs) Kind() string { return "prune_sessions" }
+
+func (PruneSessionsArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
+}
+
 // DedupeCompanyArgs runs deduplication across one company's live postings.
 //
 // Scoped per company because that is the blocking key: two postings can only be

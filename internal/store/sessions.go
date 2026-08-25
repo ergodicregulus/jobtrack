@@ -76,13 +76,6 @@ func DeleteSession(ctx context.Context, pool *pgxpool.Pool, id []byte) error {
 }
 
 // DeleteUserSessions is used on password change and on "sign out everywhere".
-func DeleteUserSessions(ctx context.Context, pool *pgxpool.Pool, userID int64) error {
-	_, err := pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
-	if err != nil {
-		return fmt.Errorf("revoke user sessions: %w", err)
-	}
-	return nil
-}
 
 // DeleteExpiredSessions is housekeeping, not a security control: expired rows
 // are already rejected by TouchSession.

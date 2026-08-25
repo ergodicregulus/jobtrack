@@ -21,11 +21,13 @@ func TestRoundTrip(t *testing.T) {
 	if bytes.Contains(sealed, []byte("priya@example.com")) {
 		t.Fatal("plaintext is visible in the ciphertext")
 	}
-	got, err := c.OpenString(sealed)
+	// Open, not a String wrapper: production decrypts with Open, and a test
+	// that exercises a convenience the product never calls is testing itself.
+	plain, err := c.Open(sealed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != want {
+	if got := string(plain); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

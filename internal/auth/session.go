@@ -109,15 +109,6 @@ func (s *SessionStore) Revoke(ctx context.Context, token string) error {
 }
 
 // RevokeAllForUser is used on password change and on "sign out everywhere".
-func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID int64) error {
-	return store.DeleteUserSessions(ctx, s.pool, userID)
-}
-
-// DeleteExpired is called by the scheduler. Expired rows are already rejected
-// by Validate, so this is housekeeping rather than a security control.
-func (s *SessionStore) DeleteExpired(ctx context.Context) (int64, error) {
-	return store.DeleteExpiredSessions(ctx, s.pool)
-}
 
 func hashToken(token string) []byte {
 	sum := sha256.Sum256([]byte(token))

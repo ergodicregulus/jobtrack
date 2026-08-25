@@ -91,7 +91,3 @@ func (c *Cipher) Open(sealed []byte) ([]byte, error) {
 }
 
 // OpenString is Open for text.
-func (c *Cipher) OpenString(sealed []byte) (string, error) {
-	b, err := c.Open(sealed)
-	return string(b), err
-}

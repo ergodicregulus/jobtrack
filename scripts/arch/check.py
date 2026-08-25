@@ -37,6 +37,7 @@ ORDER = [
     "check_db_access.py",
     "check_sql_location.py",
     "check_func_length.py",
+    "check_deadcode.py",
 ]
 
 

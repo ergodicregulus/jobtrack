@@ -55,6 +55,7 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	river.AddWorker(workers, &ScoreUserWorker{Deps: d, Scorer: scorer})
 	river.AddWorker(workers, &ScheduleSourcesWorker{Deps: d})
 	river.AddWorker(workers, &RetierSourcesWorker{Deps: d})
+	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
 	river.AddWorker(workers, &RescoreStaleWorker{Deps: d, Version: scorer.Version()})
 
 	queues := map[string]river.QueueConfig{}
@@ -128,6 +129,14 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 				func() (river.JobArgs, *river.InsertOpts) { return RetierSourcesArgs{}, nil },
 				&river.PeriodicJobOpts{RunOnStart: true},
 			),
+			// Daily, and NOT RunOnStart: nothing depends on it being prompt,
+			// and a deploy loop would otherwise run a table sweep on every
+			// restart for no benefit.
+			river.NewPeriodicJob(
+				river.PeriodicInterval(24*time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return PruneSessionsArgs{}, nil },
+				nil,
+			),
 			// Rolls a scoring-algorithm change across the existing corpus.
 			// RunOnStart so a deploy that bumps the version begins correcting
 			// immediately rather than at the top of the next interval.
@@ -175,6 +184,22 @@ func Migrate(ctx context.Context, d *Deps) error {
 // second is the elegant part — watching a company promotes its board to
 // 2-hourly polling, so the sources that matter to real people are the fresh
 // ones and the long tail costs almost nothing.
+type PruneSessionsWorker struct {
+	river.WorkerDefaults[PruneSessionsArgs]
+	Deps *Deps
+}
+
+func (w *PruneSessionsWorker) Work(ctx context.Context, job *river.Job[PruneSessionsArgs]) error {
+	deleted, err := store.DeleteExpiredSessions(ctx, w.Deps.Pool)
+	if err != nil {
+		return err
+	}
+	if deleted > 0 {
+		w.Deps.Log.InfoContext(ctx, "expired sessions pruned", "rows", deleted)
+	}
+	return nil
+}
+
 type RetierSourcesWorker struct {
 	river.WorkerDefaults[RetierSourcesArgs]
 	Deps *Deps
