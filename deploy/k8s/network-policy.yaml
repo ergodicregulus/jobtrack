@@ -1,0 +1,178 @@
+# Default deny, then allow exactly what each component needs.
+#
+# The resume-parser rule is the one that matters most and the reason this file
+# exists for every service rather than just for it: that service processes
+# untrusted binary input from strangers, and ADR-0007 promises it has no egress
+# and no database credentials. A promise a NetworkPolicy does not enforce is a
+# comment.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+# NOTE: the resume-parser's own policy lives beside its Deployment in
+# resume-parser.yaml, because that service's isolation IS its design (ADR-0007)
+# and splitting the two would let someone delete the enforcement without
+# noticing the promise.
+
+---
+# api: database, object storage, the parser, DNS, and traces. Not the internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jobtrack-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jobtrack
+              app.kubernetes.io/component: web
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jobtrack
+              app.kubernetes.io/component: resume-parser
+      ports:
+        - port: 9090
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 4318
+
+---
+# ingestor: the one service that MUST reach the public internet, because
+# reading first-party ATS feeds is its entire job (ADR-0004). Everything else
+# is denied by the default rule above, which is what keeps this exception
+# narrow.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jobtrack-ingestor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: ingestor
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # No reaching back into the cluster or the cloud metadata
+              # endpoint. 169.254.169.254 is how a compromised fetcher turns
+              # into stolen cloud credentials.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+        - port: 80
+
+---
+# scheduler: database and DNS only. It enqueues; it fetches nothing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jobtrack-scheduler
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: scheduler
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: 5432
+
+---
+# web: the api and DNS. It renders; it holds no credentials of its own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jobtrack-web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 3000
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jobtrack
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8080

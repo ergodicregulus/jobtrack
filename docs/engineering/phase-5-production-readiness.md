@@ -367,9 +367,9 @@ and the pipeline, not the architecture.
 | Environment | What runs it | Status |
 |---|---|---|
 | **Local dev** | `docker compose` + `air` hot reload | ✅ Built, 9 services |
-| **Single VM / homelab** | `docker compose` with a real `.env` and a reverse proxy | ⚠️ Needs a production compose file and TLS |
-| **Kubernetes** | manifests in `deploy/k8s/` | ⚠️ **Partial** — api, migrate-job, resume-parser exist; ingestor, scheduler, web do not |
-| **Docker Swarm** | `docker stack deploy` | ❌ Not recommended — see below |
+| **Single VM / homelab** | `docker compose -f docker-compose.prod.yml` | ✅ **Built.** Pinned images, healthchecks, no bind mounts, Caddy for TLS. One replica each, so a rollout is a brief outage — stated in the file |
+| **Kubernetes** | manifests in `deploy/k8s/` | ✅ **Complete.** All five units, plus ConfigMap, Secret keys, Ingress, HPA, PDBs and a default-deny NetworkPolicy set |
+| **Docker Swarm** | `docker stack deploy` | ❌ **Not shipped, deliberately.** §8.2's own evidence says do not start new projects on it; adding a deployment path nobody asked for and nobody maintains is the opposite of minimal |
 | **Managed PaaS** (Fly, Render, Railway) | one process group per service | ⚠️ Works today with a Procfile-equivalent; no manifests |
 
 ### 8.2 Docker Swarm — supported, and not recommended

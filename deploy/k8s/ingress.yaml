@@ -1,0 +1,34 @@
+# Public entry. Everything reaches the SvelteKit server; nothing reaches the api
+# directly.
+#
+# That is a deliberate choice, not a routing accident. The session cookie stays
+# first-party because the browser only ever talks to one origin, which means no
+# CORS surface, no SameSite=None, and no second place where auth has to be got
+# right.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jobtrack
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Uploads are capped at 5 MB in the handler; the proxy has to agree or a
+    # large CV is rejected by nginx with an error page the app never sees.
+    nginx.ingress.kubernetes.io/proxy-body-size: 6m
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["{{HOST}}"]
+      secretName: jobtrack-tls
+  rules:
+    - host: "{{HOST}}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jobtrack-web
+                port:
+                  name: http

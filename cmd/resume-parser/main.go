@@ -24,6 +24,9 @@ import (
 )
 
 func main() {
+	// Before anything else, so a probe needs no configuration.
+	httpx.RunHealthcheckIfAsked(":9090")
+
 	ctx := context.Background()
 
 	// NeedsDB is deliberately false. This process must not be able to reach the

@@ -1,0 +1,31 @@
+# TLS, compression, and the headers a job-search app should send.
+#
+# Certificates are obtained and renewed automatically; there is deliberately no
+# certificate configuration to get wrong.
+
+{$JOBTRACK_HOST} {
+	encode zstd gzip
+
+	header {
+		# HSTS. Two years, subdomains included, preload-eligible.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# No camera, microphone or geolocation. A job board asking for any of
+		# them is a job board doing something else.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		# Fonts are self-hosted precisely so this can forbid third-party
+		# origins outright. If a CDN font is ever added, this line is what will
+		# break — which is the intended outcome.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# Uploads are capped at 5 MB in the handler. The proxy has to agree, or a
+	# large CV is refused by Caddy with a page the application never sees.
+	request_body {
+		max_size 6MB
+	}
+
+	reverse_proxy web:3000
+}

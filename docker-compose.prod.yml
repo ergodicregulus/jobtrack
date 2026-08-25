@@ -1,0 +1,184 @@
+# Production on a single host.
+#
+# The small-deployment path. Kubernetes (deploy/k8s/) is the reference target
+# and expresses two things this cannot — PodDisruptionBudgets and ordered
+# migration gating across replicas — so a compose deployment accepts a weaker
+# guarantee. That is written down here rather than discovered during an
+# upgrade: with one host there is one replica of each service, so a rollout
+# is a brief outage rather than a rolling one.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# What makes this different from docker-compose.yml, which is a DEV file:
+# no bind mounts, no air, no source in the image, pinned images, healthchecks,
+# restart policies, and TLS terminated by Caddy.
+
+name: jobtrack
+
+x-service: &service
+  restart: unless-stopped
+  # Logs are the only diagnostic on a box with no observability stack. Bounded
+  # so a chatty failure cannot fill the disk and take the database with it.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  environment: &env
+    ENV: production
+    LOG_LEVEL: info
+    DATABASE_URL: postgres://jobtrack:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/jobtrack?sslmode=disable
+    SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
+    RESUME_ENCRYPTION_KEY: ${RESUME_ENCRYPTION_KEY:?set RESUME_ENCRYPTION_KEY}
+    RESUME_PARSER_URL: http://resume-parser:9090
+    DRAIN_DELAY: 5s
+    SHUTDOWN_TIMEOUT: 40s
+
+services:
+  postgres:
+    # pgvector, not plain postgres: migration 0001 creates the extension and
+    # every migration after it fails without it.
+    #
+    # Pinned by digest. A tag is a mutable pointer, and "it worked yesterday" is
+    # not a property you want your database image to lack.
+    image: pgvector/pgvector:pg17@sha256:9a8b7dfdb0a3ac0e4a2b1de2e6a0a2b0f16e1a5f0e1d7c8b4a9f3e2d1c0b9a87
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jobtrack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: jobtrack
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobtrack -d jobtrack"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Not published. Nothing outside this network has any business reaching it,
+    # and a published database port is how a homelab becomes a botnet.
+    expose: ["5432"]
+
+  # Runs to completion BEFORE anything serves. This is the migration gate: in
+  # Kubernetes it is a Job plus an initContainer, and here it is
+  # service_completed_successfully, which compose enforces properly.
+  migrate:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/migrate:${VERSION:?set VERSION}
+    restart: "no"
+    environment: *env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["up"]
+
+  api:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/api:${VERSION:?set VERSION}
+    environment:
+      <<: *env
+      HTTP_ADDR: ":8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      resume-parser:
+        condition: service_healthy
+    # On BOTH networks: it must reach the parser, which lives on an internal
+    # network with no gateway. The parser therefore has no route out while
+    # still being reachable from here.
+    networks: [default, parser]
+    expose: ["8080"]
+    # No curl in a distroless image, so the check is the binary itself. A
+    # healthcheck that shells out would silently never run.
+    healthcheck:
+      test: ["CMD", "/app", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  ingestor:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/ingestor:${VERSION:?set VERSION}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # Longer than the default: an in-flight board fetch plus its detail sweep
+    # legitimately outlasts a request.
+    stop_grace_period: 90s
+
+  scheduler:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/scheduler:${VERSION:?set VERSION}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 45s
+
+  resume-parser:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/resume-parser:${VERSION:?set VERSION}
+    environment:
+      ENV: production
+      LOG_LEVEL: info
+      HTTP_ADDR: ":9090"
+      # Deliberately absent: no DATABASE_URL, no SESSION_SECRET, no encryption
+      # key. This service processes untrusted binary input and holds nothing
+      # worth stealing (ADR-0007).
+    # No egress. `internal: true` on this network is what enforces the promise;
+    # without it the isolation is a comment.
+    networks: [parser]
+    expose: ["9090"]
+    read_only: true
+    tmpfs:
+      # In memory, capped, noexec. A hostile PDF gets a scratch space it cannot
+      # execute from and cannot fill the disk with.
+      - /tmp:size=64m,noexec,nosuid,nodev
+    mem_limit: 512m
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "/app", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  web:
+    <<: *service
+    image: ${REGISTRY:-ghcr.io/jobtrack}/web:${VERSION:?set VERSION}
+    environment:
+      API_BASE_URL: http://api:8080
+      PORT: "3000"
+    depends_on:
+      api:
+        condition: service_started
+    expose: ["3000"]
+
+  # TLS and the only published ports. Caddy over Traefik for one reason: it
+  # obtains and renews certificates with no configuration, which is the whole
+  # job on a single host.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/prod/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    environment:
+      JOBTRACK_HOST: ${JOBTRACK_HOST:?set JOBTRACK_HOST}
+    depends_on:
+      web:
+        condition: service_started
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:
+
+networks:
+  default:
+  # The parser's network has no gateway, so a process inside it cannot reach
+  # the internet however hard it tries.
+  parser:
+    internal: true

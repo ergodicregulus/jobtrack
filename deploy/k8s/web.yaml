@@ -1,0 +1,134 @@
+# The SvelteKit server.
+#
+# Node, not distroless: adapter-node needs a runtime. That is a wider surface
+# than the Go services carry, so it is compensated for in the pod — non-root,
+# read-only root filesystem, all capabilities dropped — and by the NetworkPolicy
+# in network-policy.yaml, which lets it reach the api and nothing else.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobtrack-web
+  labels:
+    app.kubernetes.io/name: jobtrack
+    app.kubernetes.io/component: web
+    app.kubernetes.io/version: "{{VERSION}}"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jobtrack
+        app.kubernetes.io/component: web
+        app.kubernetes.io/version: "{{VERSION}}"
+    spec:
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: jobtrack
+              app.kubernetes.io/component: web
+      containers:
+        - name: web
+          image: "{{REGISTRY}}/web:{{VERSION}}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # Server-side only. The browser never talks to the api directly:
+            # every request is proxied through this server so the session cookie
+            # stays first-party and no CORS surface exists.
+            - name: API_BASE_URL
+              value: http://jobtrack-api.default.svc.cluster.local
+            - name: PORT
+              value: "3000"
+          # The landing page renders without the api — it degrades to no live
+          # figures rather than failing — so readiness on / is honest.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Node writes here even when it is not asked to. A read-only root
+            # without this fails at boot rather than at the first write.
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 150m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobtrack-web
+spec:
+  selector:
+    app.kubernetes.io/name: jobtrack
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: jobtrack-web
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jobtrack
+      app.kubernetes.io/component: web

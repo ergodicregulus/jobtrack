@@ -15,6 +15,9 @@ import (
 )
 
 func main() {
+	// Before anything else, so a probe needs no configuration.
+	httpx.RunHealthcheckIfAsked(":8080")
+
 	ctx := context.Background()
 
 	a, err := app.New(ctx, app.Options{Service: "api", NeedsDB: true, NeedsObject: true})

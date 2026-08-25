@@ -1,0 +1,56 @@
+# Configuration and the shape of the secret.
+#
+# The ConfigMap holds only values that are safe in a git history. Everything
+# else lives in a Secret this file does NOT contain: the manifest below declares
+# the KEYS so a deployment fails loudly on a missing one, and the values come
+# from external-secrets or SOPS. A secret committed here would be a secret
+# published, and rotating it would not un-publish it.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobtrack-config
+data:
+  ENV: production
+  LOG_LEVEL: info
+  HTTP_ADDR: ":8080"
+
+  # Drain sequence. Must stay under the pods' terminationGracePeriodSeconds,
+  # or Kubernetes SIGKILLs mid-drain and the sequence is decorative.
+  DRAIN_DELAY: 5s
+  SHUTDOWN_TIMEOUT: 40s
+
+  RESUME_PARSER_URL: http://jobtrack-resume-parser.default.svc.cluster.local
+
+  # Per-service connection budgets. The sum must stay under Postgres
+  # max_connections with headroom for migrations and a human with psql — a
+  # matcher scale-out must never starve the api.
+  DB_MAX_CONNS: "10"
+  DB_MIN_CONNS: "2"
+  DB_STATEMENT_TIMEOUT: 10s
+
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger-collector.observability.svc.cluster.local:4318
+  OTEL_SAMPLE_RATIO: "0.1"
+
+---
+# NOT a source of secrets. This declares the keys the services require so that a
+# missing one fails at rollout rather than at the first request that needs it.
+# Populate with external-secrets, SOPS, or `kubectl create secret` — never by
+# committing values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jobtrack-secrets
+  annotations:
+    jobtrack.dev/managed-by: >-
+      external-secrets or SOPS. If you are reading a real value here, it has
+      leaked and needs rotating, not editing.
+type: Opaque
+stringData:
+  DATABASE_URL: ""
+  SESSION_SECRET: ""
+  # AES-256-GCM key for resume text at rest. Separate from SESSION_SECRET on
+  # purpose: a leaked session secret must not also decrypt CVs.
+  RESUME_ENCRYPTION_KEY: ""
+  S3_ACCESS_KEY_ID: ""
+  S3_SECRET_ACCESS_KEY: ""
