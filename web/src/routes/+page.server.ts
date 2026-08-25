@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import type { IngestSeries } from '$lib/types';
 
 /**
  * The root is a decision, not a page, for anyone with an account.
@@ -28,5 +29,20 @@ export const load: PageServerLoad = async ({ parent, fetch }) => {
     // The landing page must render regardless; a zero is simply not shown.
   }
 
-  return { stats };
+  // The ingest series for the corpus chart. Read from the source_daily rollup
+  // (ADR-0017), so this costs the same whether the corpus holds twelve thousand
+  // postings or twelve million.
+  //
+  // Failure is not fatal here either: the chart is evidence, not the pitch, and
+  // a landing page that 500s because a widget could not load has its priorities
+  // backwards.
+  let ingest: IngestSeries | null = null;
+  try {
+    const res = await fetch('/v1/market/ingest?days=30');
+    if (res.ok) ingest = await res.json();
+  } catch {
+    // Rendered as absent, never as zeroes.
+  }
+
+  return { stats, ingest };
 };

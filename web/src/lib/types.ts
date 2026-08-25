@@ -53,3 +53,19 @@ export type ProblemDetail = S['ProblemDetail'];
  */
 export type Theme = 'system' | 'light' | 'dark';
 export type Density = 'compact' | 'comfortable';
+
+/** One line on the corpus chart: a vendor's flow and level over the window. */
+export interface IngestVendorSeries {
+  vendor: string;
+  /** Postings first seen on each day. */
+  new: number[];
+  /** Postings still live at the end of each day. */
+  live: number[];
+}
+
+/** The homepage corpus chart, from the source_daily rollup. See ADR-0017. */
+export interface IngestSeries {
+  /** Every day in the window, including quiet ones. */
+  days: string[];
+  series: IngestVendorSeries[];
+}

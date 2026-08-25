@@ -96,6 +96,16 @@
   });
 
   const empty = $derived(!activity || activity.total === 0);
+
+  /**
+   * The hovered cell, shown as a readout beside the grid.
+   *
+   * A native `title` was already here and stays as a fallback, but it waits
+   * about a second before appearing and cannot be styled. For a grid whose
+   * whole purpose is "what happened on that day", a delay that long means most
+   * people never find out.
+   */
+  let hovered = $state<Cell | null>(null);
 </script>
 
 <section class="panel activity" aria-labelledby="act">
@@ -121,11 +131,37 @@
           same information is given as one sentence below it, which is what a
           screen-reader user actually wants from a sparkline.
         -->
-        <div class="grid" aria-hidden="true">
+        <div
+          class="grid"
+          aria-hidden="true"
+          onmouseleave={() => (hovered = null)}
+        >
           {#each cells as c, i (i)}
-            <span class="cell" data-level={level(c)} title={c.label}></span>
+            <span
+              class="cell"
+              data-level={level(c)}
+              title={c.label}
+              onmouseenter={() => (hovered = c.day ? c : null)}
+            ></span>
           {/each}
         </div>
+
+        <!--
+          Reserved height, not conditional rendering: a readout that appears on
+          hover would push the grid down and move the cell out from under the
+          cursor, which makes the whole grid feel unstable.
+        -->
+        <p class="readout" aria-hidden="true">
+          {#if hovered}
+            <span class="readout-count">{hovered.count}</span>
+            {hovered.count === 1 ? 'change' : 'changes'} on {hovered.label.replace(
+              /^.*? on /,
+              ''
+            )}
+          {:else}
+            <span class="readout-idle">Hover a day for its count</span>
+          {/if}
+        </p>
       </div>
 
       <div class="aside">
@@ -187,6 +223,24 @@
     grid-template-rows: repeat(7, 14px);
     grid-auto-columns: 14px;
     gap: 3px;
+  }
+
+  .readout {
+    margin: 0.5rem 0 0;
+    font-size: var(--t-sm);
+    min-height: 1.4em;
+    color: var(--fg-muted);
+  }
+
+  .readout-count {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .readout-idle {
+    color: var(--fg-subtle);
   }
 
   .cell {

@@ -103,6 +103,73 @@
       />
     </section>
 
+    <!--
+      The tracker leads the page, and its two halves sit side by side.
+
+      The funnel was in the right-hand rail beneath the match list, which put
+      the record of what someone is actually DOING below a list of things they
+      might do. A job search is mostly the former.
+
+      Paired with the grid rather than stacked full-width for a specific
+      reason: the funnel's bar track is capped at 340px on purpose — a 950px
+      bar for the number 3 reads as a progress meter that is nearly finished
+      rather than as a count — so a full-width panel leaves half of itself
+      empty. They also belong together: the funnel is where things stand now,
+      the grid is how they got there.
+
+      One column below 62rem, where the grid falls directly beneath the funnel.
+    -->
+    <div class="tracker-row">
+      <!-- Pipeline: a horizontal funnel reads better than a bar chart at this
+           size, and needs no charting library. Every stage links into the
+           tracker filtered to it — a count you cannot click is a dead end. -->
+      <section class="panel pad" aria-labelledby="pl">
+        <div class="panel-head bare">
+          <h2 id="pl" class="t-heading">Your pipeline</h2>
+          <span class="spacer"></span>
+          <a class="t-small" href="/tracker">Open tracker</a>
+        </div>
+
+        {#if pipelineTotal === 0}
+          <p class="t-small">
+            Nothing tracked yet. Save a role from the feed and it starts here —
+            the tracker is what turns a scattered search into something with a
+            shape.
+          </p>
+          <a class="btn btn-sm" href="/jobs" style="margin-top: var(--s-3)">Find something to save</a>
+        {:else}
+          <ul class="funnel">
+            {#each d.pipeline as stage (stage.status)}
+              <li>
+                <a class="stage" href="/tracker#{stage.status}">
+                  <span class="stage-label t-small">{stage.label}</span>
+                  <span class="bar-track">
+                    <span
+                      class="bar-fill"
+                      style:width={`${(stage.count / maxStage) * 100}%`}
+                      class:zero={stage.count === 0}
+                    ></span>
+                  </span>
+                  <span class="stage-count num">{stage.count}</span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+          <p class="t-micro empty-note">
+            Empty stages stay visible so the funnel keeps its shape.
+          </p>
+        {/if}
+      </section>
+
+      <!--
+        Directly beneath the funnel, because the two answer the same question at
+        different resolutions: the funnel is where things stand now, the grid is
+        how they got there. Separating them put a match list between a cause and
+        its effect.
+      -->
+      <ActivityHeatmap activity={data.activity} />
+    </div>
+
     <!-- Urgency earns the top of the page, not a slot in a sidebar. Above the
          match list on every screen, so it cannot fall below the fold on a
          phone — but only when it has something to say. An empty panel in the
@@ -236,52 +303,9 @@
           </section>
         {/if}
 
-        <!-- Pipeline: a horizontal funnel reads better than a bar chart at this
-             size, and needs no charting library. Every stage links into the
-             tracker filtered to it — a count you cannot click is a dead end. -->
-        <section class="panel pad" aria-labelledby="pl">
-          <div class="panel-head bare">
-            <h2 id="pl" class="t-heading">Your pipeline</h2>
-            <span class="spacer"></span>
-            <a class="t-small" href="/tracker">Open tracker</a>
-          </div>
-
-          {#if pipelineTotal === 0}
-            <p class="t-small">
-              Nothing tracked yet. Save a role from the feed and it starts here —
-              the tracker is what turns a scattered search into something with a
-              shape.
-            </p>
-            <a class="btn btn-sm" href="/jobs" style="margin-top: var(--s-3)">Find something to save</a>
-          {:else}
-            <ul class="funnel">
-              {#each d.pipeline as stage (stage.status)}
-                <li>
-                  <a class="stage" href="/tracker#{stage.status}">
-                    <span class="stage-label t-small">{stage.label}</span>
-                    <span class="bar-track">
-                      <span
-                        class="bar-fill"
-                        style:width={`${(stage.count / maxStage) * 100}%`}
-                        class:zero={stage.count === 0}
-                      ></span>
-                    </span>
-                    <span class="stage-count num">{stage.count}</span>
-                  </a>
-                </li>
-              {/each}
-            </ul>
-            <p class="t-micro empty-note">
-              Empty stages stay visible so the funnel keeps its shape.
-            </p>
-          {/if}
-        </section>
       </div>
     </div>
 
-    <!-- Twelve weeks of real movement. Full width because the span needs it,
-         and last-but-one because it is a record rather than a task. -->
-    <ActivityHeatmap activity={data.activity} />
 
     <!-- Market context spans the full width rather than sitting in a column.
          It is background, not a task, so it belongs at the bottom where it
@@ -426,6 +450,17 @@
     border-radius: var(--radius-full);
     background: var(--uncertain);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--uncertain) 20%, transparent);
+  }
+
+  .tracker-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--s-4);
+    align-items: start;
+  }
+
+  @media (max-width: 62rem) {
+    .tracker-row { grid-template-columns: minmax(0, 1fr); }
   }
 
   .funnel { display: flex; flex-direction: column; gap: var(--s-2); }

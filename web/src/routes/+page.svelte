@@ -1,5 +1,6 @@
 <script lang="ts">
   import { compactNumber } from '$lib/format';
+  import IngestChart from '$lib/components/IngestChart.svelte';
   import type { PageData } from './$types';
 
   const { data }: { data: PageData } = $props();
@@ -217,6 +218,15 @@
     <p class="figure-foot">
       Read from the database as this page was served, not from a slide written last quarter.
     </p>
+
+    <!--
+      The same claim, over time. The figures above are a snapshot and a snapshot
+      can be staged; a month of daily counts cannot, and it shows the boring days
+      as well as the good ones.
+    -->
+    <div class="chart-wrap">
+      <IngestChart ingest={data.ingest} />
+    </div>
   </section>
 
   <section class="refusals">
@@ -651,6 +661,12 @@
     margin: 1.1rem 0 0;
     font-size: var(--t-sm);
     color: var(--fg-subtle);
+  }
+
+  .chart-wrap {
+    margin-top: clamp(2rem, 4vw, 3rem);
+    padding-top: clamp(1.5rem, 3vw, 2rem);
+    border-top: 1px solid var(--border);
   }
 
   /* Refusals --------------------------------------------------------------- */
