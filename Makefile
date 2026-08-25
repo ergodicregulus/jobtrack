@@ -331,6 +331,22 @@ explain-score: ## Print a stored score breakdown. EMAIL=you@example.com POSTING=
 	  -v email="'$(EMAIL)'" -v posting="$${POSTING:-0}" -f /dev/stdin < scripts/explain-score.sql
 
 
+.PHONY: load-test
+load-test: ## Load test the endpoints with latency budgets. PROFILE=smoke|full
+	@# Runs inside the compose network so it hits the api service directly,
+	@# measuring the server rather than the host's port forwarding.
+	@#
+	@# A caution worth repeating from phase-5 §10: the dashboard's slow query
+	@# measured 68ms warm and 13,687ms under write churn — the SAME statement on
+	@# the SAME data. A load test against an idle, freshly-vacuumed database
+	@# reports the 68ms and tells you nothing. Run this while the ingestor is
+	@# working if you want a number that means anything.
+	docker run --rm --network jobtrack_default \
+	  -v "$(PWD)/scripts/k6":/scripts \
+	  -e BASE_URL=http://api:8080 \
+	  -e PROFILE=$${PROFILE:-smoke} \
+	  grafana/k6:latest run /scripts/feed.js
+
 .PHONY: drift-check
 drift-check: ## Compare the live schema against what migrations/ produces
 	$(TOOLS_DB) "sh scripts/drift-check.sh"

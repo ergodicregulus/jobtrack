@@ -482,7 +482,7 @@ We have budgets and no benchmark harness. The budgets in
 | First-load JS (gzipped, `/jobs`) | ≤ 100 KB | ✅ CI |
 | CSS (gzipped) | ≤ 20 KB | ✅ CI |
 | INP p75, 4× CPU throttle | ≤ 200 ms | ❌ Not measured |
-| `GET /v1/jobs` p95 server time | ≤ 120 ms | ❌ By hand |
+| `GET /v1/jobs` p95 server time | ≤ 120 ms | ✅ CI (`make load-test`) — **measured 75.6 ms**, 2026-08-25 |
 | `GET /v1/me/dashboard` p95 | ≤ 400 ms | ❌ By hand (added 2026-08-24) |
 | Ingest → visible, tier A source | ≤ 90 min median | ❌ Not measured |
 

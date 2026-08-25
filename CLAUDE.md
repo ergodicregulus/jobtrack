@@ -212,7 +212,7 @@ failure mode this file exists to prevent. Live counts: `make arch-check`.
 | First-load JS (gzipped, `/jobs`) | ≤ 100 KB | `make bench-budget` |
 | CSS (gzipped) | ≤ 20 KB | `make bench-budget` |
 | INP p75, 4× CPU throttle | ≤ 200 ms | not yet measured |
-| `GET /v1/jobs` p95 server time | ≤ 120 ms | by hand |
+| `GET /v1/jobs` p95 server time | ≤ 120 ms | `make load-test` |
 | Ingest → visible, tier A source | ≤ 90 min median | not yet measured |
 
 A PR that regresses an enforced budget fails CI. Raising a budget requires a note in the PR
