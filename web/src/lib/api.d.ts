@@ -348,6 +348,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every consent this person has given
+         * @description Append-only. A withdrawal stamps `withdrawn_at` on a row rather than deleting it, because deleting the record of consent destroys the evidence that it was obtained. India's DPDP Act requires a record with a timestamp and the version of the notice that was shown.
+         */
+        get: operations["listConsents"];
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw consent for one purpose
+         * @description Purposes are separately withdrawable: agreeing to have a CV parsed is not agreeing to a digest email.
+         */
+        delete: operations["withdrawConsent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything held about you, as JSON
+         * @description Access and portability in one endpoint, because they are the same query. JSON so it can be taken elsewhere.
+         *
+         *     Job postings are excluded: they are public market data rather than personal data, and padding an export with the corpus would bury what actually matters. CV text is decrypted before it leaves — shipping ciphertext nobody can read satisfies the letter of portability and none of its point.
+         */
+        get: operations["exportMyData"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/erasure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request deletion of your account and data
+         * @description Does not delete immediately. A seven-day grace window exists because erasure is irreversible and a stolen session can request it; sessions are revoked at once so the request cannot be repeated from the same theft, and signing in cancels it.
+         */
+        post: operations["requestErasure"];
+        /** Cancel a pending deletion */
+        delete: operations["cancelErasure"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/searches": {
         parameters: {
             query?: never;
@@ -403,6 +470,47 @@ export interface paths {
          */
         post: operations["runSavedSearch"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/dismissals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Postings the viewer has hidden
+         * @description The undo list. Dismissal is one click on a list being skimmed fast, so mis-clicks are certain — a dismissal that cannot be reversed makes people read every row before acting, which costs more than the feature saves.
+         */
+        get: operations["listDismissals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/dismissals/{posting_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Hide a posting from the feed
+         * @description Idempotent: dismissing twice is the same fact, not two. PUT rather than POST for that reason. A second call may attach a reason the first did not carry.
+         */
+        put: operations["dismissPosting"];
+        post?: never;
+        /** Unhide a posting */
+        delete: operations["undismissPosting"];
         options?: never;
         head?: never;
         patch?: never;
@@ -553,6 +661,18 @@ export interface components {
         Preferences: {
             /** @enum {string} */
             theme?: "system" | "light" | "dark";
+            /** @description Null means follow the OS, which is already honoured in CSS. */
+            reduced_motion?: boolean | null;
+            /**
+             * @description Results per page. A set rather than a range, even though the feed accepts 1 to 50: this is the default behind a select control, and a value with no matching option would be a real preference the user cannot see.
+             * @enum {integer}
+             */
+            per_page?: 10 | 25 | 50;
+            /**
+             * @description The feed's default ordering. These are the feed's own sort values, not a parallel vocabulary — a preference holding a sort the feed rejects would silently do nothing.
+             * @enum {string}
+             */
+            sort?: "newest" | "match" | "comp";
         };
         /** @enum {string} */
         WorkMode: "remote" | "hybrid" | "onsite";
@@ -871,6 +991,26 @@ export interface components {
             new: number[];
             /** @description Postings still live at the end of each day. The level. */
             live: number[];
+        };
+        Consent: {
+            /** @enum {string} */
+            purpose: "account" | "resume_parsing" | "matching" | "digest_email";
+            /** @description Which privacy notice was shown. A consent record that cannot name what the person actually read is not a record of anything. */
+            notice_version: string;
+            /** Format: date-time */
+            granted_at: string;
+            /** Format: date-time */
+            withdrawn_at?: string | null;
+        };
+        Dismissal: {
+            /** Format: int64 */
+            posting_id: number;
+            title: string;
+            company: string;
+            /** @enum {string|null} */
+            reason?: "not_interested" | "wrong_location" | "wrong_level" | "wrong_comp" | "already_applied" | null;
+            /** Format: date-time */
+            dismissed_at: string;
         };
         SavedSearch: {
             /** Format: int64 */
@@ -1436,6 +1576,113 @@ export interface operations {
             };
         };
     };
+    listConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The notice currently in force. */
+                        notice_version: string;
+                        items: components["schemas"]["Consent"][];
+                    };
+                };
+            };
+        };
+    };
+    withdrawConsent: {
+        parameters: {
+            query: {
+                purpose: "resume_parsing" | "matching" | "digest_email";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawn */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportMyData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    requestErasure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scheduled */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date-time */
+                        requested_at: string;
+                        /** Format: date-time */
+                        completes_after: string;
+                    };
+                };
+            };
+        };
+    };
+    cancelErasure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listSavedSearches: {
         parameters: {
             query?: never;
@@ -1548,6 +1795,85 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listDismissals: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Dismissal"][];
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+        };
+    };
+    dismissPosting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Optional and never inferred. A guessed reason is worse than none, because the reason is the part a future scoring change would learn from.
+                     * @enum {string}
+                     */
+                    reason?: "not_interested" | "wrong_location" | "wrong_level" | "wrong_comp" | "already_applied";
+                };
+            };
+        };
+        responses: {
+            /** @description Hidden */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    undismissPosting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                posting_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
         };
     };
     listTracked: {

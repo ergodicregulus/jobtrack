@@ -139,6 +139,9 @@ func (a *API) Routes() http.Handler {
 	mux.Handle("POST /v1/me/searches", authed(httpx.Wrap(a.log, a.handleCreateSearch)))
 	mux.Handle("DELETE /v1/me/searches/{id}", authed(httpx.Wrap(a.log, a.handleDeleteSearch)))
 	mux.Handle("POST /v1/me/searches/{id}/run", authed(httpx.Wrap(a.log, a.handleRunSearch)))
+	mux.Handle("GET /v1/me/dismissals", authed(httpx.Wrap(a.log, a.handleListDismissals)))
+	mux.Handle("PUT /v1/me/dismissals/{posting_id}", authed(httpx.Wrap(a.log, a.handleDismiss)))
+	mux.Handle("DELETE /v1/me/dismissals/{posting_id}", authed(httpx.Wrap(a.log, a.handleUndismiss)))
 
 	// The DPDP rights path. Real endpoints rather than an email address in a
 	// policy document: access and portability are one export, erasure is a

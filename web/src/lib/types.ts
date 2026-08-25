@@ -45,6 +45,7 @@ export type ApplicationStatus = S['ApplicationStatus'];
 export type WorkMode = S['WorkMode'];
 export type FieldError = S['FieldError'];
 export type ProblemDetail = S['ProblemDetail'];
+export type Preferences = S['Preferences'];
 
 /**
  * Presentation-only types. These have no server counterpart: the theme is a

@@ -2,6 +2,23 @@ import { test, expect, type Page, type CDPSession } from '@playwright/test';
 import { hydrated } from './helpers';
 
 /**
+ * The Event Timing API, which TypeScript's DOM lib does not yet describe.
+ *
+ * `interactionId` and `durationThreshold` are both in the published spec and
+ * both shipped in Chromium years ago; lib.dom.d.ts simply lags. Declared here
+ * rather than cast to `any` at the call sites, so the two fields this file
+ * depends on are named once and checked everywhere they are used.
+ */
+declare global {
+  interface PerformanceEventTiming extends PerformanceEntry {
+    readonly interactionId?: number;
+  }
+  interface PerformanceObserverInit {
+    durationThreshold?: number;
+  }
+}
+
+/**
  * INP against the 200 ms budget, measured rather than proxied.
  *
  * The obvious tool here is Lighthouse CI, and it was rejected. Lighthouse

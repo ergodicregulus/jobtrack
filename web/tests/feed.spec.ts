@@ -254,3 +254,93 @@ test.describe('accessibility', () => {
     expect(linkBox!.y).toBeGreaterThanOrEqual(headerBox!.height - 1);
   });
 });
+
+test.describe('hiding a posting', () => {
+  // Serial, and each test acts on a DIFFERENT card.
+  //
+  // Both tests share the seeded account, and the first version had both hide
+  // the FIRST card: run in parallel, one test's undo deleted the other's
+  // dismissal and the failure read as a missing feed predicate. Sharing a
+  // fixture is the constraint here, so the tests are made not to collide
+  // rather than pretending they are independent.
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('senior@jobtrack.local');
+    await page.getByLabel('Password').fill('dev-password-please');
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+  });
+
+  // The collapse-in-place behaviour is the whole design. A row that vanishes
+  // under the cursor makes the list jump and leaves nothing to click if the
+  // click was wrong, so this asserts the count is UNCHANGED — the strip
+  // replaces the card rather than removing it.
+  test('collapses to an undo strip rather than vanishing, and comes back', async ({ page }) => {
+    await page.goto('/jobs');
+    await hydrated(page);
+
+    const before = await page.locator('li.card, li.hidden-row').count();
+    const card = page.locator('li.card').first();
+    const title = (await card.locator('h3, h2').first().innerText()).trim();
+
+    await card.getByRole('button', { name: /^hide$/i }).click();
+
+    const strip = page.locator('li.hidden-row').first();
+    await expect(strip).toBeVisible();
+    await expect(strip).toContainText(title.slice(0, 24));
+    expect(await page.locator('li.card, li.hidden-row').count()).toBe(before);
+
+    await strip.getByRole('button', { name: /undo/i }).click();
+    await expect(page.locator('li.hidden-row')).toHaveCount(0);
+  });
+
+  // Where it actually pays off: gone from the NEXT request, not just this
+  // render. This is the assertion that fails if the feed predicate is missing.
+  test('stays gone on the next load, and returns after undo', async ({ page }) => {
+    await page.goto('/jobs');
+    await hydrated(page);
+
+    // The SECOND card, so this cannot collide with the test above.
+    const card = page.locator('li.card').nth(1);
+    const title = (await card.locator('h3, h2').first().innerText()).trim();
+    const href = await card.locator('a[href^="/jobs/"]').first().getAttribute('href');
+    const postingId = Number(href!.split('/').pop());
+
+    await card.getByRole('button', { name: /^hide$/i }).click();
+    await expect(page.locator('li.hidden-row').first()).toBeVisible();
+
+    // The strip appears optimistically, so its presence is not proof the write
+    // landed. Wait for the server to actually hold the dismissal before
+    // reloading, or this races the request rather than testing it.
+    // The strip appears optimistically, so its presence is not proof the write
+    // landed. Wait for the server to actually hold THIS dismissal before
+    // reloading, or the reload races the request rather than testing it.
+    await expect
+      .poll(async () =>
+        page.evaluate(async (pid) => {
+          const res = await fetch('/v1/me/dismissals');
+          if (!res.ok) return false;
+          const body = await res.json();
+          return (body.items ?? []).some((d: { posting_id: number }) => d.posting_id === pid);
+        }, postingId)
+      )
+      .toBe(true);
+
+    await page.reload();
+    await hydrated(page);
+    await expect(page.locator(`li.card a[href="/jobs/${postingId}"]`)).toHaveCount(0);
+
+    // Restore through the API so the seeded account is left as it was found —
+    // a suite that mutates a shared fixture fails differently on its second run.
+    await page.evaluate(
+      (pid) => fetch(`/v1/me/dismissals/${pid}`, { method: 'DELETE' }),
+      postingId
+    );
+    await page.reload();
+    await hydrated(page);
+    await expect(page.locator(`li.card a[href="/jobs/${postingId}"]`)).toHaveCount(1);
+    expect(title.length).toBeGreaterThan(0);
+  });
+});

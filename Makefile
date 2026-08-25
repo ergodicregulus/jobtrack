@@ -60,7 +60,7 @@ psql: ## Open psql against the dev database
 ##@ Quality gates
 
 .PHONY: check
-check: arch-check fmt-check vet lint test build-all web-test bench-budget ## Everything CI runs. THE definition of done
+check: arch-check fmt-check vet lint test build-all web-test web-check bench-budget ## Everything CI runs. THE definition of done
 	@echo ""
 	@echo "  ✓ check passed"
 

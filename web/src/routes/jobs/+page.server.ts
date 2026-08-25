@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import type { FeedPage, Facets, SavedSearch } from '$lib/types';
+import type { FeedPage, Facets, SavedSearch, Preferences } from '$lib/types';
 
 /**
  * The feed is loaded on the server.
@@ -29,10 +29,20 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   // Saved searches are fetched before the feed, because the redirect below
   // depends on them. That costs one serial round trip for a signed-in reader
   // and saves fetching a feed that is about to be replaced.
+  //
+  // Preferences ride along in the same round trip rather than after it. They
+  // are needed before the feed request is built — they decide its sort and page
+  // size — so fetching them serially would add a second full round trip to the
+  // most-requested page in the product. In parallel they add none.
   let searches: SavedSearch[] = [];
+  let prefs: Preferences | null = null;
   if (signedIn) {
-    const res = await fetch('/v1/me/searches');
-    if (res.ok) searches = (await res.json()).items ?? [];
+    const [searchRes, prefRes] = await Promise.all([
+      fetch('/v1/me/searches'),
+      fetch('/v1/me/preferences')
+    ]);
+    if (searchRes.ok) searches = (await searchRes.json()).items ?? [];
+    if (prefRes.ok) prefs = await prefRes.json();
   }
 
   // A default saved search is applied ONLY to a bare /jobs.
@@ -50,10 +60,25 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
     }
   }
 
-  // A signed-in user with a finished profile gets their best matches first.
-  // Sorting a personalised feed by date would bury the scoring work behind
-  // whatever happened to be posted most recently.
-  if (!params.has('sort') && signedIn && profile?.onboarded) params.set('sort', 'match');
+  // The URL wins, then the user's stored default, then the product's opinion.
+  //
+  // That order is the whole design. A stored preference must never override a
+  // sort the user just clicked — it is a default, not a policy — and the
+  // product's own guess must never override a preference the user set
+  // deliberately.
+  //
+  // The fallback stays: a signed-in user with a finished profile gets their
+  // best matches first, because sorting a personalised feed by date buries the
+  // scoring work behind whatever happened to be posted most recently.
+  if (!params.has('sort')) {
+    if (prefs?.sort) params.set('sort', prefs.sort);
+    else if (signedIn && profile?.onboarded) params.set('sort', 'match');
+  }
+
+  // Page size has no URL control today, so this is the only thing that sets it.
+  // Sent only when it differs from the API's own default, so a reader who never
+  // touched the setting produces the same request they always did.
+  if (prefs?.per_page && prefs.per_page !== 25) params.set('limit', String(prefs.per_page));
 
   // Default to the last 7 days. "Any time" would bury the fresh postings this
   // product exists to surface, so the default encodes the product's view and

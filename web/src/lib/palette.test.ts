@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// @ts-expect-error — plain ESM, no types, and one source of truth is the point.
 import { PALETTE } from '../../scripts/palette.mjs';
 
 /**

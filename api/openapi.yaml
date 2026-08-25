@@ -631,6 +631,80 @@ paths:
         '204': { description: Marked }
         '404': { description: No such search }
 
+  /v1/me/dismissals:
+    get:
+      tags: [me]
+      summary: Postings the viewer has hidden
+      description: >-
+        The undo list. Dismissal is one click on a list being skimmed fast, so
+        mis-clicks are certain — a dismissal that cannot be reversed makes
+        people read every row before acting, which costs more than the feature
+        saves.
+      operationId: listDismissals
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Dismissal' }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/dismissals/{posting_id}:
+    put:
+      tags: [me]
+      summary: Hide a posting from the feed
+      description: >-
+        Idempotent: dismissing twice is the same fact, not two. PUT rather than
+        POST for that reason. A second call may attach a reason the first did
+        not carry.
+      operationId: dismissPosting
+      parameters:
+        - in: path
+          name: posting_id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: >-
+                    Optional and never inferred. A guessed reason is worse than
+                    none, because the reason is the part a future scoring change
+                    would learn from.
+                  enum: [not_interested, wrong_location, wrong_level, wrong_comp, already_applied]
+      responses:
+        '204': { description: Hidden }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [me]
+      summary: Unhide a posting
+      operationId: undismissPosting
+      parameters:
+        - in: path
+          name: posting_id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: Restored }
+        '401': { $ref: '#/components/responses/Problem' }
+
   /v1/me/saved:
     get:
       tags: [tracking]
@@ -844,6 +918,25 @@ components:
         carry the key and it is preserved untouched, but nothing reads it.
       properties:
         theme: { type: string, enum: [system, light, dark] }
+        reduced_motion:
+          type: boolean
+          nullable: true
+          description: Null means follow the OS, which is already honoured in CSS.
+        per_page:
+          type: integer
+          enum: [10, 25, 50]
+          description: >-
+            Results per page. A set rather than a range, even though the feed
+            accepts 1 to 50: this is the default behind a select control, and a
+            value with no matching option would be a real preference the user
+            cannot see.
+        sort:
+          type: string
+          enum: [newest, match, comp]
+          description: >-
+            The feed's default ordering. These are the feed's own sort values,
+            not a parallel vocabulary — a preference holding a sort the feed
+            rejects would silently do nothing.
 
     WorkMode:
       type: string
@@ -1302,6 +1395,19 @@ components:
             what the person actually read is not a record of anything.
         granted_at: { type: string, format: date-time }
         withdrawn_at: { type: [string, "null"], format: date-time }
+
+    Dismissal:
+      type: object
+      required: [posting_id, title, company, dismissed_at]
+      properties:
+        posting_id: { type: integer, format: int64 }
+        title: { type: string }
+        company: { type: string }
+        reason:
+          type: string
+          nullable: true
+          enum: [not_interested, wrong_location, wrong_level, wrong_comp, already_applied]
+        dismissed_at: { type: string, format: date-time }
 
     SavedSearch:
       type: object

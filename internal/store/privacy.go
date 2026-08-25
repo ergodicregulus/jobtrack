@@ -174,6 +174,13 @@ func ExportUserData(ctx context.Context, pool *pgxpool.Pool, userID int64) (map[
 	if searches, err := ListSavedSearches(ctx, pool, userID); err == nil {
 		out["saved_searches"] = searches
 	}
+	// Dismissals are a record of what someone rejected and why, which is
+	// personal data and among the more revealing things we hold. 200 rather
+	// than the review list's default: an export is the one place the whole
+	// history belongs.
+	if dismissals, err := ListDismissals(ctx, pool, userID, 200); err == nil {
+		out["dismissed_postings"] = dismissals
+	}
 
 	resumes, err := exportResumes(ctx, pool, userID)
 	if err != nil {

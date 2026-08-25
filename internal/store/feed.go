@@ -63,6 +63,11 @@ type FeedFilter struct {
 	// where the score columns come back empty rather than absent — the feed is
 	// public, and gating discovery behind an account would be the wrong trade.
 	UserID *int64
+
+	// IncludeDismissed shows hidden postings anyway, for the review list. The
+	// default is to hide them, so a caller that forgets this field gets the
+	// behaviour the user asked for rather than the one they did not.
+	IncludeDismissed bool
 }
 
 // FeedItem is one card's worth of data.
@@ -267,6 +272,23 @@ func (p *feedPredicates) addCompensation(f FeedFilter) {
 	}
 }
 
+// addDismissed hides what the viewer has already rejected.
+//
+// NOT EXISTS rather than a LEFT JOIN ... IS NULL: the planner turns it into an
+// anti-join either way, but NOT EXISTS cannot accidentally multiply rows if the
+// key ever stops being unique, and it reads as the question being asked.
+//
+// Anonymous viewers have no dismissals, so the predicate is omitted entirely
+// rather than bound to NULL — an unnecessary subquery on every anonymous feed
+// request is the most-served query in the product.
+func (p *feedPredicates) addDismissed(f FeedFilter) {
+	if f.UserID == nil || f.IncludeDismissed {
+		return
+	}
+	p.where(`NOT EXISTS (SELECT 1 FROM dismissed_postings d
+	                      WHERE d.user_id = $%d AND d.posting_id = p.id)`, p.bind(*f.UserID))
+}
+
 func (p *feedPredicates) addSource(f FeedFilter) {
 	if f.PostedWithin > 0 {
 		p.where("COALESCE(p.posted_at, p.first_seen_at) >= $%d",
@@ -458,6 +480,7 @@ func feedKeyset(
 	p.addCompensation(f)
 	p.addSource(f)
 	p.addSearch(f)
+	p.addDismissed(f)
 	p.addCursor(cursorStr, sort)
 
 	// One extra row is what tells us whether another page exists.
@@ -583,6 +606,7 @@ func rankCandidates(
 	p.addCompensation(f)
 	p.addSource(f)
 	p.addSearch(f)
+	p.addDismissed(f)
 	capPos := p.bind(scoreCandidateCap)
 
 	// Concatenated, not Sprintf'd. postingScoringColumns carries a SQL comment

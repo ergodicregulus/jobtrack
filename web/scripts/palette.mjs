@@ -17,7 +17,14 @@
  *   node scripts/palette.mjs --check  fail if app.css has drifted
  */
 
-/** OKLCH -> sRGB hex. Björn Ottosson's oklab matrices. */
+/**
+ * OKLCH -> sRGB hex. Björn Ottosson's oklab matrices.
+ *
+ * @param {number} L Perceptual lightness, 0-1.
+ * @param {number} C Chroma.
+ * @param {number} H Hue in degrees.
+ * @returns {string} A `#rrggbb` string.
+ */
 export function hex(L, C, H) {
   const h = (H * Math.PI) / 180;
   const a = C * Math.cos(h);
@@ -64,6 +71,7 @@ export function hex(L, C, H) {
 const HUE = { neutral: 70, accent: 258, grow: 178, shrink: 18, uncertain: 65 };
 
 /** Lightness steps, shared by both themes so the ramps mirror each other. */
+/** @type {Record<string, [L: number, C: number, H: number]>} */
 const light = {
   '--bg': [0.985, 0.002, HUE.neutral],
   '--bg-raised': [1.0, 0.0, HUE.neutral],
@@ -93,6 +101,7 @@ const light = {
  * ink colours lighten AND lose chroma; the surfaces stay warm rather than
  * sliding to neutral grey, so the two themes read as the same product.
  */
+/** @type {Record<string, [L: number, C: number, H: number]>} */
 const dark = {
   '--bg': [0.155, 0.004, HUE.neutral],
   '--bg-raised': [0.196, 0.005, HUE.neutral],
@@ -123,7 +132,7 @@ export const PALETTE = {
 if (import.meta.url === `file://${process.argv[1]}`) {
   for (const theme of ['light', 'dark']) {
     console.log(`/* ${theme} */`);
-    for (const [k, v] of Object.entries(PALETTE[theme])) {
+    for (const [k, v] of Object.entries(PALETTE[/** @type {'light'|'dark'} */ (theme)])) {
       console.log(`  ${k}: ${v};`);
     }
     console.log();

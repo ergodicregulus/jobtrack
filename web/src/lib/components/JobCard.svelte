@@ -109,6 +109,52 @@
     saving = false;
   }
 
+  /**
+   * Hiding collapses the card to an undo strip. It does NOT remove it.
+   *
+   * A row that vanishes under the cursor is disorienting — the list jumps, the
+   * thing you were reading is gone, and there is nothing left to click if you
+   * were wrong. Gmail's pattern instead: the row stays, shrinks, and offers the
+   * way back. The posting is gone from the NEXT feed, which is where the
+   * feature actually pays off.
+   */
+  let hidden = $state(false);
+  let hiding = $state(false);
+
+  $effect(() => {
+    job.id;
+    hidden = false;
+  });
+
+  async function hide() {
+    if (hiding) return;
+    hidden = true;
+    hiding = true;
+    failure = null;
+    failure = await mutate(
+      // keepalive: hiding a card and immediately clicking through to another
+      // posting is a normal sequence, and without it the browser cancels the
+      // in-flight request on navigation — the card comes back next visit and
+      // the feature looks broken intermittently. Found by an e2e test that
+      // reloaded straight after hiding.
+      () => fetch(`/v1/me/dismissals/${job.id}`, { method: 'PUT', keepalive: true }),
+      () => { hidden = false; }
+    );
+    hiding = false;
+  }
+
+  async function unhide() {
+    if (hiding) return;
+    hidden = false;
+    hiding = true;
+    failure = null;
+    failure = await mutate(
+      () => fetch(`/v1/me/dismissals/${job.id}`, { method: 'DELETE', keepalive: true }),
+      () => { hidden = true; }
+    );
+    hiding = false;
+  }
+
   const freshness = $derived(freshnessOf(job.posted_at, job.first_seen_at));
   const age = $derived(relativeAge(job.posted_at, job.first_seen_at));
   const comp = $derived(formatComp(job.comp_min, job.comp_max, job.comp_currency, job.comp_period));
@@ -128,6 +174,17 @@
   like a list of links to a screen reader instead of a div soup with a click
   handler.
 -->
+{#if hidden}
+  <li class="hidden-row">
+    <span class="hidden-what">
+      Hidden <span class="hidden-title">{job.title}</span> at {job.company_name}
+    </span>
+    <button class="btn btn-sm" onclick={unhide} disabled={hiding}>Undo</button>
+    {#if failure}
+      <span class="t-micro err" role="alert">{failure.message}</span>
+    {/if}
+  </li>
+{:else}
 <li class="card" class:low-confidence={lowConfidence} data-freshness={freshness}>
   <!--
     THE FRESHNESS RAIL.
@@ -311,6 +368,19 @@
         </svg>
         {saved ? 'Saved' : 'Save'}
       </button>
+      <button
+        class="btn btn-sm hide-btn"
+        onclick={hide}
+        disabled={hiding}
+        title="Hide this from your feed"
+      >
+        <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+          <path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z" fill="none"
+                stroke="currentColor" stroke-width="1.3" />
+          <path d="M2 12L12 2" stroke="currentColor" stroke-width="1.3" />
+        </svg>
+        Hide
+      </button>
       {#if failure}
         <span class="t-micro err" role="alert">
           {failure.message}
@@ -329,6 +399,7 @@
     {/if}
   </div>
 </li>
+{/if}
 
 <style>
   .card {
@@ -476,6 +547,38 @@
     padding: var(--card-pad);
   }
   .apply { white-space: nowrap; }
+
+  /* The hide control is deliberately the quietest thing in the row. It is
+     destructive-ish and one click, so it must not compete with Apply. */
+  .hide-btn {
+    color: var(--fg-subtle);
+    white-space: nowrap;
+  }
+
+  .hide-btn:hover:not(:disabled) {
+    color: var(--fg);
+  }
+
+  /* Same vertical rhythm as a card so the list does not jump when one
+     collapses — the whole point of not removing the row. */
+  .hidden-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+    min-height: 44px;
+    padding: var(--s-3) var(--s-4);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-sunken);
+    font-size: var(--t-sm);
+    color: var(--fg-muted);
+  }
+
+  .hidden-title {
+    color: var(--fg);
+    font-weight: 600;
+  }
   .save { justify-content: center; }
   .opt-out { font-size: 11px; color: var(--fg-subtle); }
 
