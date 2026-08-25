@@ -1,0 +1,10 @@
+# Tables no code reads or writes.
+#
+# Managed by `make arch-check-update`. Entries may be removed, never added
+# by hand — a new entry means a new violation, and that is what this file
+# exists to prevent.
+
+posting_embeddings
+resume_embeddings
+skill_adjacency
+watchlists

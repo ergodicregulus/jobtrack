@@ -1,0 +1,3 @@
+# Docs unreachable from CLAUDE.md and docs/README.md.
+#
+# Empty. The rule holds with no exceptions.

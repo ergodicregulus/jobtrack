@@ -1,0 +1,7 @@
+# Migrations that lock a populated table, or use CONCURRENTLY without the directive.
+#
+# Managed by `make arch-check-update`. Entries may be removed, never added
+# by hand — a new entry means a new violation, and that is what this file
+# exists to prevent.
+
+0011_tracking_consolidation.up.sql :: applications_user_posting_uniq

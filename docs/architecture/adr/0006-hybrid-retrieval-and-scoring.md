@@ -1,3 +1,24 @@
+<!-- IMPLEMENTATION STATUS, added 2026-08-25 after an audit.
+
+     The scoring half of this ADR is fully built and is what the product runs
+     on. THE RETRIEVAL HALF IS NOT. There is no vector search, no embedding
+     generation and no RRF fusion anywhere in the codebase.
+
+     What exists is the schema for it: `posting_embeddings` and
+     `resume_embeddings`, with HNSW indexes, created by migrations 0005 and
+     0007. Measured 2026-08-25, both tables have had **zero rows inserted since
+     they were created**, and no Go source references either.
+
+     This note exists because the gap was invisible: the tables and indexes
+     made pgvector look like a shipped capability, and
+     phase-5-production-readiness.md listed "similarity via pgvector" among
+     consequences it claimed to have measured. It had not.
+
+     The decision below stands — it is what we intend to build. It is recorded
+     here as UNBUILT so that nobody reads the schema and concludes otherwise.
+     scripts/arch/check_schema_usage.py now fails on tables no code touches;
+     these two are in its baseline, which is where their status is tracked. -->
+
 # ADR-0006 — Hybrid retrieval with RRF, explainable weighted scoring
 
 - **Status:** DECIDED
