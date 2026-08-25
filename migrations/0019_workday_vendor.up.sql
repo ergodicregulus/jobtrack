@@ -1,0 +1,19 @@
+-- +migrate no-transaction
+--
+-- Adds `workday` to source_vendor.
+--
+-- no-transaction because ALTER TYPE ... ADD VALUE cannot be used in the same
+-- transaction that adds it. Postgres will accept the statement inside one and
+-- then reject the first row that uses the new label, which fails at ingest time
+-- rather than at deploy time — the worse of the two.
+--
+-- Expand-only and backward-compatible by construction: adding an enum label
+-- changes nothing for a release that never writes it. The previous release
+-- keeps running against this schema unchanged, which is what deployment-zdt
+-- requires.
+--
+-- Workday is recorded as TIER 1b in the source catalogue rather than Tier 1:
+-- the endpoint is undocumented and can change without notice, unlike
+-- Greenhouse's published boards API. See ADR-0004 and the adapter's package
+-- comment.
+ALTER TYPE source_vendor ADD VALUE IF NOT EXISTS 'workday';

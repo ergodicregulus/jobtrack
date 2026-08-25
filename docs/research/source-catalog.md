@@ -186,6 +186,49 @@ requirement for the specific role.
 
 **Fixtures:** `list.json`, `detail.json` (captured from BoschGroup)
 
+### Workday — **Tier 1b**
+
+> **Verified by direct call 2026-08-25** against NVIDIA
+> (`wd5/nvidia/nvidiaexternalcareersite`). No published schema exists; every
+> field below was observed, not documented.
+
+```
+POST https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
+GET  https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}{externalPath}
+```
+
+| Property | Value |
+|---|---|
+| Auth | **None** |
+| Tier | **1b** — undocumented internal API. ADR-0004's durability argument holds (the endpoint *is* the customer's careers page) but it can change without notice |
+| Board token | `{datacentre}/{tenant}/{site}`, e.g. `wd5/nvidia/nvidiaexternalcareersite`. None of the three is derivable from the others |
+| Pagination | POST body `{limit, offset}`. `limit` above 20 is silently ignored |
+| **`total` is CAPPED at 2,000 and lies** | Measured: NVIDIA reports `total: 2000` while its facet counts sum to **2,630**. Coverage must be derived from facets, never from `total` |
+| List fields | `title`, `externalPath`, `locationsText`, `postedOn`, `bulletFields[0]` (requisition id) |
+| Detail fields | `jobDescription`, `externalUrl`, `jobReqId`, `startDate`, `country`, `location`, `timeType` |
+| Dates | **`postedOn` is unusable** — relative, localised, and ceilinged (`"Posted 30+ Days Ago"`). `startDate` on the detail endpoint is a real ISO date and is the only one we store |
+| Descriptions | Detail only. Two-phase, bounded at 40 per poll and resumed from `DetailCursor` |
+
+**Why it matters.** Workday is the enterprise default and what most large Indian
+IT-services employers and captive centres run on, which makes it the single
+largest available increase in the thinnest part of the corpus.
+
+**Two traps, both hit during implementation and both now tested:**
+
+1. **The vendor's cap.** `total` saturates at 2,000. The adapter walks the
+   facet with the most countable values and merges the slices.
+   `TestTruncationIsDetected` fails on a response whose facets exceed its
+   `total`.
+2. **Our own cap.** The first working version returned 2,037 against a true
+   total of 2,630: it beat the vendor's cap and then truncated on
+   `maxPagesPerSlice`, which was 60 pages (1,200 rows) against a largest slice
+   of 1,794. Any per-slice bound must exceed the vendor cap divided by the page
+   size, or it silently reintroduces the bug it exists to prevent.
+
+**Not verified:** Accenture's tenant returned HTTP 422 for the site name tried,
+so the token is wrong rather than the endpoint. Tenants are confirmed by call,
+never guessed.
+
 ### Recruitee
 
 ```

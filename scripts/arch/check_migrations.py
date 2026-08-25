@@ -34,6 +34,7 @@ import _ratchet  # noqa: E402
 MIGRATIONS = Path("migrations")
 
 CREATE_TABLE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)", re.I)
+ADD_ENUM_VALUE = re.compile(r"ALTER\s+TYPE\s+\S+\s+ADD\s+VALUE", re.I)
 CREATE_INDEX = re.compile(
     r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?"
     r"(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_.]*)",
@@ -70,11 +71,17 @@ def main() -> int:
                 f"`{table}` for the duration of the deploy"
             )
 
-        if uses_concurrently and "+migrate no-transaction" not in raw:
+        # ALTER TYPE ... ADD VALUE has the same constraint as CONCURRENTLY and
+        # fails more subtly: Postgres accepts the statement inside a
+        # transaction and then rejects the first row that uses the new label,
+        # so the failure surfaces at ingest rather than at deploy.
+        needs_no_tx = uses_concurrently or ADD_ENUM_VALUE.search(sql)
+        if needs_no_tx and "+migrate no-transaction" not in raw:
+            why = "CONCURRENTLY" if uses_concurrently else "ALTER TYPE ... ADD VALUE"
             key = f"{path.name} :: no-transaction"
             violations[key] = (
-                f"{path}: uses CONCURRENTLY but has no `-- +migrate "
-                f"no-transaction` directive; it cannot run inside a transaction"
+                f"{path}: uses {why} but has no `-- +migrate no-transaction` "
+                f"directive; it cannot run inside a transaction"
             )
 
     return _ratchet.run(

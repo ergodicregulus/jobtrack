@@ -18,6 +18,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/source/ashby"
 	"github.com/jobtrack/jobtrack/internal/source/greenhouse"
 	"github.com/jobtrack/jobtrack/internal/source/smartrecruiters"
+	"github.com/jobtrack/jobtrack/internal/source/workday"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
 
@@ -52,6 +53,7 @@ func (d *Deps) Init() {
 	d.adapters = map[source.Vendor]source.Adapter{
 		source.VendorGreenhouse:      greenhouse.New(client, ua),
 		source.VendorAshby:           ashby.New(client, ua),
+		source.VendorWorkday:         workday.New(client, ua),
 		source.VendorSmartRecruiters: smartrecruiters.New(client, ua),
 	}
 	d.limiter = newHostLimiter(2 * time.Second)

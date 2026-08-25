@@ -26,6 +26,7 @@ const (
 	VendorSmartRecruiters Vendor = "smartrecruiters"
 	VendorRecruitee       Vendor = "recruitee"
 	VendorWorkable        Vendor = "workable"
+	VendorWorkday         Vendor = "workday"
 	VendorPersonio        Vendor = "personio"
 	VendorJSONLD          Vendor = "jsonld"
 )

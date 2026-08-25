@@ -349,7 +349,7 @@ The thinnest market in the corpus and the one this project's own user is in.
 | Order | Work | Why first |
 |---|---|---|
 | 1 | **Finish the SmartRecruiters body sweep** | Already fixed and running; costs nothing but patience, and unlocks re-measuring [A-00f](../research/evidence-ledger.md#a-00f) |
-| 2 | **Workday adapter** | Largest inventory increase available, and the largest India increase. Must handle the 2,000 cap |
+| 2 | ~~**Workday adapter**~~ | ✅ **Built 2026-08-25.** Facet-walking recovers **2,631** postings from NVIDIA against a reported `total` of 2,000 — 31% more than a naive read. Tier 1b in the catalogue |
 | 3 | **Personio + Recruitee + Workable** | Three small, documented, unauthenticated adapters sharing one shape. Mostly EU inventory |
 | 4 | **JSON-LD career-page tier** | Unlocks companies with no recognised ATS; more machinery (robots.txt, crawl scheduling, confidence) |
 | 5 | **Verify Darwinbox / Keka / iCIMS / BambooHR** | Call them and look before planning anything |

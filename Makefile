@@ -270,6 +270,12 @@ CAPTURE_URL_ashby = https://api.ashbyhq.com/posting-api/job-board/$(BOARD)?inclu
 CAPTURE_URL_smartrecruiters = https://api.smartrecruiters.com/v1/companies/$(BOARD)/postings?limit=100&offset=0
 CAPTURE_URL = $(CAPTURE_URL_$(VENDOR))
 
+# Workday needs POST with a JSON body, which the GET-based capture below cannot
+# express. BOARD is {datacentre}/{tenant}/{site}.
+CAPTURE_POST_workday = {"appliedFacets":{},"limit":20,"offset":0,"searchText":""}
+CAPTURE_URL_workday = https://$(word 2,$(subst /, ,$(BOARD))).$(word 1,$(subst /, ,$(BOARD))).myworkdayjobs.com/wday/cxs/$(word 2,$(subst /, ,$(BOARD)))/$(word 3,$(subst /, ,$(BOARD)))/jobs
+CAPTURE_POST = $(CAPTURE_POST_$(VENDOR))
+
 .PHONY: capture-source
 capture-source: ## Capture a live ATS response as a fixture: make capture-source VENDOR=greenhouse BOARD=stripe
 	@test -n "$(VENDOR)" -a -n "$(BOARD)" || \
@@ -278,10 +284,15 @@ capture-source: ## Capture a live ATS response as a fixture: make capture-source
 	  { echo "no capture URL for vendor '$(VENDOR)'; add one to CAPTURE_URL in the Makefile"; exit 1; }
 	@echo "fetching $(VENDOR)/$(BOARD)..."
 	@mkdir -p "internal/source/$(VENDOR)/testdata"
-	@curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' \
-	  "$(CAPTURE_URL)" \
-	  | python3 -m json.tool > "internal/source/$(VENDOR)/testdata/$(BOARD).json"
-	@echo "wrote internal/source/$(VENDOR)/testdata/$(BOARD).json"
+	@name=$$(echo "$(BOARD)" | tr '/' '-'); \
+	  if [ -n '$(CAPTURE_POST)' ]; then \
+	    curl -sS -X POST -H 'content-type: application/json' \
+	      -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' \
+	      -d '$(CAPTURE_POST)' "$(CAPTURE_URL)"; \
+	  else \
+	    curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' "$(CAPTURE_URL)"; \
+	  fi | python3 -m json.tool > "internal/source/$(VENDOR)/testdata/$$name.json"; \
+	  echo "wrote internal/source/$(VENDOR)/testdata/$$name.json"
 	@echo ""
 	@echo "REVIEW IT BEFORE COMMITTING: strip anything resembling personal data."
 	@echo "Some feeds carry recruiter names and contact addresses, and a fixture"

@@ -1,0 +1,71 @@
+{
+  "total": 2000,
+  "jobPostings": [
+    {
+      "title": "Senior Public Relations Manager",
+      "externalPath": "/job/Korea-Seoul/Public-Relations-Manager_JR2016172",
+      "locationsText": "Korea, Seoul",
+      "postedOn": "Posted Today",
+      "bulletFields": [
+        "JR2016172"
+      ]
+    },
+    {
+      "title": "Product Management and Configuration Engineer",
+      "externalPath": "/job/Israel-Tel-Aviv/Product-Management-and-Configuration-Engineer_JR2023537",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted Today",
+      "bulletFields": [
+        "JR2023537"
+      ]
+    },
+    {
+      "title": "Engineering Manager - OpenBMC Platform",
+      "externalPath": "/job/US-CA-Santa-Clara/Manager--Engineering---Data-Center-Management_JR1997726",
+      "locationsText": "US, CA, Santa Clara",
+      "postedOn": "Posted Yesterday",
+      "bulletFields": [
+        "JR1997726"
+      ]
+    }
+  ],
+  "facets": [
+    {
+      "facetParameter": "jobFamilyGroup",
+      "descriptor": "Job Category",
+      "values": [
+        {
+          "id": "eng",
+          "descriptor": "Engineering",
+          "count": 1794
+        },
+        {
+          "id": "sales",
+          "descriptor": "Sales",
+          "count": 297
+        },
+        {
+          "id": "ops",
+          "descriptor": "Operations",
+          "count": 539
+        }
+      ]
+    },
+    {
+      "facetParameter": "timeType",
+      "descriptor": "Time Type",
+      "values": [
+        {
+          "id": "ft",
+          "descriptor": "Full time",
+          "count": 2628
+        },
+        {
+          "id": "pt",
+          "descriptor": "Part time",
+          "count": 2
+        }
+      ]
+    }
+  ]
+}
