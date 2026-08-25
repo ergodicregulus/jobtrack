@@ -480,10 +480,10 @@ We have budgets and no benchmark harness. The budgets in
 |---|---|---|
 | First-load JS (gzipped, `/jobs`) | ≤ 100 KB | ✅ CI |
 | CSS (gzipped) | ≤ 20 KB | ✅ CI |
-| INP p75, 4× CPU throttle | ≤ 200 ms | ❌ Not measured |
+| INP p75, 4× CPU throttle | ≤ 200 ms | ✅ By hand (`make inp`) — **measured 72 ms**, 2026-08-25 |
 | `GET /v1/jobs` p95 server time | ≤ 120 ms | ✅ CI (`make load-test`) — **measured 75.6 ms**, 2026-08-25 |
-| `GET /v1/me/dashboard` p95 | ≤ 400 ms | ❌ By hand (added 2026-08-24) |
-| Ingest → visible, tier A source | ≤ 90 min median | ❌ Not measured |
+| `GET /v1/me/dashboard` p95 | ≤ 400 ms | ✅ CI (`make load-test`) — **measured 178 ms**, 2026-08-25 |
+| Ingest → visible, tier A source | ≤ 90 min median | ✅ By hand (`make ingest-latency`) — **measured 56–65 min p50**, 2026-08-25 |
 
 **What to build:**
 
@@ -494,14 +494,20 @@ We have budgets and no benchmark harness. The budgets in
 - **Pass criteria as thresholds in the script**, so k6 exits non-zero itself:
   p95 under budget, error rate under the budget, and no threshold crossed for the
   duration.
-- **Lighthouse CI** for INP and the field-adjacent metrics, at 4× CPU throttle to
-  match the stated budget.
-- **An ingest-latency probe** — record `first_seen_at - posted_at` per posting
-  and report the median per tier. That budget has never been measured and it is
-  the one closest to the product's actual promise.
-- **`pgbench` plus `EXPLAIN (ANALYZE, BUFFERS)` captured for the five hot
-  queries**, stored as a baseline, so a plan change is visible as a diff rather
-  than as a mystery.
+- ~~**Lighthouse CI**~~ — rejected, and INP measured directly instead
+  (`make inp`, **72 ms p75**, budget 200). Lighthouse cannot measure INP: it is a
+  field metric needing real interactions, so a lab run reports Total Blocking
+  Time as a stand-in. TBT is main-thread busyness during load; INP is the delay
+  a person feels on click. Playwright is already here, drives the real
+  interactions, and reads the browser's own Event Timing entries — the metric
+  the budget actually names, with nothing added to `package.json`. See
+  [A-32](../research/evidence-ledger.md#a-32).
+- ~~**An ingest-latency probe**~~ — done, `make ingest-latency`. Tier A is **within
+  budget at 56–65 min p50**, and the interesting part is what it took to get a
+  number that means anything: the query has four exclusions and dropping any one
+  of the first three changes the answer by between one and two orders of
+  magnitude. See [A-31](../research/evidence-ledger.md#a-31). The naive version
+  reports 72 days and is measuring backfill.
 
 **A caution from this month.** The dashboard's slow query measured 68 ms warm and
 13,687 ms under write churn — the same statement, the same data. A benchmark run

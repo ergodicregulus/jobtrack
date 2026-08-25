@@ -41,6 +41,12 @@ export default defineConfig({
     navigationTimeout: 30_000
   },
 
+  // The INP probe throttles the CPU 4x and visits the feed eight times, so it
+  // is minutes rather than seconds. It runs on demand (`make inp`), not on every
+  // `make test-e2e`, which is why it is excluded here by name rather than by a
+  // tag someone has to remember to add.
+  testIgnore: process.env.E2E_INP ? [] : ['inp.spec.ts'],
+
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     {

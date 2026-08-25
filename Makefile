@@ -342,6 +342,26 @@ explain-score: ## Print a stored score breakdown. EMAIL=you@example.com POSTING=
 	  -v email="'$(EMAIL)'" -v posting="$${POSTING:-0}" -f /dev/stdin < scripts/explain-score.sql
 
 
+.PHONY: inp
+inp: ## Measure INP p75 at 4x CPU throttle against the 200ms budget
+	@# Not part of test-e2e: 4x throttling makes it minutes, and the Event
+	@# Timing API is Chromium-only. See web/tests/inp.spec.ts for why this is
+	@# not Lighthouse.
+	$(COMPOSE) up -d web
+	docker run --rm --network jobtrack_default \
+	  -v "$(PWD)/web":/app -w /app \
+	  -e E2E_BASE_URL=http://web:5173 -e E2E_INP=1 -e E2E_WORKERS=1 \
+	  mcr.microsoft.com/playwright:v1.62.1-noble \
+	  npx playwright test inp.spec.ts --project=chromium --reporter=list
+
+.PHONY: ingest-latency
+ingest-latency: ## Measure ingest -> visible latency against the 90-minute budget
+	@# The budget closest to the product's promise, and the one that had never
+	@# been measured. Reports p50/p90 per tier and vendor, with the two things
+	@# it deliberately excludes documented in the SQL.
+	@$(COMPOSE) exec -T postgres psql -U jobtrack -d jobtrack -v ON_ERROR_STOP=1 \
+	  -f /dev/stdin < scripts/ingest-latency.sql
+
 .PHONY: load-test
 load-test: ## Load test the endpoints with latency budgets. PROFILE=smoke|full
 	@# Runs inside the compose network so it hits the api service directly,

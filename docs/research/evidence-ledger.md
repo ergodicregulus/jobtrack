@@ -371,6 +371,67 @@ Drove a design change (N+1 for structured comp), a correctness fix (`first_publi
 
 ---
 
+
+<a id="a-31"></a>**A-31 — Ingest → visible latency, tier A: 56–65 min median.**
+Measured 2026-08-25 by `make ingest-latency` over 407 postings that were published after we had
+already begun polling their board and whose entire wait fell inside a period of continuous
+ingestion: Greenhouse p50 56.3 min / p90 106.9, SmartRecruiters p50 64.5 / p90 113.1. Grade A — it
+is our own instrumentation over our own rows, reproducible by one command.
+
+*Caveat, and it is the whole story of this number.* Three of the four exclusions in the query are
+load-bearing, and the naive version of it is off by a factor of thirty. Counting every posting gives
+a SmartRecruiters median of **72 days**, which is not latency but backfill: adding a source ingests
+its entire board, including roles posted two years ago, and stamps them all with today's
+`first_seen_at`. Excluding those still gives **26 hours**, which is not latency either but downtime
+— the ingest history has a 4-day-19-hour hole in it, because this corpus is built on a laptop that
+sleeps. Only after discarding postings whose wait spans an outage does the figure become about
+polling.
+
+The result then agrees with theory to within a few minutes, which is why we believe it: a 2-hour
+poll interval sampling uniformly-arriving postings should give a median of 60 min and a p90 of 108,
+and Greenhouse measured 56.3 and 106.9. **The agreement is the evidence, not the number.** Two
+figures derived independently — one from the config, one from the rows — landing on top of each
+other is a much stronger claim than either alone, and it is what distinguishes this from the two
+earlier versions that were also computed correctly and also meaningless.
+
+Ashby is excluded from the headline: 52 qualifying rows is too few, and the probe says so rather
+than reporting a median it cannot support.
+
+<a id="a-32"></a>**A-32 — INP p75 at 4× CPU throttle: 72 ms.**
+Measured 2026-08-25 by `make inp` over eight visits to `/jobs`, driving filter chips, per-keystroke
+search and the sort control, reading the browser's own Event Timing entries: p75 72 ms, worst 80 ms,
+all eight visits producing a sample. Budget is 200 ms. Grade A — the browser's own instrumentation
+of the metric the budget names.
+
+*Caveat.* Measured against the Vite **dev** server, so the JavaScript is unbundled and unminified
+and every module is a separate request. For interaction cost that biases the figure PESSIMISTIC —
+production ships less code through the same handlers — which is the safe direction for a budget
+check, but it means 72 ms is a ceiling rather than the number a user gets. Chromium only: the Event
+Timing API does not exist in Firefox or Safari, so this is a claim about Chromium and the browsers
+that share its engine.
+
+The tightest number here is the worst case, not the p75: 80 ms across eight visits means no single
+interaction came close to the budget, which is a stronger statement than a quantile computed from
+eight samples can make on its own. p75 of n=8 is the 6th value; treat it as an order of magnitude,
+and the max as the real result.
+
+<a id="a-33"></a>**A-33 — `GET /v1/me/dashboard` p95: 178 ms.**
+Measured 2026-08-25 by `make load-test` (smoke profile, 30 s) against a seeded account carrying
+~8,300 scores, with the dashboard scenario running CONCURRENTLY with the feed scenario rather than
+alone: avg 124 ms, p90 156, p95 178, max 264, zero failures over 405 requests. Budget 400 ms.
+Grade A — k6's own timings, and the threshold now lives in the script so the run exits non-zero on a
+regression instead of printing a number nobody reads.
+
+*Caveat, and it is the same one that makes this endpoint interesting.* This ran without deliberate
+write churn. The same statement on the same data has measured 68 ms warm and **13,687 ms** under
+ingest load — a 200× spread that no idle load test can see. 178 ms is therefore a floor with load
+generated against it, not a worst case, and the honest reading is "the query shape is fine" rather
+than "the endpoint is fast". The number that would actually settle it has to be taken while the
+ingestor is writing, which is why `make load-test` says so in its own recipe.
+
+A fresh account was rejected as the test subject: no resume means no scores, an empty dashboard, and
+single-digit milliseconds that would pass the budget while measuring nothing.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels
@@ -586,7 +647,6 @@ the higher figure applies and plan capacity against the pessimistic branch. See
 <a id="c-08"></a>**C-08 — 2025 tech layoff totals.**
 Layoffs.fyi reports ~123K; TrueUp reports ~246K. **A 2× disagreement on the same year.** Different
 inclusion criteria, neither authoritative. Not used anywhere in the product.
-
 ---
 
 ## Rules for using this ledger

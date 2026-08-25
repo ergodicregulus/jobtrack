@@ -51,12 +51,35 @@ export const options = {
       maxVUs: 200,
       stages: stages[PROFILE] || stages.smoke,
     },
+
+    // The dashboard is per-user and hit once per visit, where the feed is paged
+    // through — so a lower rate is the honest shape, not a concession. Running
+    // it concurrently with the feed is deliberate: the dashboard's pathology is
+    // that it is fast in isolation and collapses under contention, and a
+    // scenario that has the database to itself would never show it.
+    dashboard: {
+      executor: 'ramping-arrival-rate',
+      startRate: 2,
+      timeUnit: '1s',
+      preAllocatedVUs: 20,
+      maxVUs: 60,
+      exec: 'dashboard',
+      stages: (stages[PROFILE] || stages.smoke).map((s) => ({
+        ...s,
+        target: Math.max(1, Math.round(s.target / 4)),
+      })),
+    },
   },
   thresholds: {
     // GET /v1/jobs p95 server time <= 120ms (CLAUDE.md).
     'http_req_duration{endpoint:jobs}': ['p(95)<120'],
     // GET /v1/market is a cached public aggregate; it should be far cheaper.
     'http_req_duration{endpoint:market}': ['p(95)<120'],
+    // GET /v1/me/dashboard p95 <= 400ms (backend-performance.md). Four times
+    // the feed's budget because it answers four questions, and it is the one
+    // endpoint measured at 13,687ms under write churn — see the note on
+    // `make load-test` about running this while the ingestor works.
+    'http_req_duration{endpoint:dashboard}': ['p(95)<400'],
     // An error rate above 1% means the run is measuring failures, not latency.
     http_req_failed: ['rate<0.01'],
   },
@@ -72,6 +95,44 @@ const QUERIES = [
   '/v1/jobs?limit=25&q=engineer',
   '/v1/jobs?limit=25&comp_min=100000&comp_disclosed_only=true',
 ];
+
+/**
+ * Signs in once and hands the session to every VU.
+ *
+ * A seeded account rather than a fresh registration, because a new user has no
+ * resume and no scores, and their dashboard is a handful of empty sections that
+ * returns in single-digit milliseconds. That number would pass the budget while
+ * measuring nothing — the cost here is entirely in ranking a real user's scores
+ * against a real corpus. `senior@jobtrack.local` carries ~8,300 of them.
+ *
+ * The cookie is read back by whatever name the server chose rather than
+ * hardcoded: it is `__Host-` prefixed when cookies are Secure and bare when they
+ * are not, so pinning the name would break this the moment it ran against TLS.
+ */
+export function setup() {
+  const res = http.post(
+    `${BASE}/v1/auth/login`,
+    JSON.stringify({ email: 'senior@jobtrack.local', password: 'dev-password-please' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  if (res.status !== 200) {
+    // Fail loudly. A silent fallback to anonymous would turn every dashboard
+    // request into a 401 — fast, under budget, and meaningless.
+    throw new Error(
+      `load test cannot sign in (${res.status}); run \`make seed\` for the demo accounts`
+    );
+  }
+  const name = Object.keys(res.cookies).find((k) => res.cookies[k][0].value);
+  return { cookie: `${name}=${res.cookies[name][0].value}` };
+}
+
+export function dashboard(data) {
+  const res = http.get(`${BASE}/v1/me/dashboard`, {
+    headers: { Cookie: data.cookie },
+    tags: { endpoint: 'dashboard' },
+  });
+  check(res, { 'dashboard 200': (r) => r.status === 200 });
+}
 
 export default function () {
   const path = QUERIES[Math.floor(Math.random() * QUERIES.length)];
