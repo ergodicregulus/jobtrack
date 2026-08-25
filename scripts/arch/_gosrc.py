@@ -60,6 +60,11 @@ class GoFile:
     # structural scan must use this rather than the raw text, or a keyword in a
     # doc comment reads as code.
     code: str = ""
+    # Comments blanked, STRING BODIES KEPT. For asking "is this identifier used
+    # anywhere real", where SQL inside a string literal is exactly the usage
+    # being looked for and a mention in a comment is exactly what must not
+    # count.
+    decommented: str = ""
     imports: list[str] = field(default_factory=list)
     literals: list[Literal] = field(default_factory=list)
     funcs: list[Func] = field(default_factory=list)
@@ -148,7 +153,7 @@ def _blank(src: str) -> tuple[str, str, list[Literal]]:
 def read(path: Path) -> GoFile:
     src = path.read_text(errors="replace")
     code, decommented, lits = _blank(src)
-    gf = GoFile(path=path, literals=lits, code=code)
+    gf = GoFile(path=path, literals=lits, code=code, decommented=decommented)
 
     if m := _PACKAGE.search(code):
         gf.package = m.group(1)

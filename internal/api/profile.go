@@ -5,12 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jobtrack/jobtrack/internal/domain/user"
 	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/jobs"
 	"github.com/jobtrack/jobtrack/internal/normalise"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
@@ -95,10 +93,11 @@ func (a *API) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request) e
 // saveProfile persists the profile, its skills, and the rescore request
 // atomically.
 func (a *API) saveProfile(ctx context.Context, userID int64, p user.Profile, complete bool) error {
-	err := store.SaveProfile(ctx, a.pool, userID, p, complete, func(tx pgx.Tx) error {
-		_, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil)
-		return err
-	})
+	// No rescore is enqueued. Scores are computed on read (ADR-0016), so a
+	// profile change takes effect on the next request rather than after a
+	// sweep — which also removes the failure mode ADR-0011 documents, where a
+	// forgotten version bump left stale scores serving silently.
+	err := store.SaveProfile(ctx, a.pool, userID, p, complete, nil)
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}

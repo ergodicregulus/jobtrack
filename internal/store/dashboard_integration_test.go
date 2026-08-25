@@ -5,8 +5,11 @@ package store
 import (
 	"context"
 	"fmt"
-	"math"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jobtrack/jobtrack/internal/matching"
 )
 
 // TestLoadDashboardEmpty is the cheapest possible guard against the failure
@@ -17,13 +20,13 @@ func TestLoadDashboardEmpty(t *testing.T) {
 	pool := newTestDB(t)
 	userID := seedUser(t, pool, "empty@example.test")
 
-	d, err := LoadDashboard(context.Background(), pool, userID)
+	d, err := LoadDashboard(context.Background(), pool, testScorer(), userID)
 	if err != nil {
 		t.Fatalf("LoadDashboard: %v", err)
 	}
 
-	if d.Matches.Strong != 0 || d.Matches.Scored != 0 {
-		t.Errorf("new user should have no matches, got %+v", d.Matches)
+	if d.Matches.Strong != 0 || d.Matches.Plausible != 0 {
+		t.Errorf("new user should have no strong or plausible matches, got %+v", d.Matches)
 	}
 	if len(d.NeedsReply) != 0 || len(d.TopMatches) != 0 {
 		t.Errorf("new user should have nothing to act on, got %d/%d", len(d.NeedsReply), len(d.TopMatches))
@@ -42,25 +45,28 @@ func TestLoadDashboardWithData(t *testing.T) {
 	userID := seedUser(t, pool, "full@example.test")
 	postingID := seedPosting(t, pool, "Backend Engineer")
 
-	_, err := pool.Exec(ctx, `
-		INSERT INTO user_job_scores
-			(user_id, posting_id, score, band, missing_skills, components, confidence, profile_version)
-		VALUES ($1, $2, 91.5, 'strong', ARRAY['kubernetes','terraform'], '{}'::jsonb, 1.0, 'test')`,
-		userID, postingID)
-	if err != nil {
-		t.Fatalf("seed score: %v", err)
-	}
+	// A real profile and real requirements, because the score is now computed
+	// on this call. Seeding a user_job_scores row would prove nothing: nothing
+	// reads that table any more (ADR-0016), so a test that seeded one would be
+	// asserting against data the product ignores.
+	seedSkill(t, pool, "go")
+	seedSkill(t, pool, "postgresql")
+	seedSkill(t, pool, "kubernetes")
+	giveUserSkills(t, pool, userID, "go", "postgresql")
+	requireSkills(t, pool, postingID, "must_have", "go", "postgresql")
+	requireSkills(t, pool, postingID, "must_have", "kubernetes")
 
-	d, err := LoadDashboard(ctx, pool, userID)
+	d, err := LoadDashboard(ctx, pool, testScorer(), userID)
 	if err != nil {
 		t.Fatalf("LoadDashboard: %v", err)
 	}
 
-	if d.Matches.Strong != 1 {
-		t.Errorf("strong = %d, want 1", d.Matches.Strong)
+	if d.Matches.Strong+d.Matches.Plausible > d.Matches.Considered {
+		t.Errorf("band counts %+v exceed the window they were counted over", d.Matches)
 	}
-	if d.Matches.Scored != 1 {
-		t.Errorf("scored = %d, want 1", d.Matches.Scored)
+	// Considered is the size of the ranked window, not a count of stored rows.
+	if d.Matches.Considered != 1 {
+		t.Errorf("considered = %d, want 1 (the single live posting)", d.Matches.Considered)
 	}
 	if len(d.TopMatches) != 1 {
 		t.Fatalf("top matches = %d, want 1", len(d.TopMatches))
@@ -70,13 +76,16 @@ func TestLoadDashboardWithData(t *testing.T) {
 	if top.Title != "Backend Engineer" {
 		t.Errorf("title = %q", top.Title)
 	}
-	if top.Score != 91.5 || top.Band != "strong" {
-		t.Errorf("score/band = %v/%q, want 91.5/strong", top.Score, top.Band)
+	if top.Score <= 0 || top.Score > 100 {
+		t.Errorf("score %v is outside 0-100", top.Score)
 	}
-	// The array column and the EXISTS boolean are the two columns most likely
-	// to be silently mis-scanned, so they are asserted explicitly.
-	if len(top.Missing) != 2 || top.Missing[0] != "kubernetes" {
-		t.Errorf("missing skills = %v, want [kubernetes terraform]", top.Missing)
+	if top.Band == "" {
+		t.Error("band is empty")
+	}
+	// The one must-have the profile does not hold. This asserts the score was
+	// actually computed from the profile rather than defaulted.
+	if len(top.Missing) != 1 || top.Missing[0] != "kubernetes" {
+		t.Errorf("missing = %v, want [kubernetes]", top.Missing)
 	}
 	if top.Saved {
 		t.Error("posting has no application, so saved should be false")
@@ -211,15 +220,15 @@ func TestLoadPostingDetail(t *testing.T) {
 	postingID := seedPosting(t, pool, "Staff Engineer")
 
 	// Anonymous viewer: both LEFT JOINs miss, so the score fields stay nil.
-	anon, err := LoadPostingDetail(ctx, pool, postingID, nil)
+	anon, err := LoadPostingDetail(ctx, pool, testScorer(), postingID, nil)
 	if err != nil {
 		t.Fatalf("LoadPostingDetail(anonymous): %v", err)
 	}
 	if anon.Title != "Staff Engineer" || anon.CompanySlug == "" || anon.Vendor != "greenhouse" {
 		t.Errorf("anonymous row = %+v", anon)
 	}
-	if anon.Score != nil || anon.Band != nil {
-		t.Error("anonymous viewer must have no score")
+	if anon.Match != nil {
+		t.Error("anonymous viewer must have no match — that is different from a match of zero")
 	}
 	if anon.Saved {
 		t.Error("anonymous viewer must not appear to have saved anything")
@@ -228,45 +237,31 @@ func TestLoadPostingDetail(t *testing.T) {
 		t.Error("skill arrays should be empty slices, not nil")
 	}
 
-	// Signed-in viewer with a score and a saved application.
-	_, err = pool.Exec(ctx, `
-		INSERT INTO user_job_scores
-			(user_id, posting_id, score, band, missing_skills, components, confidence, profile_version)
-		VALUES ($1, $2, 77.25, 'plausible', ARRAY['rust'], '[{"name":"skills"}]'::jsonb, 0.8, 'test')`,
-		userID, postingID)
-	if err != nil {
-		t.Fatalf("seed score: %v", err)
-	}
+	// A signed-in viewer gets a score computed on this request, and a saved flag.
 	if _, err := SaveJob(ctx, pool, userID, postingID); err != nil {
 		t.Fatalf("SaveJob: %v", err)
 	}
 
-	seen, err := LoadPostingDetail(ctx, pool, postingID, userID)
+	seen, err := LoadPostingDetail(ctx, pool, testScorer(), postingID, userID)
 	if err != nil {
 		t.Fatalf("LoadPostingDetail(viewer): %v", err)
 	}
-	if seen.Score == nil || *seen.Score != 77.25 {
-		t.Errorf("score = %v, want 77.25", seen.Score)
+	if seen.Match == nil {
+		t.Fatal("signed-in viewer should have a match")
 	}
-	if seen.Band == nil || *seen.Band != "plausible" {
-		t.Errorf("band = %v, want plausible", seen.Band)
+	if seen.Match.Score < 0 || seen.Match.Score > 100 {
+		t.Errorf("score %v is outside 0-100", seen.Match.Score)
 	}
-	// confidence is Postgres `real`, so 0.8 does not survive float32 exactly.
-	// Comparing widened float32 values for equality is the bug this avoids.
-	if seen.Confidence == nil || math.Abs(*seen.Confidence-0.8) > 1e-6 {
-		t.Errorf("confidence = %v, want ~0.8", deref(seen.Confidence))
+	if seen.Match.Band == "" {
+		t.Error("band is empty")
 	}
-	if len(seen.Components) == 0 {
-		t.Error("components JSON did not scan")
-	}
-	if len(seen.Missing) != 1 || seen.Missing[0] != "rust" {
-		t.Errorf("missing = %v, want [rust]", seen.Missing)
+	// The components are the reason this endpoint exists: ADR-0016 stopped
+	// storing them precisely because they can be recomputed here.
+	if len(seen.Match.Components) == 0 {
+		t.Error("no components — the breakdown is the product's whole claim")
 	}
 	if !seen.Saved {
 		t.Error("saved should be true once an application exists")
-	}
-	if seen.ComputedAt == nil {
-		t.Error("computed_at did not scan")
 	}
 
 	// A closed posting is reported absent, not as an empty row.
@@ -274,18 +269,9 @@ func TestLoadPostingDetail(t *testing.T) {
 		`UPDATE job_postings SET status = 'closed' WHERE id = $1`, postingID); err != nil {
 		t.Fatalf("close posting: %v", err)
 	}
-	if _, err := LoadPostingDetail(ctx, pool, postingID, userID); err != ErrNotFound {
+	if _, err := LoadPostingDetail(ctx, pool, testScorer(), postingID, userID); err != ErrNotFound {
 		t.Errorf("closed posting = %v, want ErrNotFound", err)
 	}
-}
-
-// deref prints a pointer's value, so a failure message says what was wrong
-// rather than where it was stored.
-func deref[T any](p *T) any {
-	if p == nil {
-		return "<nil>"
-	}
-	return *p
 }
 
 // TestFeedCursorPagination is a regression test for a bug that made "load more"
@@ -308,7 +294,7 @@ func TestFeedCursorPagination(t *testing.T) {
 
 	for _, mode := range []string{"newest", "comp", "match"} {
 		t.Run(mode, func(t *testing.T) {
-			first, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, "")
+			first, err := Feed(ctx, pool, testScorer(), FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, "")
 			if err != nil {
 				t.Fatalf("first page: %v", err)
 			}
@@ -320,7 +306,7 @@ func TestFeedCursorPagination(t *testing.T) {
 					first.HasMore, first.NextCursor)
 			}
 
-			second, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, first.NextCursor)
+			second, err := Feed(ctx, pool, testScorer(), FeedFilter{UserID: &userID, Limit: 2, Sort: mode}, first.NextCursor)
 			if err != nil {
 				t.Fatalf("second page: %v", err)
 			}
@@ -401,7 +387,7 @@ func TestReadsSurviveAllNullableColumns(t *testing.T) {
 	}
 
 	t.Run("feed", func(t *testing.T) {
-		page, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 10}, "")
+		page, err := Feed(ctx, pool, testScorer(), FeedFilter{UserID: &userID, Limit: 10}, "")
 		if err != nil {
 			t.Fatalf("Feed: %v", err)
 		}
@@ -414,19 +400,19 @@ func TestReadsSurviveAllNullableColumns(t *testing.T) {
 	})
 
 	t.Run("posting detail, anonymous", func(t *testing.T) {
-		if _, err := LoadPostingDetail(ctx, pool, postingID, nil); err != nil {
+		if _, err := LoadPostingDetail(ctx, pool, testScorer(), postingID, nil); err != nil {
 			t.Fatalf("LoadPostingDetail: %v", err)
 		}
 	})
 
 	t.Run("posting detail, signed in", func(t *testing.T) {
-		if _, err := LoadPostingDetail(ctx, pool, postingID, userID); err != nil {
+		if _, err := LoadPostingDetail(ctx, pool, testScorer(), postingID, userID); err != nil {
 			t.Fatalf("LoadPostingDetail: %v", err)
 		}
 	})
 
 	t.Run("dashboard", func(t *testing.T) {
-		if _, err := LoadDashboard(ctx, pool, userID); err != nil {
+		if _, err := LoadDashboard(ctx, pool, testScorer(), userID); err != nil {
 			t.Fatalf("LoadDashboard: %v", err)
 		}
 	})
@@ -440,12 +426,61 @@ func TestReadsSurviveAllNullableColumns(t *testing.T) {
 		}
 	})
 
-	t.Run("scoring reads", func(t *testing.T) {
-		if _, err := PostingForScoring(ctx, pool, postingID); err != nil {
-			t.Fatalf("PostingForScoring: %v", err)
+	t.Run("ranked feed", func(t *testing.T) {
+		// The production scoring read: rankCandidates, reached through a
+		// match-sorted feed. It uses the same projection the removed
+		// PostingsForScoring did, so this keeps the NULL coverage that
+		// function's subtest provided.
+		page, err := Feed(ctx, pool, testScorer(),
+			FeedFilter{UserID: &userID, Limit: 10, Sort: "match"}, "")
+		if err != nil {
+			t.Fatalf("ranked feed: %v", err)
 		}
-		if _, err := PostingsForScoring(ctx, pool, 10); err != nil {
-			t.Fatalf("PostingsForScoring: %v", err)
+		if len(page.Items) != 1 {
+			t.Fatalf("ranked feed returned %d items, want 1", len(page.Items))
+		}
+		if page.Items[0].Match == nil {
+			t.Error("a ranked item must carry its match")
 		}
 	})
+}
+
+// testScorer is the real scorer with real configuration. A stub here would test
+// the stub: ADR-0016 moved scoring onto the read path, so these tests are now
+// the only place the feed's ranking is exercised end to end.
+func testScorer() *matching.Scorer {
+	return matching.NewScorer(matching.DefaultConfig(), matching.DefaultAdjacency())
+}
+
+// seedSkill inserts a canonical skill if it is not already present.
+func seedSkill(t *testing.T, pool *pgxpool.Pool, canonical string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO skills (canonical, display_name, category) VALUES ($1, $2, 'language')
+		 ON CONFLICT (canonical) DO NOTHING`, canonical, canonical)
+	if err != nil {
+		t.Fatalf("seed skill %s: %v", canonical, err)
+	}
+}
+
+func giveUserSkills(t *testing.T, pool *pgxpool.Pool, userID int64, canonicals ...string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO user_skills (user_id, skill_id, origin)
+		SELECT $1, s.id, 'user' FROM skills s WHERE s.canonical = ANY($2)
+		ON CONFLICT (user_id, skill_id) DO NOTHING`, userID, canonicals)
+	if err != nil {
+		t.Fatalf("give user skills: %v", err)
+	}
+}
+
+func requireSkills(t *testing.T, pool *pgxpool.Pool, postingID int64, req string, canonicals ...string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO posting_skills (posting_id, skill_id, requirement)
+		SELECT $1, s.id, $2::skill_requirement FROM skills s WHERE s.canonical = ANY($3)
+		ON CONFLICT DO NOTHING`, postingID, req, canonicals)
+	if err != nil {
+		t.Fatalf("require skills: %v", err)
+	}
 }

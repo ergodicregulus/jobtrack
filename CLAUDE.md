@@ -162,12 +162,12 @@ ADRs — for what a script cannot judge.
 ## Repository shape
 
 ```
-cmd/            one main.go per binary: api, ingestor, matcher, scheduler, migrate, resume-parser, seed
+cmd/            one main.go per binary: api, ingestor, scheduler, migrate, resume-parser, seed
 internal/
   domain/       entities + business rules; imports nothing from internal/
   source/       one adapter per ATS vendor, each with golden-file tests
   store/        hand-written SQL behind named repository methods
-  matching/     scoring engine and profiles; no database
+  matching/     scoring engine; a pure function, no database. Run on the read path (ADR-0016)
   normalise/    skill vocabulary, compensation and location parsing
   resume/       parsing pipeline
   jobs/         River workers: ingest, score, maintenance

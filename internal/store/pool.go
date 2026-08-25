@@ -47,6 +47,20 @@ func Open(ctx context.Context, cfg config.Database, log *slog.Logger) (*pgxpool.
 	// is eating the pool?" answerable in one query instead of by guesswork.
 	pc.ConnConfig.RuntimeParams["application_name"] = "jobtrack"
 
+	// JIT off.
+	//
+	// Not a superstition: the feed's candidate query measured 1,009 ms, of
+	// which 517 ms was JIT — 119 ms inlining, 257 ms optimising, 136 ms
+	// emitting — to run a plan that takes 300 ms without it. Postgres decides
+	// to JIT on estimated cost, and a query that touches ten thousand rows
+	// clears the default threshold while gaining nothing, because the work is
+	// I/O and not expression evaluation.
+	//
+	// This is an OLTP service where every budget is in the tens of milliseconds
+	// and no query is analytical. If one ever is, turn it on for that statement
+	// rather than for the pool.
+	pc.ConnConfig.RuntimeParams["jit"] = "off"
+
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)

@@ -7,4 +7,5 @@
 posting_embeddings
 resume_embeddings
 skill_adjacency
+user_job_scores
 watchlists

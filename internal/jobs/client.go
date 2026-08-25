@@ -10,7 +10,6 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
-	"github.com/jobtrack/jobtrack/internal/matching"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
 
@@ -23,7 +22,6 @@ type Role string
 
 const (
 	RoleIngestor  Role = "ingestor"
-	RoleMatcher   Role = "matcher"
 	RoleScheduler Role = "scheduler"
 	RoleEnqueuer  Role = "enqueuer" // API: inserts jobs, works none
 )
@@ -31,8 +29,6 @@ const (
 // New builds a River client for the given role.
 func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error) {
 	d.Init()
-
-	scorer := matching.NewScorer(matching.DefaultConfig(), matching.DefaultAdjacency())
 
 	// EVERY role registers EVERY worker; only the queue map decides what a
 	// process actually executes.
@@ -51,13 +47,10 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &FetchSourceWorker{Deps: d})
 	river.AddWorker(workers, &DedupeCompanyWorker{Deps: d})
-	river.AddWorker(workers, &ScorePostingWorker{Deps: d, Scorer: scorer})
-	river.AddWorker(workers, &ScoreUserWorker{Deps: d, Scorer: scorer})
 	river.AddWorker(workers, &ScheduleSourcesWorker{Deps: d})
 	river.AddWorker(workers, &RetierSourcesWorker{Deps: d})
 	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
 	river.AddWorker(workers, &RollupSourceDailyWorker{Deps: d})
-	river.AddWorker(workers, &RescoreStaleWorker{Deps: d, Version: scorer.Version()})
 
 	queues := map[string]river.QueueConfig{}
 
@@ -66,12 +59,6 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 		// Fetching is network-bound, so concurrency far above core count is
 		// correct here — the per-host limiter is what keeps it polite.
 		queues[QueueIngest] = river.QueueConfig{MaxWorkers: 20}
-
-	case RoleMatcher:
-		queues[QueueScore] = river.QueueConfig{MaxWorkers: 10}
-		// Bulk gets far fewer workers on purpose: a full rescore must never
-		// starve live scoring of newly-ingested postings.
-		queues[QueueBulk] = river.QueueConfig{MaxWorkers: 2}
 
 	case RoleScheduler:
 		queues[QueueMaint] = river.QueueConfig{MaxWorkers: 2}
@@ -103,7 +90,7 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	// OWN leader election, which is global across every client connected to the
 	// database and is not something a particular process can be guaranteed to
 	// win. Configuring the list only on the scheduler means that whenever the
-	// ingestor or matcher happens to win the election, the leader runs an empty
+	// ingestor happens to win the election, the leader runs an empty
 	// periodic list and NOTHING is ever enqueued.
 	//
 	// Observed exactly that: the scheduler logged "scheduler is leader" from its
@@ -145,14 +132,6 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 			river.NewPeriodicJob(
 				river.PeriodicInterval(1*time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return RollupSourceDailyArgs{Days: 2}, nil },
-				&river.PeriodicJobOpts{RunOnStart: true},
-			),
-			// Rolls a scoring-algorithm change across the existing corpus.
-			// RunOnStart so a deploy that bumps the version begins correcting
-			// immediately rather than at the top of the next interval.
-			river.NewPeriodicJob(
-				river.PeriodicInterval(5*time.Minute),
-				func() (river.JobArgs, *river.InsertOpts) { return RescoreStaleArgs{Limit: 2000}, nil },
 				&river.PeriodicJobOpts{RunOnStart: true},
 			),
 		}
@@ -242,92 +221,5 @@ func (w *RetierSourcesWorker) Work(ctx context.Context, job *river.Job[RetierSou
 		return err
 	}
 	w.Deps.Log.InfoContext(ctx, "source tiers recomputed", "sources", tag)
-	return nil
-}
-
-// RescoreStaleWorker re-enqueues scores produced by a superseded algorithm.
-//
-// Scores are denormalised, so a change to the scorer does not propagate on its
-// own: every stored row keeps the number the old code produced until something
-// recomputes it. Re-ingestion only touches postings whose content changed,
-// which is precisely the wrong set — a scoring fix needs to reach the postings
-// that did NOT change.
-//
-// Bounded and idempotent. Each sweep takes a slice of the outdated rows and
-// enqueues normal scoring jobs for them, so a version bump drains over hours
-// through the same path as everything else rather than as a special case.
-type RescoreStaleWorker struct {
-	river.WorkerDefaults[RescoreStaleArgs]
-	Deps *Deps
-	// Version is the scorer's current version, injected rather than read
-	// globally so a test can drive the sweep without a running scorer.
-	Version string
-}
-
-func (w *RescoreStaleWorker) Work(ctx context.Context, job *river.Job[RescoreStaleArgs]) error {
-	limit := job.Args.Limit
-	if limit <= 0 || limit > 10_000 {
-		limit = 2000
-	}
-
-	// DISTINCT posting_id: one scoring job re-scores a posting for every user it
-	// suits, so enqueuing per (user, posting) row would multiply the work by the
-	// user count for no benefit.
-	ids, err := store.StaleScorePostings(ctx, w.Deps.Pool, w.Version, limit)
-	if err != nil {
-		return err
-	}
-
-	// Collect scores for postings that are no longer live, in the same sweep.
-	//
-	// Nothing else ever removes them: this worker skips non-live rows by
-	// design, and the per-posting delete only fires when a posting is
-	// RE-scored, which a superseded one never is. The result was 38,973 rows
-	// unreachable from every query — harmless today, unbounded over time, and
-	// the kind of thing that is free to fix while someone is in this file and
-	// expensive to fix during an incident.
-	//
-	// Bounded like everything else here: a delete that takes a lock
-	// proportional to corpus size is an outage waiting for a big enough corpus.
-	tag, err := store.SweepDeadScores(ctx, w.Deps.Pool, limit)
-	if err != nil {
-		return err
-	}
-	if n := tag; n > 0 {
-		w.Deps.Log.InfoContext(ctx, "scores collected for closed postings", "rows", n)
-	}
-
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// Onto the BULK queue, overriding ScorePostingArgs' own default.
-	//
-	// QueueBulk exists so that "a full rescore must never starve live scoring",
-	// and this sweep is the largest producer of rescores in the system — a
-	// version bump enqueues the entire corpus. Taking the args' default sent
-	// every one of those to QueueScore, the ten-worker queue reserved for
-	// scoring postings as they arrive, which is precisely the starvation the
-	// split was built to prevent. Observed: a 2,200-posting ingest backed up
-	// 3,553 jobs on the live queue and took interactive dashboard latency from
-	// ~4s to ~15s while it drained.
-	//
-	// A newly-ingested posting still goes to QueueScore, because that one IS
-	// time-sensitive: it is the difference between a posting appearing in the
-	// feed now and in an hour.
-	bulk := &river.InsertOpts{Queue: QueueBulk}
-	params := make([]river.InsertManyParams, 0, len(ids))
-	for _, id := range ids {
-		params = append(params, river.InsertManyParams{
-			Args:       ScorePostingArgs{PostingID: id},
-			InsertOpts: bulk,
-		})
-	}
-	if _, err := w.Deps.River.InsertMany(ctx, params); err != nil {
-		return fmt.Errorf("enqueue rescore: %w", err)
-	}
-
-	w.Deps.Log.InfoContext(ctx, "stale scores re-enqueued",
-		"count", len(ids), "current_version", w.Version)
 	return nil
 }

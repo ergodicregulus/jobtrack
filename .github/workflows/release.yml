@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, ingestor, matcher, scheduler, resume-parser, migrate]
+        service: [api, ingestor, scheduler, resume-parser, migrate]
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:

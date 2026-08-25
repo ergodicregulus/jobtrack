@@ -1,12 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/jobtrack/jobtrack/internal/httpx"
+	"github.com/jobtrack/jobtrack/internal/matching"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
 
@@ -101,7 +101,7 @@ func (a *API) handlePosting(w http.ResponseWriter, r *http.Request) error {
 		viewer = uid
 	}
 
-	row, err := store.LoadPostingDetail(ctx, a.pool, id, viewer)
+	row, err := store.LoadPostingDetail(ctx, a.pool, a.scorer, id, viewer)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return httpx.ErrNotFound()
@@ -123,28 +123,40 @@ func (a *API) handlePosting(w http.ResponseWriter, r *http.Request) error {
 		MustHaveSkills: row.MustHaveSkills, NiceToHaveSkills: row.NiceToHaveSkills,
 		Saved: row.Saved,
 	}
-	score, band, confidence := row.Score, row.Band, row.Confidence
-	componentsJSON, computedAt, missing := row.Components, row.ComputedAt, row.Missing
-
-	if score != nil && band != nil {
-		m := &PostingMatch{Score: *score, Band: *band, Missing: missing}
-		if confidence != nil {
-			m.Confidence = *confidence
-		}
-		if computedAt != nil {
-			m.ComputedAt = *computedAt
-		}
-		// The breakdown is stored as the scorer wrote it. Decoding rather than
-		// re-deriving means the reasons shown are the ones that actually
-		// produced this score, not a recomputation that could disagree with it.
-		if len(componentsJSON) > 0 {
-			if err := json.Unmarshal(componentsJSON, &m.Components); err != nil {
-				return httpx.ErrInternal(err)
-			}
-		}
-		p.Match = m
+	if row.Match != nil {
+		p.Match = wireMatch(*row.Match)
 	}
+
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	httpx.WriteJSON(ctx, w, a.log, http.StatusOK, p)
 	return nil
+}
+
+// wireMatch shapes a scoring result for the API.
+//
+// The components are the ones this request computed, so what a reader sees is
+// necessarily what produced the number beside it. When they were stored, a
+// scorer change and a stale row could disagree — which is the failure ADR-0011
+// documents and the reason profile_version existed.
+func wireMatch(r matching.Result) *PostingMatch {
+	m := &PostingMatch{
+		Score:      r.Score,
+		Band:       string(r.Band),
+		Confidence: float64(r.Confidence),
+		Missing:    r.MissingSkills(),
+		ComputedAt: time.Now(),
+		Components: make([]MatchComponent, 0, len(r.Components)),
+	}
+	for _, c := range r.Components {
+		m.Components = append(m.Components, MatchComponent{
+			Name:    c.Name,
+			Score:   c.Score,
+			Max:     c.Max,
+			Detail:  c.Detail,
+			Neutral: c.Max > 0 && c.Score == 0 && c.Evidence == 0,
+			Matched: c.Matched,
+			Missing: c.Missing,
+		})
+	}
+	return m
 }

@@ -60,7 +60,7 @@ jobs:
       - name: Every image is signed by this repository
         run: |
           set -euo pipefail
-          for svc in api ingestor matcher scheduler resume-parser migrate; do
+          for svc in api ingestor scheduler resume-parser migrate; do
             image="${REGISTRY}/${{ github.repository }}/${svc}:${VERSION#v}"
             echo "→ $svc"
             cosign verify "$image" \
@@ -140,13 +140,13 @@ jobs:
       - name: Set images and wait
         run: |
           set -euo pipefail
-          for svc in api ingestor matcher scheduler resume-parser web; do
+          for svc in api ingestor scheduler resume-parser web; do
             kubectl -n jobtrack set image "deployment/$svc" \
               "$svc=${REGISTRY}/${{ github.repository }}/${svc}:${VERSION#v}" \
               --record
           done
           # Wait on each rollout separately so a failure names the service.
-          for svc in api ingestor matcher scheduler resume-parser web; do
+          for svc in api ingestor scheduler resume-parser web; do
             kubectl -n jobtrack rollout status "deployment/$svc" --timeout=5m
           done
 
@@ -173,7 +173,7 @@ jobs:
       - name: Roll back on failure
         if: failure()
         run: |
-          for svc in api ingestor matcher scheduler resume-parser web; do
+          for svc in api ingestor scheduler resume-parser web; do
             kubectl -n jobtrack rollout undo "deployment/$svc" || true
           done
           echo "::error::deploy failed; code rolled back, schema left in place (expand-only)"

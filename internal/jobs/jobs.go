@@ -21,8 +21,6 @@ import (
 const (
 	QueueIngest = "ingest"
 	QueueEmbed  = "embed"
-	QueueScore  = "score"
-	QueueBulk   = "score_bulk"
 	QueueMaint  = "maintenance"
 )
 
@@ -152,67 +150,6 @@ func (DedupeCompanyArgs) InsertOpts() river.InsertOpts {
 		},
 		MaxAttempts: 3,
 	}
-}
-
-// ScorePostingArgs scores one posting for the users it could plausibly suit.
-//
-// Fan-out is bounded inside the worker, not here: scoring every posting against
-// every user is O(users x postings) and would dominate all other work.
-type ScorePostingArgs struct {
-	PostingID int64 `json:"posting_id"`
-}
-
-func (ScorePostingArgs) Kind() string { return "score_posting" }
-
-func (ScorePostingArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{
-		Queue: QueueScore,
-		UniqueOpts: river.UniqueOpts{
-			ByArgs:  true,
-			ByState: statesInFlight,
-		},
-		MaxAttempts: 3,
-	}
-}
-
-// ScoreUserArgs rescores every live posting for one user.
-//
-// Enqueued when a user finishes onboarding or changes their profile — the two
-// moments where every existing score is suddenly wrong.
-type ScoreUserArgs struct {
-	UserID int64 `json:"user_id"`
-}
-
-func (ScoreUserArgs) Kind() string { return "score_user" }
-
-func (ScoreUserArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{
-		Queue: QueueBulk, // low priority: must never starve live scoring
-		UniqueOpts: river.UniqueOpts{
-			ByArgs:  true,
-			ByState: statesInFlight,
-		},
-		MaxAttempts: 3,
-	}
-}
-
-// RescoreStaleArgs re-scores rows produced by a superseded scoring version.
-//
-// This is what makes a scoring change actually take effect. Without it, a fix
-// only reaches postings that happen to be re-ingested, and everything else keeps
-// its old number forever — observed in development, where a corrected sales-role
-// score stayed at 98% because nothing re-triggered it.
-type RescoreStaleArgs struct {
-	// Limit bounds one sweep. A version bump invalidates the entire corpus, and
-	// re-scoring millions of rows in one transaction would be an outage; the
-	// periodic schedule drains it over hours instead.
-	Limit int `json:"limit"`
-}
-
-func (RescoreStaleArgs) Kind() string { return "rescore_stale" }
-
-func (RescoreStaleArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
 }
 
 // There is deliberately no ghost-sweep job.

@@ -97,9 +97,9 @@
         href="/jobs?posted_within=1d"
       />
       <StatCard
-        label="Scored for you"
-        value={compactNumber(d.matches.scored)}
-        hint="Of {compactNumber(d.market.live_postings)} live"
+        label="Ranked for you"
+        value={compactNumber(d.matches.considered)}
+        hint="Most recent, of {compactNumber(d.market.live_postings)} live"
       />
     </section>
 

@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jobtrack/jobtrack/internal/matching"
 )
 
 // Dashboard is every figure the logged-in home page needs, read in one round trip.
@@ -23,7 +25,13 @@ type MatchCounts struct {
 	Strong    int
 	Plausible int
 	NewToday  int
-	Scored    int
+	// Considered is how many postings were ranked to produce these counts.
+	//
+	// It replaces a "scored for you" total, which stopped meaning anything when
+	// scores stopped being stored: every live posting is scorable now, so a
+	// count of them is a fact about the corpus, not about the reader. This is
+	// the honest figure — the size of the window the counts describe.
+	Considered int
 }
 
 // ActionItem is an application that has gone quiet or has a date attached.
@@ -92,29 +100,6 @@ const marketSummarySQL = `
 // 2026-08-24, against 3,565ms fused on the same data. They stay in one batch,
 // so this is still a single network round trip.
 const (
-	// Found by range scan rather than by filtering the whole set. No join: a
-	// score row for a non-live posting is collected by the maintenance sweep,
-	// so the join was only ever a safety net and it cost the whole scan.
-	matchBandsSQL = `
-		SELECT count(*) FILTER (WHERE band = 'strong'),
-		       count(*) FILTER (WHERE band = 'plausible')
-		  FROM user_job_scores
-		 WHERE user_id = $1 AND band IN ('strong', 'plausible')`
-
-	// Driven from the postings side, where freshness is indexed and the
-	// population is small, then probed into the scores by primary key.
-	matchNewTodaySQL = `
-		SELECT count(*)
-		  FROM job_postings p
-		  JOIN user_job_scores s ON s.posting_id = p.id AND s.user_id = $1
-		 WHERE p.status = 'live'
-		   AND COALESCE(p.posted_at, p.first_seen_at) > now() - interval '24 hours'`
-
-	// Genuinely proportional to the corpus, and there is no honest way to make
-	// it cheaper than counting — an estimate would be a fabricated number on a
-	// stat tile.
-	matchScoredSQL = `SELECT count(*) FROM user_job_scores WHERE user_id = $1`
-
 	pipelineCountsSQL = `
 		SELECT status::text, count(*)
 		  FROM applications WHERE user_id = $1
@@ -134,42 +119,21 @@ const (
 		   AND (next_action_at <= current_date OR last_activity_at < now() - interval '7 days')
 		 ORDER BY next_action_at NULLS LAST, last_activity_at
 		 LIMIT 5`
-
-	topMatchesSQL = `
-		SELECT p.id,
-		       p.title,
-		       c.name                                        AS company_name,
-		       COALESCE(p.location_raw, '')                  AS location,
-		       COALESCE(p.mode::text, '')                    AS mode,
-		       s.score,
-		       s.band,
-		       COALESCE(s.missing_skills, '{}')              AS missing_skills,
-		       COALESCE(p.posted_at, p.first_seen_at)        AS posted_at,
-		       COALESCE(p.apply_url, '')                     AS apply_url,
-		       EXISTS (
-		           SELECT 1 FROM applications a
-		            WHERE a.user_id = $1 AND a.posting_id = p.id
-		       )                                             AS saved
-		  FROM user_job_scores s
-		  JOIN job_postings p ON p.id = s.posting_id
-		  JOIN companies c ON c.id = p.company_id
-		 WHERE s.user_id = $1 AND p.status = 'live'
-		 ORDER BY s.score DESC, p.first_seen_at DESC
-		 LIMIT 6`
 )
 
 // LoadDashboard reads every dashboard widget in one batch.
 //
 // The widgets are independent, so one round trip per widget would be seven.
 // pgx pipelines a batch over a single connection, which is why this costs one.
-func LoadDashboard(ctx context.Context, pool *pgxpool.Pool, userID int64) (Dashboard, error) {
+func LoadDashboard(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	userID int64,
+) (Dashboard, error) {
 	batch := &pgx.Batch{}
-	batch.Queue(matchBandsSQL, userID)
-	batch.Queue(matchNewTodaySQL, userID)
-	batch.Queue(matchScoredSQL, userID)
 	batch.Queue(pipelineCountsSQL, userID)
 	batch.Queue(needsReplySQL, userID)
-	batch.Queue(topMatchesSQL, userID)
 	batch.Queue(marketSummarySQL)
 
 	br := pool.SendBatch(ctx, batch)
@@ -178,29 +142,78 @@ func LoadDashboard(ctx context.Context, pool *pgxpool.Pool, userID int64) (Dashb
 	var d Dashboard
 	var err error
 
-	if err = br.QueryRow().Scan(&d.Matches.Strong, &d.Matches.Plausible); err != nil {
-		return d, fmt.Errorf("match bands: %w", err)
-	}
-	if err = br.QueryRow().Scan(&d.Matches.NewToday); err != nil {
-		return d, fmt.Errorf("new today: %w", err)
-	}
-	if err = br.QueryRow().Scan(&d.Matches.Scored); err != nil {
-		return d, fmt.Errorf("scored total: %w", err)
-	}
 	if d.Pipeline, err = scanPipeline(br); err != nil {
 		return d, err
 	}
 	if d.NeedsReply, err = collectBatch[ActionItem](br); err != nil {
 		return d, fmt.Errorf("needs reply: %w", err)
 	}
-	if d.TopMatches, err = collectBatch[TopMatch](br); err != nil {
-		return d, fmt.Errorf("top matches: %w", err)
-	}
 	if err = br.QueryRow().Scan(&d.Market.LivePostings, &d.Market.Companies,
 		&d.Market.AddedThisWeek, &d.Market.RemoteShare); err != nil {
 		return d, fmt.Errorf("market summary: %w", err)
 	}
+	br.Close()
+
+	// Matches are ranked here rather than counted from a table. One pass over
+	// the bounded candidate set serves both the counts and the top six, so the
+	// dashboard costs one ranking rather than four aggregates over a table that
+	// no longer exists.
+	//
+	// The counts are over that window, not over the whole corpus, and the
+	// interface says so. It is also the more useful claim: a strong match from
+	// four months ago is not something a reader can act on today.
+	if err := d.rankMatches(ctx, pool, scorer, userID); err != nil {
+		return d, err
+	}
 	return d, nil
+}
+
+// rankMatches fills Matches and TopMatches from one scored candidate set.
+func (d *Dashboard) rankMatches(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	userID int64,
+) error {
+	profile, err := ProfileForScoring(ctx, pool, userID)
+	if err != nil {
+		return fmt.Errorf("load profile for ranking: %w", err)
+	}
+
+	ranked, err := rankCandidates(ctx, pool, scorer, FeedFilter{UserID: &userID}, profile)
+	if err != nil {
+		return err
+	}
+
+	d.Matches.Considered = len(ranked)
+	for _, r := range ranked {
+		switch r.match.Band {
+		case "strong":
+			d.Matches.Strong++
+		case "plausible":
+			d.Matches.Plausible++
+		}
+	}
+
+	const topN = 6
+	head := ranked
+	if len(head) > topN {
+		head = head[:topN]
+	}
+	items, err := feedItemsByID(ctx, pool, &userID, head)
+	if err != nil {
+		return err
+	}
+	d.TopMatches = make([]TopMatch, 0, len(items))
+	for _, it := range items {
+		d.TopMatches = append(d.TopMatches, TopMatch{
+			ID: it.ID, Title: it.Title, CompanyName: it.CompanyName,
+			Location: it.LocationRaw, Mode: it.Mode,
+			Score: it.Match.Score, Band: it.Match.Band, Missing: it.Match.MissingSkills,
+			PostedAt: it.scoring.PostedAt, ApplyURL: it.ApplyURL, Saved: it.Saved,
+		})
+	}
+	return nil
 }
 
 // LoadMarketSummary reads the corpus figures alone, for the signed-out landing page.

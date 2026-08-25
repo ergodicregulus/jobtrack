@@ -1,0 +1,3 @@
+# Functions unreachable from every cmd/ entry point.
+#
+# Empty. The rule holds with no exceptions.

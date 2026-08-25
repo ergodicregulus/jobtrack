@@ -95,6 +95,23 @@ type Result struct {
 	Headline string `json:"headline"`
 }
 
+// MissingSkills returns the must-haves the profile did not satisfy.
+//
+// Read from the skills component rather than recomputed, so what a card shows
+// is what the score actually used. Never nil: an empty slice means "nothing
+// missing", where nil would render as "unknown" one layer up.
+func (r Result) MissingSkills() []string {
+	for _, c := range r.Components {
+		if c.Name == "skills" {
+			if c.Missing == nil {
+				return []string{}
+			}
+			return c.Missing
+		}
+	}
+	return []string{}
+}
+
 // Weights are configuration, not constants.
 //
 // They are the part most likely to be wrong at launch and most likely to need
@@ -263,8 +280,6 @@ type Scorer struct {
 func NewScorer(cfg Config, adj Adjacency) *Scorer {
 	return &Scorer{cfg: cfg, adj: adj}
 }
-
-func (s *Scorer) Version() string { return s.cfg.Version }
 
 // Score evaluates one posting against one profile.
 func (s *Scorer) Score(p Profile, j Posting) Result {

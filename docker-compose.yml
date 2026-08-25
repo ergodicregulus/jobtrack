@@ -182,18 +182,6 @@ services:
           path: ./cmd/ingestor
           target: /src/cmd/ingestor
 
-  matcher:
-    <<: *go-service
-    command: air -c deploy/dev/air.matcher.toml
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./internal
-          target: /src/internal
-        - action: sync+restart
-          path: ./cmd/matcher
-          target: /src/cmd/matcher
-
   scheduler:
     <<: *go-service
     command: air -c deploy/dev/air.scheduler.toml

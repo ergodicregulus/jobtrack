@@ -1,5 +1,12 @@
 # Scaling and capacity
 
+> **Amended 2026-08-25.** The `matcher` service described below no longer
+> exists. [ADR-0016](../architecture/adr/0016-scores-are-computed-not-materialised.md)
+> computes scores on the read path, which removed the scoring fan-out and the
+> `score` / `score_bulk` queues — the matcher's only work. There are now **five**
+> deployment units: api, ingestor, scheduler, resume-parser, migrate. Everything
+> else on this page still holds.
+
 > Status: **DECIDED**. All figures are engineering estimates from first principles; the assumptions
 > are stated so they can be corrected against real measurements.
 

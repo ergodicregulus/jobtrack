@@ -91,18 +91,6 @@ FROM runtime-base AS ingestor
 COPY --from=build-ingestor /out/app /app
 ENTRYPOINT ["/app"]
 
-FROM build AS build-matcher
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
-      -o /out/app ./cmd/matcher
-FROM runtime-base AS matcher
-COPY --from=build-matcher /out/app /app
-ENTRYPOINT ["/app"]
-
 FROM build AS build-scheduler
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

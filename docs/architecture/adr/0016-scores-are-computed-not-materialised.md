@@ -104,9 +104,18 @@ time where it is not ([Witty Coder](https://wittycoder.in/courses/news-feed/fan-
 
 1. **The feed scores at read time.** Filters produce the candidate set; the scorer ranks it. The
    default sort is `newest` and needs no score at all.
-2. **The candidate set is bounded**, so the cost cannot grow with the corpus. Cap at **20,000**
-   candidates — 37 ms, inside budget with headroom — ordered by recency before scoring. Beyond that
-   the honest answer to the user is that the filter is too broad, not a slow page.
+2. **The candidate set is bounded**, so the cost cannot grow with the corpus. Cap at **2,000**,
+   ordered by recency before scoring.
+
+   The first draft of this ADR said 20,000, derived from scoring cost alone (20,000 × 1.84 µs =
+   37 ms). Implementation showed that was the wrong constraint. Reading the candidates dominates at
+   roughly 21 µs per row — 500 → 15 ms, 2,000 → 45 ms, 5,000 → 108 ms, 12,000 → 263 ms — so the
+   query, not the scorer, spends the budget. At 2,000 a ranked request is ~45 ms of candidates plus
+   4 ms of scoring plus the page fetch; at 5,000 it is already over.
+
+   Filters apply **before** the cap, which is what makes this acceptable: narrowing to remote, or
+   India, or a skill produces a candidate set well under it and ranks the whole result. The cap only
+   binds an unfiltered "rank everything", where the newest 2,000 is the part worth ranking anyway.
 3. **Materialise only what is unbounded to recompute**: a saved search's "new since last run", and
    the digest. Both are `users × saved_searches`, which is flat in corpus size.
 4. **`components` is never stored.** It is recomputed for the one posting being displayed, at 1.84 µs.
@@ -137,6 +146,34 @@ time where it is not ([Witty Coder](https://wittycoder.in/courses/news-feed/fan-
   job. 22 ms of headroom is not infinite, and `BenchmarkScoreOne` becomes a budget rather than a
   curiosity.
 - **A large migration**, touching the feed, the dashboard and the scoring workers.
+
+## What implementation changed
+
+Three things were wrong or unforeseen in the plan above, recorded because the ADR is worth less if it
+reads as though it went to plan.
+
+**The cap was wrong by 10×**, for the reason given above: it was set from CPU when the constraint is
+I/O.
+
+**Postgres JIT cost more than the query.** The first working ranked request took 1,009 ms, of which
+**517 ms was JIT** — 119 ms inlining, 257 ms optimising, 136 ms emitting — to run a plan that takes
+300 ms without it. Postgres decides to JIT on estimated cost, and a query touching ten thousand rows
+clears the default threshold while gaining nothing, because the work is I/O and not expression
+evaluation. `jit = off` is now set on the pool.
+
+**The matcher service has no work left**, and is deleted. Its only queues were `score` and
+`score_bulk`, both of which existed to run the fan-out this ADR removes. Six deployment units become
+five — see [ADR-0008](0008-service-decomposition.md).
+
+## Measured outcome
+
+| | Before | After |
+|---|---|---|
+| `GET /v1/jobs?sort=match` p95 | n/a — read from a table | **~80 ms** (budget 120 ms) |
+| `GET /v1/jobs` (newest) | 75.6 ms | **~25 ms** |
+| `GET /v1/me/dashboard` | — | **~85 ms** (budget 400 ms) |
+| Deployment units | 6 | **5** |
+| Storage growth | `users × live_postings` | flat in corpus size |
 
 ## Revisit
 

@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import _gosrc  # noqa: E402
 import _ratchet  # noqa: E402
 
 CREATE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)", re.I)
@@ -44,11 +45,11 @@ def main() -> int:
 
     live = created - dropped - partitions
 
-    code = "\n".join(
-        p.read_text(errors="replace")
-        for p in list(Path("internal").rglob("*.go")) + list(Path("cmd").rglob("*.go"))
-        if not p.name.endswith("_test.go")
-    )
+    # Comments blanked, string bodies kept. Raw source let user_job_scores pass
+    # this check on the strength of two explanatory comments while nothing read
+    # or wrote it; `code` would go too far the other way and blank the SQL
+    # literals where real usage lives.
+    code = "\n".join(gf.decommented for gf in _gosrc.walk() if not gf.is_test)
 
     violations: dict[str, str] = {}
     for table in sorted(live):

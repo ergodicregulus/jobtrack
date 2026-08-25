@@ -1,0 +1,3 @@
+# GitHub Actions referenced by mutable tag.
+#
+# Empty. The rule holds with no exceptions.

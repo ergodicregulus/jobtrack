@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jobtrack/jobtrack/internal/matching"
 )
 
 // FeedFilter is the set of constraints from the query string.
@@ -100,6 +104,11 @@ type FeedItem struct {
 	// a pending background job, the second is a judgement about the role.
 	Match *Match `json:"match,omitempty"`
 	Saved bool   `json:"saved"`
+
+	// scoring holds what the scorer needs, carried from the row rather than
+	// fetched again. Unexported so it cannot reach the wire: it is an input to
+	// Match, not a field of the response.
+	scoring matching.Posting
 }
 
 // Match is one posting's fit for one user.
@@ -129,6 +138,10 @@ type cursor struct {
 	// so one cursor shape covers timestamps and numbers.
 	SortKey string `json:"k"`
 	ID      int64  `json:"i"`
+	// Offset is used only by the ranked path, where the sort column is computed
+	// in Go and there is no stable column for a keyset. Absent from every
+	// cursor the keyset path issues, so old cursors decode with Offset 0.
+	Offset int `json:"o,omitempty"`
 }
 
 func encodeCursor(c cursor) string {
@@ -193,6 +206,17 @@ func newFeedPredicates(userID *int64) *feedPredicates {
 
 const viewerPos = 1
 
+// newCandidatePredicates builds the same filters WITHOUT binding a viewer.
+//
+// The candidate query joins neither user_job_scores nor applications, so a
+// bound-but-unused $1 leaves Postgres unable to infer its type — "could not
+// determine data type of parameter $1". Positions are assigned by bind()
+// rather than hardcoded, so dropping the viewer simply shifts every filter
+// down by one and nothing else has to know.
+func newCandidatePredicates() *feedPredicates {
+	return &feedPredicates{conds: []string{"p.status = 'live'"}}
+}
+
 // bind appends an argument and returns its 1-based position.
 func (p *feedPredicates) bind(v any) int {
 	p.args = append(p.args, v)
@@ -250,11 +274,6 @@ func (p *feedPredicates) addSource(f FeedFilter) {
 	}
 	if len(f.Vendors) > 0 {
 		p.where("s.vendor::text = ANY($%d)", p.bind(f.Vendors))
-	}
-	if len(f.Bands) > 0 {
-		// ujs is LEFT JOINed, so this predicate also drops unscored postings —
-		// intentionally. NULL = ANY(...) is never true.
-		p.where("ujs.band = ANY($%d)", p.bind(f.Bands))
 	}
 }
 
@@ -314,22 +333,118 @@ SELECT p.id, p.title, c.name, c.slug,
        COALESCE((SELECT array_agg(sk.display_name ORDER BY sk.display_name)
                    FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
                   WHERE ps.posting_id = p.id AND ps.requirement = 'nice_to_have'), '{}') AS nice_to_have,
-       ujs.score, ujs.band, COALESCE(ujs.missing_skills, '{}'),
+       -- Canonical skill names, for the scorer. The two arrays above are
+       -- display names, for the chips: a user reads "PostgreSQL", the model
+       -- matches "postgresql", and conflating them once put "node.js" on a
+       -- chip. Both are carried because scoring now happens here rather than
+       -- being read back from a table.
+       COALESCE((SELECT array_agg(sk.canonical)
+                   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
+                  WHERE ps.posting_id = p.id AND ps.requirement = 'must_have'), '{}') AS must_canon,
+       COALESCE((
+         SELECT array_agg(sk.canonical)
+           FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
+          WHERE ps.posting_id = p.id
+            AND ps.requirement = CASE
+                  WHEN EXISTS (
+                    SELECT 1 FROM posting_skills q
+                     WHERE q.posting_id = p.id
+                       AND q.requirement IN ('must_have','nice_to_have')
+                  ) THEN 'nice_to_have'::skill_requirement
+                  ELSE 'mentioned'::skill_requirement
+                END
+       ), '{}') AS nice_canon,
        (app.user_id IS NOT NULL) AS saved,
        %s AS sort_key
   FROM job_postings p
   JOIN companies c ON c.id = p.company_id
   JOIN sources   s ON s.id = p.source_id
-  LEFT JOIN user_job_scores ujs
-         ON ujs.posting_id = p.id AND ujs.user_id = $%d::bigint
   LEFT JOIN applications app
          ON app.posting_id = p.id AND app.user_id = $%d::bigint
  WHERE %s
  ORDER BY %s DESC, p.id DESC
  LIMIT $%d`
 
+// scoreCandidateCap bounds the set feedRanked scores in one request.
+//
+// 2,000, and the number is measured rather than reasoned. ADR-0016 first set it
+// at 20,000 from the scoring cost alone — 20,000 x 1.84 us = 37 ms — which was
+// the wrong constraint. Reading the candidates dominates: the projection costs
+// about 21 us per row, so the query, not the scorer, is what spends the budget.
+//
+//	   500 candidates ->  15 ms
+//	 1,000            ->  24 ms
+//	 2,000            ->  45 ms
+//	 5,000            -> 108 ms
+//	12,000            -> 263 ms
+//
+// At 2,000 the whole request is roughly 45 ms of candidates plus 4 ms of
+// scoring plus the page fetch, inside a 120 ms budget. At 5,000 it is already
+// over.
+//
+// Filters apply BEFORE the cap, which is what makes this acceptable: a reader
+// who narrows to remote, or to India, or to a skill, has a candidate set well
+// under the cap and gets their whole result ranked. The cap only binds an
+// unfiltered "sort everything by match", where the honest answer is that the
+// newest 2,000 is the part worth ranking anyway.
+const scoreCandidateCap = 2_000
+
+// needsRanking reports whether this request cannot be answered without scores.
+func needsRanking(f FeedFilter) bool {
+	switch f.Sort {
+	case "match", "relevance":
+		return true
+	}
+	return len(f.Bands) > 0
+}
+
 // Feed returns one page of postings matching a filter, scored for the viewer.
-func Feed(ctx context.Context, pool *pgxpool.Pool, f FeedFilter, cursorStr string) (FeedPage, error) {
+//
+// Scores are computed here, not read: ADR-0016. Two paths, because they have
+// different costs and only one of them needs the whole candidate set.
+//
+//   - Ordering that does not depend on a score (newest, comp) keeps keyset
+//     pagination and scores only the page it returns — 25 rows, ~46 us.
+//   - Ordering or filtering that DOES depend on a score has to score the whole
+//     candidate set before it can rank it, so it takes the bounded path.
+func Feed(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	f FeedFilter,
+	cursorStr string,
+) (FeedPage, error) {
+	var profile *matching.Profile
+	if f.UserID != nil {
+		p, err := ProfileForScoring(ctx, pool, *f.UserID)
+		if err != nil {
+			return FeedPage{}, fmt.Errorf("load viewer profile: %w", err)
+		}
+		profile = &p
+	}
+
+	if needsRanking(f) {
+		if profile == nil {
+			// A band is a statement about one person's fit. Rejected rather
+			// than silently ignored, which would return an unfiltered feed that
+			// looks like the filter did nothing.
+			return FeedPage{}, ErrRankingNeedsViewer
+		}
+		return feedRanked(ctx, pool, scorer, f, cursorStr, *profile)
+	}
+	return feedKeyset(ctx, pool, scorer, f, cursorStr, profile)
+}
+
+// feedKeyset is the score-independent path: keyset pagination, unchanged, with
+// the returned page scored on the way out.
+func feedKeyset(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	f FeedFilter,
+	cursorStr string,
+	profile *matching.Profile,
+) (FeedPage, error) {
 	limit := f.Limit
 	if limit <= 0 || limit > maxFeedLimit {
 		limit = 25
@@ -348,7 +463,7 @@ func Feed(ctx context.Context, pool *pgxpool.Pool, f FeedFilter, cursorStr strin
 	// One extra row is what tells us whether another page exists.
 	limitPos := p.bind(limit + 1)
 
-	query := fmt.Sprintf(feedSelect, sort.expr, viewerPos, viewerPos,
+	query := fmt.Sprintf(feedSelect, sort.expr, viewerPos,
 		strings.Join(p.conds, "\n   AND "), sort.col, limitPos)
 
 	rows, err := pool.Query(ctx, query, p.args...)
@@ -357,7 +472,229 @@ func Feed(ctx context.Context, pool *pgxpool.Pool, f FeedFilter, cursorStr strin
 	}
 	defer rows.Close()
 
-	return collectFeedPage(rows, limit)
+	page, err := collectFeedPage(rows, limit)
+	if err != nil {
+		return page, err
+	}
+	if profile != nil {
+		for i := range page.Items {
+			page.Items[i].Match = scoreItem(scorer, *profile, page.Items[i])
+		}
+	}
+	return page, nil
+}
+
+// scoreItem runs the scorer for one posting and shapes the wire form.
+func scoreItem(scorer *matching.Scorer, profile matching.Profile, it FeedItem) *Match {
+	r := scorer.Score(profile, it.scoring)
+	return &Match{
+		Score:         r.Score,
+		Band:          string(r.Band),
+		MissingSkills: r.MissingSkills(),
+	}
+}
+
+// ErrRankingNeedsViewer is returned when a request asks for an ordering or a
+// filter that only means something for a specific person, without one.
+var ErrRankingNeedsViewer = errors.New("store: ranking requires a signed-in viewer")
+
+// feedRanked is the score-dependent path.
+//
+// Everything in the candidate set has to be scored before any of it can be
+// ranked, so this reads a bounded set ordered by recency, scores it, and pages
+// within the result. Recency is the right bound: a role from four months ago
+// that scores 91 is not more useful than a fresh one that scores 88, and
+// bounding by anything else would mean ranking a set that grows forever.
+//
+// Paging is by offset here, not keyset, and that is a deliberate exception. A
+// keyset cursor needs a stable sort column in SQL; the sort column is computed
+// in Go. The offset is safe because it walks a set that is bounded and
+// deterministically re-derived — the same filters produce the same candidates
+// and the scorer is a pure function, so page 2 is the same ranking page 1 came
+// from.
+func feedRanked(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	f FeedFilter,
+	cursorStr string,
+	profile matching.Profile,
+) (FeedPage, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > maxFeedLimit {
+		limit = 25
+	}
+
+	ranked, err := rankCandidates(ctx, pool, scorer, f, profile)
+	if err != nil {
+		return FeedPage{}, err
+	}
+
+	offset := 0
+	if c, ok := decodeCursor(cursorStr); ok {
+		offset = c.Offset
+	}
+	offset = min(offset, len(ranked))
+	end := min(offset+limit, len(ranked))
+
+	page := FeedPage{Items: []FeedItem{}, HasMore: end < len(ranked)}
+	if page.HasMore {
+		page.NextCursor = encodeCursor(cursor{Offset: end})
+	}
+	if offset == end {
+		return page, nil
+	}
+
+	// Full rows for the page only. This is the whole reason ranking reads a
+	// lean projection first: the display query carries four correlated
+	// subqueries and a company join, and running it over 12,000 candidates
+	// measured 1.3 SECONDS against a 120 ms budget. Scoring was never the cost
+	// — it is 22 ms for the same set — the cost was fetching rows nobody would
+	// see. Twenty-five of them is 40 ms.
+	page.Items, err = feedItemsByID(ctx, pool, f.UserID, ranked[offset:end])
+	if err != nil {
+		return FeedPage{}, err
+	}
+	return page, nil
+}
+
+// rankedPosting is one scored candidate, before its display row is fetched.
+type rankedPosting struct {
+	id    int64
+	match Match
+	// posted breaks ties, so the order is total. Without it the order for equal
+	// scores depends on the query plan, and a page boundary landing inside a
+	// tie would drop or repeat a posting between pages.
+	posted time.Time
+}
+
+// rankCandidates reads the bounded candidate set through the lean scoring
+// projection, scores it, and returns it ranked.
+func rankCandidates(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	f FeedFilter,
+	profile matching.Profile,
+) ([]rankedPosting, error) {
+	p := newCandidatePredicates()
+	p.addLocation(f)
+	p.addExperience(f)
+	p.addCompensation(f)
+	p.addSource(f)
+	p.addSearch(f)
+	capPos := p.bind(scoreCandidateCap)
+
+	// Concatenated, not Sprintf'd. postingScoringColumns carries a SQL comment
+	// containing "73.7%", and a stray % in a format string is a verb — it
+	// compiled into a query with "% o" in it before go vet caught it.
+	query := "SELECT " + postingScoringColumns + `
+		  FROM job_postings p
+		  JOIN sources s ON s.id = p.source_id
+		 WHERE ` + strings.Join(p.conds, "\n   AND ") + fmt.Sprintf(`
+		 ORDER BY COALESCE(p.posted_at, p.first_seen_at) DESC, p.id DESC
+		 LIMIT $%d`, capPos)
+
+	rows, err := pool.Query(ctx, query, p.args...)
+	if err != nil {
+		return nil, fmt.Errorf("feed candidates: %w", err)
+	}
+	defer rows.Close()
+
+	want := bandSet(f.Bands)
+	var out []rankedPosting
+	for rows.Next() {
+		j, err := scanPosting(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan candidate: %w", err)
+		}
+		r := scorer.Score(profile, j)
+		band := string(r.Band)
+		if want != nil && !want[band] {
+			continue
+		}
+		out = append(out, rankedPosting{
+			id:     j.ID,
+			match:  Match{Score: r.Score, Band: band, MissingSkills: r.MissingSkills()},
+			posted: j.PostedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(out, func(i, k int) bool {
+		if out[i].match.Score != out[k].match.Score {
+			return out[i].match.Score > out[k].match.Score
+		}
+		return out[i].posted.After(out[k].posted)
+	})
+	return out, nil
+}
+
+// feedItemsByID fetches display rows for an already-ranked page, preserving the
+// ranking. Postgres returns no order for `id = ANY(...)`, so the order is
+// restored here rather than asked for in SQL.
+func feedItemsByID(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	userID *int64,
+	ranked []rankedPosting,
+) ([]FeedItem, error) {
+	ids := make([]int64, len(ranked))
+	for i, r := range ranked {
+		ids[i] = r.id
+	}
+
+	var viewer any
+	if userID != nil {
+		viewer = *userID
+	}
+	sortMode := feedSort("newest")
+	query := fmt.Sprintf(feedSelect, sortMode.expr, viewerPos, "p.id = ANY($2)", sortMode.col, 3)
+
+	rows, err := pool.Query(ctx, query, viewer, ids, len(ids))
+	if err != nil {
+		return nil, fmt.Errorf("feed page rows: %w", err)
+	}
+	defer rows.Close()
+
+	byID := make(map[int64]FeedItem, len(ids))
+	for rows.Next() {
+		it, _, err := scanFeedItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		byID[it.ID] = it
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]FeedItem, 0, len(ranked))
+	for _, r := range ranked {
+		it, ok := byID[r.id]
+		if !ok {
+			// Closed between the two queries. Dropping it is correct: the feed
+			// only ever shows live postings.
+			continue
+		}
+		m := r.match
+		it.Match = &m
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+func bandSet(bands []string) map[string]bool {
+	if len(bands) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(bands))
+	for _, b := range bands {
+		out[b] = true
+	}
+	return out
 }
 
 // collectFeedPage reads rows into a page and derives the next cursor.
@@ -393,11 +730,7 @@ func collectFeedPage(rows pgx.Rows, limit int) (FeedPage, error) {
 func scanFeedItem(rows pgx.Rows) (FeedItem, string, error) {
 	var it FeedItem
 	var sortKey string
-	// Score columns are nullable: NULL means this posting has not been scored
-	// for this viewer, which is different from a score of zero.
-	var score *float64
-	var band *string
-	var missing []string
+	var mustCanon, niceCanon []string
 
 	if err := rows.Scan(
 		&it.ID, &it.Title, &it.CompanyName, &it.CompanySlug, &it.LocationRaw,
@@ -408,14 +741,24 @@ func scanFeedItem(rows pgx.Rows) (FeedItem, string, error) {
 		&it.AIScreeningDisclosed, &it.AIOptOutURL,
 		&it.ParseConfidence,
 		&it.MustHaveSkills, &it.NiceToHaveSkills,
-		&score, &band, &missing, &it.Saved,
+		&mustCanon, &niceCanon, &it.Saved,
 		&sortKey,
 	); err != nil {
 		return it, "", fmt.Errorf("scan feed row: %w", err)
 	}
 
-	if score != nil && band != nil {
-		it.Match = &Match{Score: *score, Band: *band, MissingSkills: missing}
+	it.scoring = matching.Posting{
+		ID: it.ID, Country: derefString(it.Country), Mode: it.Mode,
+		YoEMin: it.YoEMin, YoEMax: it.YoEMax, YoEConfidence: it.YoEConfidence,
+		CompMin: it.CompMin, CompMax: it.CompMax,
+		CompCurrency:    derefString(it.CompCurrency),
+		ParseConfidence: it.ParseConfidence,
+		MustHaveSkills:  mustCanon, NiceToHaveSkills: niceCanon,
+	}
+	if it.PostedAt != nil {
+		it.scoring.PostedAt = *it.PostedAt
+	} else {
+		it.scoring.PostedAt = it.FirstSeenAt
 	}
 	return it, sortKey, nil
 }
@@ -446,10 +789,14 @@ func feedSort(name string) sortMode {
 	case "comp":
 		return sortMode{"COALESCE(p.comp_min, 0)::text", "COALESCE(p.comp_min, 0)", "numeric"}
 	case "match", "relevance":
-		// Unscored postings sort last rather than as zero: a posting nobody has
-		// scored yet is not a bad match, it is an unknown one, and burying it
-		// among the genuine mismatches would hide new arrivals.
-		return sortMode{"COALESCE(ujs.score, -1)::text", "COALESCE(ujs.score, -1)", "numeric"}
+		// Handled entirely in Go by feedRanked — there is no score column to
+		// order by any more. SQL still orders the CANDIDATE set by recency,
+		// which is what this returns.
+		return sortMode{
+			"COALESCE(p.posted_at, p.first_seen_at)::text",
+			"COALESCE(p.posted_at, p.first_seen_at)",
+			"timestamptz",
+		}
 	default: // newest
 		return sortMode{
 			"COALESCE(p.posted_at, p.first_seen_at)::text",

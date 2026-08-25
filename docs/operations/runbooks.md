@@ -1,5 +1,12 @@
 # Runbooks
 
+> **Amended 2026-08-25.** The `matcher` service described below no longer
+> exists. [ADR-0016](../architecture/adr/0016-scores-are-computed-not-materialised.md)
+> computes scores on the read path, which removed the scoring fan-out and the
+> `score` / `score_bulk` queues — the matcher's only work. There are now **five**
+> deployment units: api, ingestor, scheduler, resume-parser, migrate. Everything
+> else on this page still holds.
+
 > Status: **DECIDED**. Each runbook is written to be followed at 3 a.m. by someone who did not write
 > the code. Symptom first, diagnosis second, fix third.
 

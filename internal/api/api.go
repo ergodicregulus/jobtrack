@@ -15,6 +15,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/config"
 	"github.com/jobtrack/jobtrack/internal/crypt"
 	"github.com/jobtrack/jobtrack/internal/httpx"
+	"github.com/jobtrack/jobtrack/internal/matching"
 )
 
 // API holds the dependencies every handler needs.
@@ -39,6 +40,17 @@ type API struct {
 	// it holds no database credentials by design — it cannot read or write
 	// anything itself, so the API does the storing.
 	parser *resumeClient
+
+	// scorer ranks the feed on the request path.
+	//
+	// Scores are computed rather than read (ADR-0016): a materialised score per
+	// user per posting reached 78% of the database for 244 users and projected
+	// to 16 TB at a million. Scoring measures 1.84 us, so the whole live corpus
+	// ranks in 22 ms — the table existed to avoid that.
+	//
+	// Shared and stateless. Scorer holds configuration and no per-request state,
+	// so one instance serves every goroutine.
+	scorer *matching.Scorer
 }
 
 func New(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, rc *river.Client[pgx.Tx]) (*API, error) {
@@ -54,6 +66,7 @@ func New(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, rc *river.Cli
 		river:    rc,
 		crypt:    c,
 		parser:   newResumeClient(cfg.ResumeParserURL),
+		scorer:   matching.NewScorer(matching.DefaultConfig(), matching.DefaultAdjacency()),
 	}, nil
 }
 

@@ -220,12 +220,11 @@ func (w *FetchSourceWorker) persist(ctx context.Context, src source.Source, resu
 			return err
 		}
 
-		// Enqueue scoring inside the same transaction. Atomic with the write.
-		for _, id := range changedIDs {
-			if _, err := d.River.InsertTx(ctx, tx, ScorePostingArgs{PostingID: id}, nil); err != nil {
-				return fmt.Errorf("enqueue scoring for %d: %w", id, err)
-			}
-		}
+		// Nothing is enqueued for the postings that changed. Scores are
+		// computed when a feed is read (ADR-0016), so a new posting is
+		// rankable the moment it is committed — there is no fan-out to
+		// schedule, and no window during which a posting exists but is
+		// unscored.
 		return nil
 	})
 	return upserted, changed, err

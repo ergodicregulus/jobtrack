@@ -10,10 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/jobs"
 	"github.com/jobtrack/jobtrack/internal/resume"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
@@ -335,10 +332,9 @@ func (a *API) handleResumeApply(w http.ResponseWriter, r *http.Request) error {
 		yoe = &rounded
 	}
 
-	err = store.ApplyResume(ctx, a.pool, userID, id, keep, yoe, func(tx pgx.Tx) error {
-		_, err := a.river.InsertTx(ctx, tx, jobs.ScoreUserArgs{UserID: userID}, nil)
-		return err
-	})
+	// No rescore enqueued: see the note in profile.go. The next feed request
+	// scores against the skills this call just applied.
+	err = store.ApplyResume(ctx, a.pool, userID, id, keep, yoe, nil)
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}

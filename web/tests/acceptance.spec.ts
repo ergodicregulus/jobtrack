@@ -58,8 +58,13 @@ test('the whole product, as one stranger walks it', async ({ page }) => {
   // The score shows its working: open one and read the breakdown.
   await first.locator('.title a').click();
   await expect(page).toHaveURL(/\/jobs\/\d+/);
-  const breakdown = page.locator('.components, .breakdown').first();
-  await expect(breakdown.or(page.getByText(/how well does this fit|skills/i).first())).toBeVisible();
+  // The components list itself, not a text fallback. The `.or()` that used to
+  // be here matched the search field's visually-hidden "Search roles, skills
+  // and companies" label as readily as the breakdown, so it could pass on a
+  // page with no breakdown at all — and once scores were computed rather than
+  // stored it started resolving to both and failing strict mode.
+  await expect(page.locator('ul.components')).toBeVisible();
+  await expect(page.locator('ul.components li')).not.toHaveCount(0);
 
   // --- apply through a link that lands in a real requisition queue ---------
   const apply = page.getByRole('link', { name: /^apply on/i }).first();

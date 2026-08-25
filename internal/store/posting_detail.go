@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jobtrack/jobtrack/internal/matching"
 )
 
 // PostingDetail is one posting in full, with the viewer's score if there is one.
@@ -50,14 +52,22 @@ type PostingDetail struct {
 
 	MustHaveSkills   []string `db:"must_have_skills"`
 	NiceToHaveSkills []string `db:"nice_to_have_skills"`
+	MustCanon        []string `db:"must_canon"`
+	NiceCanon        []string `db:"nice_canon"`
 
-	Score      *float64   `db:"score"`
-	Band       *string    `db:"band"`
-	Confidence *float64   `db:"confidence"`
-	Components []byte     `db:"components"`
-	ComputedAt *time.Time `db:"computed_at"`
-	Missing    []string   `db:"missing_skills"`
-	Saved      bool       `db:"saved"`
+	Saved bool `db:"saved"`
+
+	// Match is computed, not read. ADR-0016: the components blob alone was 647
+	// bytes on every (user, posting) row — 44% of a table that reached 78% of
+	// the database — to serve a field only this endpoint reads, one posting at
+	// a time. It is nil for an anonymous viewer.
+	// db:"-" so RowToStructByName does not look for a column: this is derived
+	// after the row is read, not selected.
+	Match *matching.Result `db:"-"`
+
+	// scoring carries the model's inputs, so the row and the score come from
+	// one read.
+	scoring matching.Posting
 }
 
 const postingDetailSQL = `
@@ -91,14 +101,30 @@ const postingDetailSQL = `
 	                   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
 	                  WHERE ps.posting_id = p.id AND ps.requirement = 'nice_to_have'), '{}')
 	                                     AS nice_to_have_skills,
-	       ujs.score, ujs.band, ujs.confidence, ujs.components, ujs.computed_at,
-	       COALESCE(ujs.missing_skills, '{}') AS missing_skills,
+       -- Canonical skill names for the scorer, alongside the display names
+       -- above. Two extra subqueries on a single row, against a table that
+       -- carried the alternative for every user times every posting.
+       COALESCE((SELECT array_agg(sk.canonical)
+                   FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
+                  WHERE ps.posting_id = p.id AND ps.requirement = 'must_have'), '{}')
+                                     AS must_canon,
+       COALESCE((
+         SELECT array_agg(sk.canonical)
+           FROM posting_skills ps JOIN skills sk ON sk.id = ps.skill_id
+          WHERE ps.posting_id = p.id
+            AND ps.requirement = CASE
+                  WHEN EXISTS (
+                    SELECT 1 FROM posting_skills q
+                     WHERE q.posting_id = p.id
+                       AND q.requirement IN ('must_have','nice_to_have')
+                  ) THEN 'nice_to_have'::skill_requirement
+                  ELSE 'mentioned'::skill_requirement
+                END
+       ), '{}')                       AS nice_canon,
 	       (app.user_id IS NOT NULL)     AS saved
 	  FROM job_postings p
 	  JOIN companies c ON c.id = p.company_id
 	  JOIN sources   s ON s.id = p.source_id
-	  LEFT JOIN user_job_scores ujs
-	         ON ujs.posting_id = p.id AND ujs.user_id = $2::bigint
 	  LEFT JOIN applications app
 	         ON app.posting_id = p.id AND app.user_id = $2::bigint
 	 WHERE p.id = $1 AND p.status = 'live'`
@@ -111,7 +137,13 @@ const postingDetailSQL = `
 //
 // A posting that has closed returns ErrNotFound. That is truer than showing a
 // role nobody can apply to.
-func LoadPostingDetail(ctx context.Context, pool *pgxpool.Pool, id int64, viewer any) (PostingDetail, error) {
+func LoadPostingDetail(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	scorer *matching.Scorer,
+	id int64,
+	viewer any,
+) (PostingDetail, error) {
 	rows, err := pool.Query(ctx, postingDetailSQL, id, viewer)
 	if err != nil {
 		return PostingDetail{}, fmt.Errorf("load posting: %w", err)
@@ -123,6 +155,36 @@ func LoadPostingDetail(ctx context.Context, pool *pgxpool.Pool, id int64, viewer
 	if err != nil {
 		return PostingDetail{}, fmt.Errorf("load posting: %w", err)
 	}
+
+	p.scoring = matching.Posting{
+		ID: p.ID, Country: "", Mode: p.Mode,
+		YoEMin: p.YoEMin, YoEMax: p.YoEMax, YoEConfidence: p.YoEConfidence,
+		CompMin: p.CompMin, CompMax: p.CompMax,
+		ParseConfidence:  p.ParseConfidence,
+		MustHaveSkills:   p.MustCanon,
+		NiceToHaveSkills: p.NiceCanon,
+	}
+	if p.CompCurrency != nil {
+		p.scoring.CompCurrency = *p.CompCurrency
+	}
+	if p.PostedAt != nil {
+		p.scoring.PostedAt = *p.PostedAt
+	} else {
+		p.scoring.PostedAt = p.FirstSeenAt
+	}
+
+	// No viewer, no match. An anonymous reader gets the posting and no claim
+	// about their fit, which is different from a fit of zero.
+	uid, ok := viewer.(int64)
+	if !ok {
+		return p, nil
+	}
+	profile, err := ProfileForScoring(ctx, pool, uid)
+	if err != nil {
+		return p, fmt.Errorf("load viewer profile: %w", err)
+	}
+	r := scorer.Score(profile, p.scoring)
+	p.Match = &r
 	return p, nil
 }
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -41,7 +42,12 @@ func (a *API) handleJobs(w http.ResponseWriter, r *http.Request) error {
 				Message: "Sign in to filter by how well a role fits you"})
 	}
 
-	page, err := store.Feed(r.Context(), a.pool, f, r.URL.Query().Get("cursor"))
+	page, err := store.Feed(r.Context(), a.pool, a.scorer, f, r.URL.Query().Get("cursor"))
+	if errors.Is(err, store.ErrRankingNeedsViewer) {
+		return httpx.ErrBadRequest(
+			"sorting by match or filtering by band needs an account — a band is a statement about your fit",
+			httpx.FieldError{Field: "band", Code: "requires_auth", Message: "sign in to rank by match"})
+	}
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}

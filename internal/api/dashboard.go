@@ -32,7 +32,14 @@ type MatchSummary struct {
 	Strong    int `json:"strong"`
 	Plausible int `json:"plausible"`
 	NewToday  int `json:"new_today"`
-	Scored    int `json:"scored"`
+	// Considered is the size of the window the counts above describe.
+	//
+	// It replaced `scored`, which counted rows in a table that no longer
+	// exists. Every live posting is scorable now, so "how many are scored for
+	// you" is a fact about the corpus rather than about the reader — and a
+	// count the reader cannot act on is the kind of number this product exists
+	// not to print.
+	Considered int `json:"considered"`
 }
 
 type PipelineStage struct {
@@ -111,7 +118,7 @@ func (a *API) handleDashboard(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	d, err := store.LoadDashboard(ctx, a.pool, userID)
+	d, err := store.LoadDashboard(ctx, a.pool, a.scorer, userID)
 	if err != nil {
 		return httpx.ErrInternal(err)
 	}

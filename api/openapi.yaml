@@ -855,12 +855,17 @@ components:
 
     MatchSummary:
       type: object
-      required: [strong, plausible, new_today, scored]
+      required: [strong, plausible, new_today, considered]
       properties:
         strong: { type: integer }
         plausible: { type: integer }
         new_today: { type: integer }
-        scored: { type: integer }
+        considered:
+          type: integer
+          description: >-
+            How many postings were ranked to produce these counts. Replaces
+            `scored`: scores are computed per request rather than stored, so
+            there is no set of "scored" rows to count. See ADR-0016.
 
     PipelineStage:
       type: object

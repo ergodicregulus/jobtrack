@@ -64,7 +64,7 @@ func run(ctx context.Context, a *app.App, reset, ingest, withUsers bool) error {
 		// sources are kept: re-registering them is idempotent, and dropping
 		// them would discard the polling state that makes conditional requests
 		// work.
-		for _, table := range []string{"user_job_scores", "posting_skills", "posting_observations", "job_postings"} {
+		for _, table := range []string{"posting_skills", "posting_observations", "job_postings"} {
 			if _, err := a.Pool.Exec(ctx, "DELETE FROM "+table); err != nil {
 				return fmt.Errorf("reset %s: %w", table, err)
 			}

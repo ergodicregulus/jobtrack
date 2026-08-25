@@ -21,7 +21,7 @@ Queried from the live database on 2026-08-25, not estimated.
 | Live postings | **13,445** |
 | Companies / sources polled | **65 / 65**, 0 erroring |
 | Postings in India | **1,032** |
-| Scores computed | **1,268,073** |
+| Scores computed | n/a — computed per request since [ADR-0016](../architecture/adr/0016-scores-are-computed-not-materialised.md), not stored |
 | Skill vocabulary | **113** canonical terms |
 | Postings with a disclosed salary | **1,969** (14.6%) |
 | Schema migrations | **17**, all applied, no drift (335 catalogue facts) |
@@ -30,7 +30,7 @@ Queried from the live database on 2026-08-25, not estimated.
 | First-load JS (gzipped, `/jobs`) | **75.1 KB** of a 100 KB budget |
 | CSS (gzipped) | **10.5 KB** of a 20 KB budget |
 | Time to score one posting (62 users) | **0.49 s** |
-| Deployment units | **6** (api, ingestor, matcher, scheduler, migrate, resume-parser) |
+| Deployment units | **5** (api, ingestor, scheduler, migrate, resume-parser) — matcher removed by [ADR-0016](../architecture/adr/0016-scores-are-computed-not-materialised.md) |
 
 **Gates that exist and pass today:** `make check` (fmt, vet, lint, race tests,
 build, frontend tests, performance budget), `make test-e2e`, `make ui-audit`,
@@ -368,7 +368,7 @@ and the pipeline, not the architecture.
 |---|---|---|
 | **Local dev** | `docker compose` + `air` hot reload | ✅ Built, 9 services |
 | **Single VM / homelab** | `docker compose` with a real `.env` and a reverse proxy | ⚠️ Needs a production compose file and TLS |
-| **Kubernetes** | manifests in `deploy/k8s/` | ⚠️ **Partial** — api, migrate-job, resume-parser exist; ingestor, matcher, scheduler, web do not |
+| **Kubernetes** | manifests in `deploy/k8s/` | ⚠️ **Partial** — api, migrate-job, resume-parser exist; ingestor, scheduler, web do not |
 | **Docker Swarm** | `docker stack deploy` | ❌ Not recommended — see below |
 | **Managed PaaS** (Fly, Render, Railway) | one process group per service | ⚠️ Works today with a Procfile-equivalent; no manifests |
 
@@ -396,10 +396,9 @@ third orchestrator to support is a cost with no current trigger.
 
 ### 8.3 What to build
 
-1. **Complete the Kubernetes manifest set** — `ingestor`, `matcher`,
-   `scheduler`, `web`, plus `ConfigMap`, `Secret` (external-secrets or SOPS,
-   never committed), `Ingress`, `HorizontalPodAutoscaler` for `api` and
-   `matcher`, and `NetworkPolicy` for every service, not just `resume-parser`.
+1. **Complete the Kubernetes manifest set** — `ingestor`, `scheduler`,
+   `web`, plus `ConfigMap`, `Secret` (external-secrets or SOPS,
+   never committed), `Ingress`, `HorizontalPodAutoscaler` for `api`, and `NetworkPolicy` for every service, not just `resume-parser`.
 2. **A Helm chart or Kustomize overlays** — `base/` plus `overlays/{dev,staging,prod}`.
    Kustomize is the lighter answer and needs no new dependency.
 3. **`docker-compose.prod.yml`** — no bind mounts, no `air`, pinned image
@@ -545,7 +544,7 @@ The real story is the better engineering lesson, and it is one we just lived:
 | **Vector store trigger** | n/a — nothing writes embeddings at all, see the note on [ADR-0006](../architecture/adr/0006-hybrid-retrieval-and-scoring.md) | — |
 | **PgBouncer trigger** | 20 connections in use vs 400 sustained | 5% of the trigger |
 | **First-load JS** | 75.1 KB | Smaller than most single React vendor chunks |
-| **Score write cost** | 62 users in **one** statement | Was 62 round trips |
+| **Score write cost** | none — nothing is written | ADR-0016: scoring is a read-path computation at 1.84 µs |
 | **Ingest at steady state** | ~1 request per board per poll | Content-hash short-circuit; ~90% of polls are 304 or identical |
 | **Resume parser** | 512 Mi cap, in-memory `/tmp`, no egress | A hostile PDF kills a child process, not the service |
 

@@ -1,3 +1,12 @@
+<!-- AMENDED 2026-08-25 by ADR-0016. The `matcher` unit described below no
+     longer exists. Its only queues were `score` and `score_bulk`, which served
+     the scoring fan-out; ADR-0016 computes scores on read, so the fan-out and
+     the service that ran it are both gone. Six deployment units are now FIVE:
+     api, ingestor, scheduler, resume-parser, migrate.
+
+     The decomposition reasoning below is unchanged and still governs; only the
+     count and the matcher's entry are stale. -->
+
 # ADR-0008 — Service decomposition: modular monolith, multi-process deployment
 
 - **Status:** DECIDED
