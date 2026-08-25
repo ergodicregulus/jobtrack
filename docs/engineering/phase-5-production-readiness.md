@@ -542,7 +542,7 @@ The real story is the better engineering lesson, and it is one we just lived:
 | Property | Today | Why it holds |
 |---|---|---|
 | **Datastore count** | 1 | No Redis, no Elasticsearch, no broker. Every alternative has a numeric trigger; none has fired |
-| **Vector store trigger** | 8,985 postings vs a 20M threshold | 0.04% of the trigger |
+| **Vector store trigger** | n/a — nothing writes embeddings at all, see the note on [ADR-0006](../architecture/adr/0006-hybrid-retrieval-and-scoring.md) | — |
 | **PgBouncer trigger** | 20 connections in use vs 400 sustained | 5% of the trigger |
 | **First-load JS** | 75.1 KB | Smaller than most single React vendor chunks |
 | **Score write cost** | 62 users in **one** statement | Was 62 round trips |
@@ -551,15 +551,28 @@ The real story is the better engineering lesson, and it is one we just lived:
 
 ### 11.3 The scaling work that is actually next
 
-1. **Score storage is the growth curve.** 1.27M rows for 65 users against 13,445
-   postings. It grows as `users × live_postings` and it is already the largest
-   table. Before it becomes a problem: partition by `user_id` range, or stop
-   storing scores for dormant users and compute on read. **Trigger to write
-   down:** when `user_job_scores` exceeds **50M rows** or the table exceeds
-   **25% of database size**.
-2. **The fan-out job is the CPU curve.** One posting × every active user. The
-   30-day active window already bounds it. **Trigger:** when p95 `score` job
-   duration exceeds **5 s** or the queue's steady-state depth exceeds **10,000**.
+1. **Score storage is the growth curve — and the trigger below has already
+   fired.** Superseded by [ADR-0016](../architecture/adr/0016-scores-are-computed-not-materialised.md).
+
+   The trigger was "**50M rows** or **25% of database size**". Measured
+   2026-08-25: 1.38M rows — nowhere near — but **78.4% of the database**, three
+   times over the size clause. A two-clause trigger is only as good as the
+   clause somebody reads, and only the row count was ever checked.
+
+   The resolution is not partitioning. Scoring measures **1,837 ns**, so the
+   entire live corpus can be ranked at read time in 22 ms against a 120 ms
+   budget: 1,952 MB exists to avoid 22 ms of CPU. ADR-0016 stops materialising
+   the cross-product.
+2. ~~**The fan-out job is the CPU curve.**~~ **Wrong, corrected 2026-08-25.**
+   At 1M active users and 1,000 new postings a day the fan-out is 11,574
+   scores/second, which at the measured 1.84 µs is **2.1% of one core**. CPU was
+   never the constraint.
+
+   The constraint is write amplification: the same work writes **1.5 TB of rows
+   per day**, onto a table already tuned to `autovacuum_scale_factor 0.02`
+   because its churn drives dashboard latency. The curve is I/O and storage. The
+   distinction matters because the mitigations are opposite — more cores do
+   nothing for it.
 3. **Autovacuum is now load-bearing** for dashboard latency and is tuned to 0.02
    on `user_job_scores`. It needs a monitor, not just a setting: alert when dead
    tuples exceed **5%** of live on that table.

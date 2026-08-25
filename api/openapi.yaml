@@ -400,6 +400,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MarketSummary' }
 
+  /v1/market/ingest:
+    get:
+      tags: [jobs]
+      summary: Daily ingest activity per vendor, public
+      description: >-
+        Feeds the homepage chart of what the corpus is doing over time. Read
+        from the source_daily rollup rather than from job_postings: this query
+        has no user to filter by, so it would otherwise scan the whole corpus
+        and get slower for every reader as coverage grows. See ADR-0017.
+
+
+        Aggregated to vendor rather than to source. Sixty-five lines is not a
+        chart anybody can read; three to eight is.
+      operationId: getIngestSeries
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+          description: Window length, ending today.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestSeries' }
+
   /v1/me/saved:
     get:
       tags: [tracking]
@@ -995,6 +1022,35 @@ components:
         companies: { type: integer }
         added_this_week: { type: integer }
         remote_share: { type: number }
+
+    IngestSeries:
+      type: object
+      required: [days, series]
+      properties:
+        days:
+          type: array
+          description: >-
+            Every day in the window, including days with no activity. A gap and
+            a zero mean different things on a chart and the client cannot tell
+            them apart unless the zero is present.
+          items: { type: string, format: date }
+        series:
+          type: array
+          items: { $ref: '#/components/schemas/IngestVendorSeries' }
+
+    IngestVendorSeries:
+      type: object
+      required: [vendor, new, live]
+      properties:
+        vendor: { type: string }
+        new:
+          type: array
+          description: Postings first seen on each day. The flow.
+          items: { type: integer }
+        live:
+          type: array
+          description: Postings still live at the end of each day. The level.
+          items: { type: integer }
 
     ApplicationStatus:
       type: string

@@ -94,6 +94,7 @@ func (a *API) Routes() http.Handler {
 	mux.Handle("GET /v1/jobs", maybeAuthed(httpx.Wrap(a.log, a.handleJobs)))
 	mux.Handle("GET /v1/jobs/facets", httpx.Wrap(a.log, a.handleFacets))
 	mux.Handle("GET /v1/market", httpx.Wrap(a.log, a.handleMarket))
+	mux.Handle("GET /v1/market/ingest", httpx.Wrap(a.log, a.handleIngestSeries))
 	mux.Handle("GET /v1/skills/common", httpx.Wrap(a.log, a.handleCommonSkills))
 	// One posting in full, including its score breakdown. Optional auth for the
 	// same reason as the feed: reading a posting needs no account, scoring does.

@@ -154,6 +154,7 @@ Typing the command loads a procedure written for this repository.
 | `/adr` | Any technology or architecture decision. Refuses the question until it has numbers |
 | `/new-source` | Adding an ATS adapter. The acquisition-policy gate and the pagination-cap trap |
 | `/design-law` | Any interface change. The rules generic design guidance cannot know |
+| `/widget` | Adding any chart, heatmap or panel. Decides the data shape before code, and prices it |
 
 `.claude/agents/architecture-reviewer.md` reviews a diff against the binding
 ADRs — for what a script cannot judge.

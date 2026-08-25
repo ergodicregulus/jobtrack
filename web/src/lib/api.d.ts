@@ -237,7 +237,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a CV and get back what we understood
-         * @description Parses the file and returns a PROPOSAL. Nothing reaches the profile until /apply — a silently wrong skill list corrupts every score afterwards while looking like it worked. The body is the raw file; max 5 MB. DOCX and plain text are supported today.
+         * @description Parses the file and returns a PROPOSAL. Nothing reaches the profile until /apply — a silently wrong skill list corrupts every score afterwards while looking like it worked. The body is the raw file; max 5 MB. PDF, DOCX and plain text are supported. A scanned PDF has no text layer and is refused with advice rather than guessed at.
          */
         post: operations["uploadResume"];
         delete?: never;
@@ -318,6 +318,28 @@ export interface paths {
          * @description Real numbers for the landing page. Public because "6,804 live postings" is checkable and "thousands of opportunities" is what every job board writes instead. Shares one SQL definition with the dashboard so the two surfaces cannot quote different figures for the same thing.
          */
         get: operations["getMarket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/market/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily ingest activity per vendor, public
+         * @description Feeds the homepage chart of what the corpus is doing over time. Read from the source_daily rollup rather than from job_postings: this query has no user to filter by, so it would otherwise scan the whole corpus and get slower for every reader as coverage grows. See ADR-0017.
+         *
+         *     Aggregated to vendor rather than to source. Sixty-five lines is not a chart anybody can read; three to eight is.
+         */
+        get: operations["getIngestSeries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -776,6 +798,18 @@ export interface components {
             companies: number;
             added_this_week: number;
             remote_share: number;
+        };
+        IngestSeries: {
+            /** @description Every day in the window, including days with no activity. A gap and a zero mean different things on a chart and the client cannot tell them apart unless the zero is present. */
+            days: string[];
+            series: components["schemas"]["IngestVendorSeries"][];
+        };
+        IngestVendorSeries: {
+            vendor: string;
+            /** @description Postings first seen on each day. The flow. */
+            new: number[];
+            /** @description Postings still live at the end of each day. The level. */
+            live: number[];
         };
         /** @enum {string} */
         ApplicationStatus: "saved" | "applied" | "referred" | "recruiter_screen" | "hm_screen" | "onsite" | "offer" | "rejected" | "ghosted" | "withdrawn";
@@ -1300,6 +1334,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketSummary"];
+                };
+            };
+        };
+    };
+    getIngestSeries: {
+        parameters: {
+            query?: {
+                /** @description Window length, ending today. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestSeries"];
                 };
             };
         };

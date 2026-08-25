@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jobtrack/jobtrack/internal/domain/user"
@@ -199,4 +201,92 @@ func (a *API) handleActivity(w http.ResponseWriter, r *http.Request) error {
 		Total: win.Total,
 	})
 	return nil
+}
+
+// IngestSeries is the homepage chart: what the corpus did, per vendor, per day.
+type IngestSeries struct {
+	Days   []string             `json:"days"`
+	Series []IngestVendorSeries `json:"series"`
+}
+
+// IngestVendorSeries is one line on the chart.
+type IngestVendorSeries struct {
+	Vendor string `json:"vendor"`
+	// New is the flow — postings first seen that day.
+	New []int `json:"new"`
+	// Live is the level — postings still live at the end of that day. Both are
+	// charted because they answer different questions: a board can be adding
+	// steadily while shrinking overall.
+	Live []int `json:"live"`
+}
+
+// handleIngestSeries serves the corpus chart from the daily rollup.
+//
+// Aggregated to vendor rather than to source. Sixty-five lines is not a chart
+// anyone can read; three to eight is. The rollup keeps per-source grain so a
+// per-company view remains possible without a schema change.
+func (a *API) handleIngestSeries(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 365 {
+			return httpx.ErrBadRequest("days must be between 1 and 365",
+				httpx.FieldError{Field: "days", Code: "range", Message: "1-365"})
+		}
+		days = n
+	}
+
+	rows, err := store.SourceDailySeries(ctx, a.pool, days)
+	if err != nil {
+		return httpx.ErrInternal(err)
+	}
+
+	// Public and identical for every caller, and the rollup only moves hourly.
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	httpx.WriteJSON(ctx, w, a.log, http.StatusOK, foldByVendor(rows))
+	return nil
+}
+
+// foldByVendor turns per-source rows into one aligned series per vendor.
+//
+// Every vendor gets a value for every day in the window, including zero. A gap
+// and a zero look different on a chart and mean different things — "we saw
+// nothing" is a fact, "we have no data" is an absence — and a client cannot
+// tell them apart unless the zero is actually sent.
+func foldByVendor(rows []store.SourceDay) IngestSeries {
+	var days []string
+	index := map[string]int{}
+	for _, r := range rows {
+		d := r.Day.Format("2006-01-02")
+		if _, seen := index[d]; !seen {
+			index[d] = len(days)
+			days = append(days, d)
+		}
+	}
+
+	byVendor := map[string]*IngestVendorSeries{}
+	for _, r := range rows {
+		s, ok := byVendor[r.Vendor]
+		if !ok {
+			s = &IngestVendorSeries{
+				Vendor: r.Vendor,
+				New:    make([]int, len(days)),
+				Live:   make([]int, len(days)),
+			}
+			byVendor[r.Vendor] = s
+		}
+		i := index[r.Day.Format("2006-01-02")]
+		s.New[i] += r.PostingsNew
+		s.Live[i] += r.PostingsLive
+	}
+
+	out := IngestSeries{Days: days, Series: make([]IngestVendorSeries, 0, len(byVendor))}
+	for _, s := range byVendor {
+		out.Series = append(out.Series, *s)
+	}
+	// Stable order so the chart's colours do not shuffle between requests.
+	sort.Slice(out.Series, func(i, j int) bool { return out.Series[i].Vendor < out.Series[j].Vendor })
+	return out
 }

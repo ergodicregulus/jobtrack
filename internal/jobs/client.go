@@ -56,6 +56,7 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	river.AddWorker(workers, &ScheduleSourcesWorker{Deps: d})
 	river.AddWorker(workers, &RetierSourcesWorker{Deps: d})
 	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
+	river.AddWorker(workers, &RollupSourceDailyWorker{Deps: d})
 	river.AddWorker(workers, &RescoreStaleWorker{Deps: d, Version: scorer.Version()})
 
 	queues := map[string]river.QueueConfig{}
@@ -137,6 +138,15 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 				func() (river.JobArgs, *river.InsertOpts) { return PruneSessionsArgs{}, nil },
 				nil,
 			),
+			// Hourly, not daily: today's row is incomplete until the day ends,
+			// and a chart that only updates at midnight looks broken to anyone
+			// who checks it during the day. RunOnStart so a fresh deploy has a
+			// populated chart rather than an empty one.
+			river.NewPeriodicJob(
+				river.PeriodicInterval(1*time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return RollupSourceDailyArgs{Days: 2}, nil },
+				&river.PeriodicJobOpts{RunOnStart: true},
+			),
 			// Rolls a scoring-algorithm change across the existing corpus.
 			// RunOnStart so a deploy that bumps the version begins correcting
 			// immediately rather than at the top of the next interval.
@@ -184,6 +194,27 @@ func Migrate(ctx context.Context, d *Deps) error {
 // second is the elegant part — watching a company promotes its board to
 // 2-hourly polling, so the sources that matter to real people are the fresh
 // ones and the long tail costs almost nothing.
+type RollupSourceDailyWorker struct {
+	river.WorkerDefaults[RollupSourceDailyArgs]
+	Deps *Deps
+}
+
+func (w *RollupSourceDailyWorker) Work(ctx context.Context, job *river.Job[RollupSourceDailyArgs]) error {
+	days := job.Args.Days
+	if days <= 0 {
+		// Two days, not one: a job running just after midnight would otherwise
+		// leave yesterday half-counted, and recomputing a day that is already
+		// correct costs nothing because the statement is idempotent.
+		days = 2
+	}
+	rows, err := store.RebuildSourceDaily(ctx, w.Deps.Pool, days)
+	if err != nil {
+		return err
+	}
+	w.Deps.Log.InfoContext(ctx, "source rollup rebuilt", "days", days, "rows", rows)
+	return nil
+}
+
 type PruneSessionsWorker struct {
 	river.WorkerDefaults[PruneSessionsArgs]
 	Deps *Deps

@@ -100,6 +100,19 @@ func (RetierSourcesArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
 }
 
+// RollupSourceDailyArgs recomputes the ingest rollup that the homepage chart
+// reads. Days bounds the window; the rollup is idempotent, so a wider window is
+// how a bug is fixed rather than a separate backfill path.
+type RollupSourceDailyArgs struct {
+	Days int `json:"days"`
+}
+
+func (RollupSourceDailyArgs) Kind() string { return "rollup_source_daily" }
+
+func (RollupSourceDailyArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
+}
+
 // PruneSessionsArgs deletes session rows that expired long ago.
 //
 // Housekeeping, not a security control: an expired session is already rejected

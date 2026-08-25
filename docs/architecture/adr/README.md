@@ -26,6 +26,8 @@ the other half of.
 | [0013](0013-freshness-weighting-re-measured.md) | The freshness weighting is not the problem; a thin profile is | DECIDED |
 | [0014](0014-rules-are-enforced-by-scripts.md) | **A project rule is enforced by a script or it is not a rule** | DECIDED |
 | [0015](0015-hand-written-sql-in-a-store-layer.md) | Hand-written SQL behind named store methods; `sqlc` is not adopted | DECIDED |
+| [0016](0016-scores-are-computed-not-materialised.md) | **Scores are computed at read time, not materialised per user** | DECIDED |
+| [0017](0017-widget-data-comes-from-rollups.md) | Per-user widgets query directly; global widgets read daily rollups | DECIDED |
 
 <!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
      was ever written and nothing references it. Declared here so a reader who
