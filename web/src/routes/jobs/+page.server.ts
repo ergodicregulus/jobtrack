@@ -1,5 +1,6 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import type { FeedPage, Facets } from '$lib/types';
+import type { FeedPage, Facets, SavedSearch } from '$lib/types';
 
 /**
  * The feed is loaded on the server.
@@ -23,6 +24,30 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   for (const key of allowed) {
     const values = url.searchParams.getAll(key);
     if (values.length) params.set(key, values.join(','));
+  }
+
+  // Saved searches are fetched before the feed, because the redirect below
+  // depends on them. That costs one serial round trip for a signed-in reader
+  // and saves fetching a feed that is about to be replaced.
+  let searches: SavedSearch[] = [];
+  if (signedIn) {
+    const res = await fetch('/v1/me/searches');
+    if (res.ok) searches = (await res.json()).items ?? [];
+  }
+
+  // A default saved search is applied ONLY to a bare /jobs.
+  //
+  // Any query parameter at all means the user has expressed an intent, and
+  // silently replacing it with a stored one would make the back button lie and
+  // a shared link resolve differently for its author. This is the
+  // "self-sufficient environment" phase-5 §6.5 asks for: open the app, see
+  // your feed — but never at the cost of the URL meaning what it says.
+  const bare = [...url.searchParams.keys()].length === 0;
+  if (bare && signedIn) {
+    const def = searches.find((s) => s.is_default);
+    if (def?.query) {
+      redirect(303, `/jobs?${def.query}`);
+    }
   }
 
   // A signed-in user with a finished profile gets their best matches first.
@@ -54,12 +79,13 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
       facets: null,
       error: `The job feed is unavailable (${feedRes.status}).`,
       params: params.toString(),
-      signedIn
+      signedIn,
+      searches
     };
   }
 
   const feed: FeedPage = await feedRes.json();
   const facets: Facets | null = facetsRes.ok ? await facetsRes.json() : null;
 
-  return { feed, facets, error: null, params: params.toString(), signedIn };
+  return { feed, facets, error: null, params: params.toString(), signedIn, searches };
 };

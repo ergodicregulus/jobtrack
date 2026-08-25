@@ -1,6 +1,7 @@
 <script lang="ts">
   import JobCard from '$lib/components/JobCard.svelte';
   import FilterRail from '$lib/components/FilterRail.svelte';
+  import SavedSearches from '$lib/components/SavedSearches.svelte';
   import FilterSearch from '$lib/components/FilterSearch.svelte';
   import { attachFeedKeys } from '$lib/keyboard.svelte';
   import type { PageData } from './$types';
@@ -145,6 +146,14 @@
         {/if}
       </div>
       <FilterRail facets={data.facets} {params} />
+
+      <!-- Only in the wide rail, not the narrow sheet: the sheet is a transient
+           overlay, and a save form inside it would be dismissed by its own
+           success. Signed-in only — a save control for someone with nowhere to
+           save it is an invitation to a dead end. -->
+      {#if data.signedIn}
+        <SavedSearches searches={data.searches} {params} />
+      {/if}
     </aside>
 
     <div class="results-col">

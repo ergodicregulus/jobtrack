@@ -443,6 +443,102 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/IngestSeries' }
 
+  /v1/me/searches:
+    get:
+      tags: [me]
+      summary: The viewer's saved searches
+      description: >-
+        A saved search is the feed's URL query string with a name. Filter state
+        is already the URL, so there is no second filter model to keep in step
+        and replaying one is a redirect.
+
+
+        `new_since` counts live postings newer than the mark taken when the
+        search was last run. It deliberately does NOT re-apply the search's own
+        filters: doing so would mean executing every stored query to render one
+        sidebar. It answers "has anything happened since you last looked".
+      operationId: listSavedSearches
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SavedSearch' }
+    post:
+      tags: [me]
+      summary: Save the current filters
+      operationId: createSavedSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, query]
+              properties:
+                name:
+                  type: string
+                  maxLength: 80
+                  description: >-
+                    Auto-generated from the active facets by the client, then
+                    editable. The generated name is right most of the time and
+                    removes a naming step from the moment someone wants to save
+                    something rather than name it.
+                query:
+                  type: string
+                  maxLength: 2000
+                  description: The feed's query string, without the leading `?`.
+                is_default:
+                  type: boolean
+                  description: >-
+                    Applied on landing at /jobs. At most one per user, enforced
+                    by a partial unique index rather than by convention.
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedSearch' }
+        '409':
+          description: A search with that name exists, or the per-user limit is reached.
+
+  /v1/me/searches/{id}:
+    delete:
+      tags: [me]
+      summary: Delete a saved search
+      operationId: deleteSavedSearch
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: Deleted }
+        '404': { description: No such search }
+
+  /v1/me/searches/{id}/run:
+    post:
+      tags: [me]
+      summary: Mark a search as run, advancing its new-since mark
+      description: >-
+        Called when the client replays a search. Separate from GET so that
+        merely listing searches does not clear every badge on the page.
+      operationId: runSavedSearch
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: Marked }
+        '404': { description: No such search }
+
   /v1/me/saved:
     get:
       tags: [tracking]
@@ -1099,6 +1195,25 @@ components:
           type: array
           description: Postings still live at the end of each day. The level.
           items: { type: integer }
+
+    SavedSearch:
+      type: object
+      required: [id, name, query, is_default, created_at, new_since]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        query:
+          type: string
+          description: The feed query string, replayed as /jobs?{query}.
+        is_default: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_run_at: { type: [string, "null"], format: date-time }
+        new_since:
+          type: integer
+          description: >-
+            Live postings posted since this search was last run. Zero on the day
+            it is created — the mark is stamped at creation so the first count
+            is not "every posting ever".
 
     ApplicationStatus:
       type: string

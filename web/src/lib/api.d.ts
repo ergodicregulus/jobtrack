@@ -348,6 +348,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/searches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The viewer's saved searches
+         * @description A saved search is the feed's URL query string with a name. Filter state is already the URL, so there is no second filter model to keep in step and replaying one is a redirect.
+         *
+         *     `new_since` counts live postings newer than the mark taken when the search was last run. It deliberately does NOT re-apply the search's own filters: doing so would mean executing every stored query to render one sidebar. It answers "has anything happened since you last looked".
+         */
+        get: operations["listSavedSearches"];
+        put?: never;
+        /** Save the current filters */
+        post: operations["createSavedSearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/searches/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved search */
+        delete: operations["deleteSavedSearch"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/searches/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a search as run, advancing its new-since mark
+         * @description Called when the client replays a search. Separate from GET so that merely listing searches does not clear every badge on the page.
+         */
+        post: operations["runSavedSearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/saved": {
         parameters: {
             query?: never;
@@ -811,6 +871,20 @@ export interface components {
             new: number[];
             /** @description Postings still live at the end of each day. The level. */
             live: number[];
+        };
+        SavedSearch: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /** @description The feed query string, replayed as /jobs?{query}. */
+            query: string;
+            is_default: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            /** @description Live postings posted since this search was last run. Zero on the day it is created — the mark is stamped at creation so the first count is not "every posting ever". */
+            new_since: number;
         };
         /** @enum {string} */
         ApplicationStatus: "saved" | "applied" | "referred" | "recruiter_screen" | "hm_screen" | "onsite" | "offer" | "rejected" | "ghosted" | "withdrawn";
@@ -1359,6 +1433,120 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IngestSeries"];
                 };
+            };
+        };
+    };
+    listSavedSearches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["SavedSearch"][];
+                    };
+                };
+            };
+        };
+    };
+    createSavedSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Auto-generated from the active facets by the client, then editable. The generated name is right most of the time and removes a naming step from the moment someone wants to save something rather than name it. */
+                    name: string;
+                    /** @description The feed's query string, without the leading `?`. */
+                    query: string;
+                    /** @description Applied on landing at /jobs. At most one per user, enforced by a partial unique index rather than by convention. */
+                    is_default?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearch"];
+                };
+            };
+            /** @description A search with that name exists, or the per-user limit is reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteSavedSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such search */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runSavedSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such search */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

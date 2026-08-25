@@ -69,3 +69,16 @@ export interface IngestSeries {
   days: string[];
   series: IngestVendorSeries[];
 }
+
+/** A saved search: the feed's query string, named. See phase-5 §6.5. */
+export interface SavedSearch {
+  id: number;
+  name: string;
+  /** Replayed as /jobs?{query}. */
+  query: string;
+  is_default: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  /** Live postings posted since this search was last run. */
+  new_since: number;
+}

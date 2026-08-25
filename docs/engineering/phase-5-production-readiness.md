@@ -720,9 +720,14 @@ completes.
 
 ### Block C — The product's memory
 
-Saved searches, preferences that persist, dismissed postings, and the
-new-since-last-run count per search. Digest email last, because it is the only
-new infrastructure.
+**Saved searches and the new-since-last-run count: built 2026-08-25.** A saved
+search is the feed's URL query string with a name, so there is no second filter
+model — replaying one is a redirect. Auto-named from the active facets,
+confirmed inline rather than by a toast, and one may be marked default and
+applied to a bare `/jobs`.
+
+Still open: dismissed postings, results-per-page and default-sort persistence,
+and the digest email — the last because it is the only new infrastructure.
 
 ### Block D — The voice
 

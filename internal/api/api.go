@@ -131,6 +131,14 @@ func (a *API) Routes() http.Handler {
 	// Dashboard, saved jobs and application tracking.
 	mux.Handle("GET /v1/me/dashboard", authed(httpx.Wrap(a.log, a.handleDashboard)))
 	mux.Handle("GET /v1/me/activity", authed(httpx.Wrap(a.log, a.handleActivity)))
+
+	// Saved searches: the product's memory. Filter state is already the URL, so
+	// a saved search is a stored query string and replaying one is a redirect —
+	// there is no second filter model to keep in step.
+	mux.Handle("GET /v1/me/searches", authed(httpx.Wrap(a.log, a.handleListSearches)))
+	mux.Handle("POST /v1/me/searches", authed(httpx.Wrap(a.log, a.handleCreateSearch)))
+	mux.Handle("DELETE /v1/me/searches/{id}", authed(httpx.Wrap(a.log, a.handleDeleteSearch)))
+	mux.Handle("POST /v1/me/searches/{id}/run", authed(httpx.Wrap(a.log, a.handleRunSearch)))
 	mux.Handle("GET /v1/me/saved", authed(httpx.Wrap(a.log, a.handleListSaved)))
 	mux.Handle("PUT /v1/me/saved/{id}", authed(httpx.Wrap(a.log, a.handleSaveJob)))
 	mux.Handle("DELETE /v1/me/saved/{id}", authed(httpx.Wrap(a.log, a.handleUnsaveJob)))

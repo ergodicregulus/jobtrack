@@ -772,3 +772,53 @@ B.Tech, Anna University
     await expect(alert).toContainText(/cannot read|scan|image|file type/i);
   });
 });
+
+test.describe('saved searches', () => {
+  test('a filter set is saved, named from its own facets, and confirmed in place', async ({
+    page
+  }) => {
+    await signUp(page);
+    await page.goto('/jobs?mode=remote');
+    await hydrated(page);
+
+    // The name is generated from the ACTIVE facets, so saving does not begin
+    // with a naming task. It must be editable, not fixed.
+    const name = page.locator('#search-name');
+    await expect(name).toBeVisible();
+    await expect(name).toHaveValue(/remote/i);
+
+    const unique = `Remote ${Date.now()}`;
+    await name.fill(unique);
+    await page.getByRole('button', { name: /save these filters/i }).click();
+
+    // Confirmation is INLINE and it stays. A toast would be gone before a slow
+    // reader finished it, and invisible to a screen reader mid-utterance.
+    await expect(page.getByText(/^Saved$/)).toBeVisible();
+    await expect(page.getByRole('link', { name: new RegExp(unique) })).toBeVisible();
+
+    // Re-saving the same filters is refused by the interface, not by an error:
+    // two names for one filter set is a duplicate the user cannot see.
+    await page.reload();
+    await hydrated(page);
+    await expect(page.getByText(/already saved/i)).toBeVisible();
+  });
+
+  test('a saved search replays its filters', async ({ page }) => {
+    await signUp(page);
+    await page.goto('/jobs?mode=remote&posted_within=14d');
+    await hydrated(page);
+
+    const unique = `Replay ${Date.now()}`;
+    await page.locator('#search-name').fill(unique);
+    await page.getByRole('button', { name: /save these filters/i }).click();
+    await expect(page.getByText(/^Saved$/)).toBeVisible();
+
+    // Leave, come back through the saved search, and land on the same filters.
+    await page.goto('/jobs?country=US');
+    await hydrated(page);
+    await page.getByRole('link', { name: new RegExp(unique) }).click();
+
+    await expect(page).toHaveURL(/mode=remote/);
+    await expect(page).toHaveURL(/posted_within=14d/);
+  });
+});
