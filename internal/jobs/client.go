@@ -50,6 +50,7 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 	river.AddWorker(workers, &ScheduleSourcesWorker{Deps: d})
 	river.AddWorker(workers, &RetierSourcesWorker{Deps: d})
 	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
+	river.AddWorker(workers, &RetentionSweepWorker{Deps: d})
 	river.AddWorker(workers, &RollupSourceDailyWorker{Deps: d})
 
 	queues := map[string]river.QueueConfig{}
@@ -125,6 +126,15 @@ func New(ctx context.Context, d *Deps, role Role) (*river.Client[pgx.Tx], error)
 				func() (river.JobArgs, *river.InsertOpts) { return PruneSessionsArgs{}, nil },
 				nil,
 			),
+			// Daily, and RunOnStart. A retention obligation that waits up to
+			// 24 hours after a deploy to first run is 24 hours of holding data
+			// past its stated period, and the sweep is cheap enough that
+			// running it on every start costs nothing.
+			river.NewPeriodicJob(
+				river.PeriodicInterval(24*time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return RetentionSweepArgs{}, nil },
+				&river.PeriodicJobOpts{RunOnStart: true},
+			),
 			// Hourly, not daily: today's row is incomplete until the day ends,
 			// and a chart that only updates at midnight looks broken to anyone
 			// who checks it during the day. RunOnStart so a fresh deploy has a
@@ -191,6 +201,25 @@ func (w *RollupSourceDailyWorker) Work(ctx context.Context, job *river.Job[Rollu
 		return err
 	}
 	w.Deps.Log.InfoContext(ctx, "source rollup rebuilt", "days", days, "rows", rows)
+	return nil
+}
+
+type RetentionSweepWorker struct {
+	river.WorkerDefaults[RetentionSweepArgs]
+	Deps *Deps
+}
+
+func (w *RetentionSweepWorker) Work(ctx context.Context, job *river.Job[RetentionSweepArgs]) error {
+	res, err := store.RunRetentionSweep(ctx, w.Deps.Pool)
+	if err != nil {
+		return err
+	}
+	// Always logged, including a sweep that did nothing. "We ran it and there
+	// was nothing to do" and "it never ran" look identical in a log that only
+	// records deletions, and only one of them is compliance.
+	w.Deps.Log.InfoContext(ctx, "retention sweep",
+		"resumes_cleared", res.ResumesDeleted,
+		"accounts_erased", res.AccountsErased)
 	return nil
 }
 

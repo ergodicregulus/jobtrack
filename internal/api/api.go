@@ -139,6 +139,15 @@ func (a *API) Routes() http.Handler {
 	mux.Handle("POST /v1/me/searches", authed(httpx.Wrap(a.log, a.handleCreateSearch)))
 	mux.Handle("DELETE /v1/me/searches/{id}", authed(httpx.Wrap(a.log, a.handleDeleteSearch)))
 	mux.Handle("POST /v1/me/searches/{id}/run", authed(httpx.Wrap(a.log, a.handleRunSearch)))
+
+	// The DPDP rights path. Real endpoints rather than an email address in a
+	// policy document: access and portability are one export, erasure is a
+	// request with a grace window, and correction is the profile PATCH above.
+	mux.Handle("GET /v1/me/consents", authed(httpx.Wrap(a.log, a.handleListConsents)))
+	mux.Handle("DELETE /v1/me/consents", authed(httpx.Wrap(a.log, a.handleWithdrawConsent)))
+	mux.Handle("GET /v1/me/export", authed(httpx.Wrap(a.log, a.handleExport)))
+	mux.Handle("POST /v1/me/erasure", authed(httpx.Wrap(a.log, a.handleRequestErasure)))
+	mux.Handle("DELETE /v1/me/erasure", authed(httpx.Wrap(a.log, a.handleCancelErasure)))
 	mux.Handle("GET /v1/me/saved", authed(httpx.Wrap(a.log, a.handleListSaved)))
 	mux.Handle("PUT /v1/me/saved/{id}", authed(httpx.Wrap(a.log, a.handleSaveJob)))
 	mux.Handle("DELETE /v1/me/saved/{id}", authed(httpx.Wrap(a.log, a.handleUnsaveJob)))

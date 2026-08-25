@@ -443,6 +443,98 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/IngestSeries' }
 
+  /v1/me/consents:
+    get:
+      tags: [me]
+      summary: Every consent this person has given
+      description: >-
+        Append-only. A withdrawal stamps `withdrawn_at` on a row rather than
+        deleting it, because deleting the record of consent destroys the
+        evidence that it was obtained. India's DPDP Act requires a record with a
+        timestamp and the version of the notice that was shown.
+      operationId: listConsents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, notice_version]
+                properties:
+                  notice_version:
+                    type: string
+                    description: The notice currently in force.
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Consent' }
+    delete:
+      tags: [me]
+      summary: Withdraw consent for one purpose
+      description: >-
+        Purposes are separately withdrawable: agreeing to have a CV parsed is
+        not agreeing to a digest email.
+      operationId: withdrawConsent
+      parameters:
+        - in: query
+          name: purpose
+          required: true
+          schema:
+            type: string
+            enum: [resume_parsing, matching, digest_email]
+      responses:
+        '204': { description: Withdrawn }
+
+  /v1/me/export:
+    get:
+      tags: [me]
+      summary: Everything held about you, as JSON
+      description: >-
+        Access and portability in one endpoint, because they are the same query.
+        JSON so it can be taken elsewhere.
+
+
+        Job postings are excluded: they are public market data rather than
+        personal data, and padding an export with the corpus would bury what
+        actually matters. CV text is decrypted before it leaves — shipping
+        ciphertext nobody can read satisfies the letter of portability and none
+        of its point.
+      operationId: exportMyData
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /v1/me/erasure:
+    post:
+      tags: [me]
+      summary: Request deletion of your account and data
+      description: >-
+        Does not delete immediately. A seven-day grace window exists because
+        erasure is irreversible and a stolen session can request it; sessions
+        are revoked at once so the request cannot be repeated from the same
+        theft, and signing in cancels it.
+      operationId: requestErasure
+      responses:
+        '202':
+          description: Scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requested_at, completes_after]
+                properties:
+                  requested_at: { type: string, format: date-time }
+                  completes_after: { type: string, format: date-time }
+    delete:
+      tags: [me]
+      summary: Cancel a pending deletion
+      operationId: cancelErasure
+      responses:
+        '204': { description: Cancelled }
+
   /v1/me/searches:
     get:
       tags: [me]
@@ -1195,6 +1287,21 @@ components:
           type: array
           description: Postings still live at the end of each day. The level.
           items: { type: integer }
+
+    Consent:
+      type: object
+      required: [purpose, notice_version, granted_at]
+      properties:
+        purpose:
+          type: string
+          enum: [account, resume_parsing, matching, digest_email]
+        notice_version:
+          type: string
+          description: >-
+            Which privacy notice was shown. A consent record that cannot name
+            what the person actually read is not a record of anything.
+        granted_at: { type: string, format: date-time }
+        withdrawn_at: { type: [string, "null"], format: date-time }
 
     SavedSearch:
       type: object

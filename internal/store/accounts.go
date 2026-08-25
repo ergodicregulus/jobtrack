@@ -36,18 +36,45 @@ type Credentials struct {
 }
 
 // CreateUser registers an address, or reports that it is taken.
-func CreateUser(ctx context.Context, pool *pgxpool.Pool, email, hash string) (int64, error) {
+//
+// The consents registration implies are recorded in the SAME transaction as the
+// account. Not afterwards: an account that exists without its consent record is
+// personal data held with no evidence of a lawful basis, and a failure between
+// two statements is exactly how that happens.
+//
+// `account` and `matching` only. Parsing a CV is consented separately, at the
+// moment a CV is uploaded, because that is when the person is actually deciding
+// it — and a digest email nobody asked for is not consented by signing up.
+func CreateUser(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	email, hash string,
+	ipHash []byte,
+	userAgent string,
+) (int64, error) {
 	var userID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
-		 ON CONFLICT (email) DO NOTHING
-		 RETURNING id`, email, hash).Scan(&userID)
 
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrEmailTaken
-	}
+	err := InTx(ctx, pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO users (email, password_hash) VALUES ($1, $2)
+			 ON CONFLICT (email) DO NOTHING
+			 RETURNING id`, email, hash).Scan(&userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrEmailTaken
+		}
+		if err != nil {
+			return fmt.Errorf("create user: %w", err)
+		}
+
+		for _, purpose := range []string{"account", "matching"} {
+			if err := RecordConsent(ctx, tx, userID, purpose, ipHash, userAgent); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("create user: %w", err)
+		return 0, err
 	}
 	return userID, nil
 }

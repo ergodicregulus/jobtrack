@@ -607,11 +607,20 @@ extracted text is encrypted at rest with AES-256-GCM under a key separate from
 the session secret; the parser holds no database credentials and has no egress;
 we store only job-posting data from sources, never recruiter personal data.
 
-**What is missing:** a consent record with a timestamp and version, a stated
-retention period with automated deletion, a data-principal rights path (access,
-correction, erasure, portability) that is a real endpoint rather than an email
-address, a breach-notification runbook, and a privacy notice that says what we
-collect and why in language a person can read.
+**Built 2026-08-25.** Consent records (`user_consents`, append-only, versioned
+against `store.NoticeVersion` and written in the same transaction as the account);
+a stated retention period with automated deletion (24 months for CV text, a
+7-day grace for erasure, both enforced by a daily `retention_sweep` job with
+integration tests); and the rights path as real endpoints — `GET /v1/me/export`
+for access and portability, `PATCH /v1/me/profile` for correction,
+`POST /v1/me/erasure` for erasure, `DELETE /v1/me/consents` to withdraw.
+
+[privacy-notice](../operations/privacy-notice.md) and
+[breach-runbook](../operations/breach-runbook.md) are written.
+
+**Still missing:** a named incident responder, 180-day log retention in Indian
+jurisdiction, and an NTP assertion — all §12.2, all listed in the runbook's own
+"what is genuinely missing today" table rather than discovered mid-incident.
 
 ### 12.2 Applies now, no size threshold: CERT-In
 
@@ -690,7 +699,7 @@ needed before there are customers asking.
 
 | Priority | Item | Driver |
 |---|---|---|
-| **1** | DPDP: consent record, retention policy, rights endpoints, breach runbook | Penalties live 13 Nov 2026 |
+| ~~**1**~~ | ~~DPDP: consent record, retention policy, rights endpoints, breach runbook~~ | ✅ **Done 2026-08-25.** Penalties live 13 Nov 2026 |
 | **2** | CERT-In: 6-hour runbook, 180-day log retention in-region, NTP assertion | No threshold; applies on day one of production |
 | **3** | `ui-audit` + `govulncheck` + `grype` in CI | Free, and it is what keeps every later claim true |
 | **4** | Accessibility statement + VPAT 2.5 (self-attested), then third-party audit | EAA applies the moment an EU user signs up |

@@ -128,3 +128,6 @@ hand-drawn layout to be legible, that is usually a sign the design is too compli
 As of 2026-08-15 there are **no `OPEN` decisions** — ADR-0002 (frontend framework) was the last one
 and is now settled on SvelteKit. Sections still marked `PROPOSED` are those that depend on data we
 will only have after first ingestion, chiefly filter bucket boundaries and company hiring posture.
+
+- [operations/privacy-notice.md](operations/privacy-notice.md) — what we collect, why, for how long, and the endpoints that answer each right
+- [operations/breach-runbook.md](operations/breach-runbook.md) — CERT-In's six-hour clock and what to preserve

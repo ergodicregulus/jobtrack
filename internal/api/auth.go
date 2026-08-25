@@ -55,7 +55,8 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) error {
 		return httpx.ErrInternal(err)
 	}
 
-	userID, err := store.CreateUser(r.Context(), a.pool, email, hash)
+	userID, err := store.CreateUser(r.Context(), a.pool, email, hash,
+		hashClientIP(r, a.cfg.Security.TrustedProxies), r.UserAgent())
 	if errors.Is(err, store.ErrEmailTaken) {
 		// The address is already registered. Say nothing that confirms it:
 		// return the same 202 shape, issue no session, and send a "someone tried

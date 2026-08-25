@@ -35,10 +35,14 @@ func InsertResume(ctx context.Context, pool *pgxpool.Pool, r NewResume) (int64, 
 	var createdAt time.Time
 	err := pool.QueryRow(ctx, `
 		INSERT INTO resumes (user_id, label, is_default, blob_key, mime_type, byte_size,
-		                     parsed_text_enc, parsed_json_enc, parse_confidence, parser_version)
+		                     parsed_text_enc, parsed_json_enc, parse_confidence, parser_version,
+		                     retain_until)
 		VALUES ($1, $2,
 		        NOT EXISTS (SELECT 1 FROM resumes WHERE user_id = $1),
-		        '', $3, $4, $5, $6, $7, $8)
+		        '', $3, $4, $5, $6, $7, $8,
+		        -- The stated retention period, set at insert so it is a property
+		        -- of the row rather than of a document. See ADR/phase-5 §12.1.
+		        now() + interval '24 months')
 		RETURNING id, created_at`,
 		r.UserID, r.Label, r.MimeType, r.ByteSize,
 		r.TextEnc, r.JSONEnc, r.ParseConfidence, r.ParserVersion).Scan(&id, &createdAt)
@@ -144,6 +148,14 @@ func ApplyResume(
 			userID, resumeID); err != nil {
 			return fmt.Errorf("set default resume: %w", err)
 		}
+		// Consent to resume parsing is recorded HERE, not at sign-up: this is
+		// the moment the person decides that a CV of theirs may be read, and a
+		// consent obtained weeks earlier for something they had not yet done is
+		// not consent to this.
+		if err := RecordConsent(ctx, tx, userID, "resume_parsing", nil, ""); err != nil {
+			return err
+		}
+
 		if enqueue != nil {
 			return enqueue(tx)
 		}

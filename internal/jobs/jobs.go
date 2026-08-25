@@ -111,6 +111,19 @@ func (RollupSourceDailyArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
 }
 
+// RetentionSweepArgs enforces the stated retention periods.
+//
+// DPDP requires a stated period with automated deletion. A policy that lives
+// only in a document is a policy with no enforcement and no evidence; this job
+// is the enforcement, and its log line is the evidence.
+type RetentionSweepArgs struct{}
+
+func (RetentionSweepArgs) Kind() string { return "retention_sweep" }
+
+func (RetentionSweepArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: QueueMaint, MaxAttempts: 3}
+}
+
 // PruneSessionsArgs deletes session rows that expired long ago.
 //
 // Housekeeping, not a security control: an expired session is already rejected
