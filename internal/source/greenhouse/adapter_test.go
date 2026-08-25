@@ -323,21 +323,6 @@ func TestParseTime(t *testing.T) {
 	}
 }
 
-func TestParseRetryAfter(t *testing.T) {
-	if got := parseRetryAfter("120"); got != 2*time.Minute {
-		t.Errorf("seconds form: got %v, want 2m", got)
-	}
-	if got := parseRetryAfter(""); got != 0 {
-		t.Errorf("empty: got %v, want 0", got)
-	}
-	if got := parseRetryAfter("garbage"); got != 0 {
-		t.Errorf("garbage: got %v, want 0", got)
-	}
-	// HTTP-date form, in the past, must not produce a negative wait.
-	if got := parseRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT"); got != 0 {
-		t.Errorf("past date: got %v, want 0", got)
-	}
-}
 
 // --- Fetch behaviour, via a stub transport (never a live ATS) ---------------
 

@@ -17,12 +17,8 @@ package ashby
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,71 +104,24 @@ type wireComponent struct {
 // --- fetching ---------------------------------------------------------------
 
 func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchResult, error) {
-	url := fmt.Sprintf("%s/%s?includeCompensation=true", baseURL, src.BoardToken)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return source.FetchResult{}, fmt.Errorf("ashby: build request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", a.userAgent)
-	if src.ETag != "" {
-		req.Header.Set("If-None-Match", src.ETag)
-	}
-	if src.LastModified != "" {
-		req.Header.Set("If-Modified-Since", src.LastModified)
-	}
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return source.FetchResult{}, fmt.Errorf("ashby: fetch %s: %w", src.BoardToken, err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
-
+	resp, err := source.Do(ctx, a.client, a.Vendor(), src, source.Request{
+		URL:       fmt.Sprintf("%s/%s?includeCompensation=true", baseURL, src.BoardToken),
+		UserAgent: a.userAgent,
+		MaxBody:   maxBodyBytes,
+	})
 	result := source.FetchResult{
 		StatusCode:   resp.StatusCode,
-		ETag:         resp.Header.Get("ETag"),
-		LastModified: resp.Header.Get("Last-Modified"),
+		ETag:         resp.ETag,
+		LastModified: resp.LastModified,
+		ContentHash:  resp.ContentHash,
+		NotModified:  resp.NotModified,
+		RetryAfter:   source.ParseRetryAfter(resp.RetryAfterHeader),
+	}
+	if err != nil || result.NotModified {
+		return result, err
 	}
 
-	switch {
-	case resp.StatusCode == http.StatusNotModified:
-		result.NotModified = true
-		if result.ETag == "" {
-			result.ETag = src.ETag
-		}
-		if result.LastModified == "" {
-			result.LastModified = src.LastModified
-		}
-		return result, nil
-
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
-		return result, fmt.Errorf("ashby: board %q: %w", src.BoardToken, source.ErrSourceGone)
-
-	case resp.StatusCode == http.StatusTooManyRequests:
-		result.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
-		return result, fmt.Errorf("ashby: board %q: %w", src.BoardToken, source.ErrRateLimited)
-
-	case resp.StatusCode >= 400:
-		return result, fmt.Errorf("ashby: board %q: unexpected status %d", src.BoardToken, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	if err != nil {
-		return result, fmt.Errorf("ashby: read body: %w", err)
-	}
-
-	sum := sha256.Sum256(body)
-	result.ContentHash = sum[:]
-	if len(src.ContentHash) == len(sum) && string(src.ContentHash) == string(sum[:]) {
-		result.NotModified = true
-		return result, nil
-	}
-
-	postings, err := a.Parse(body)
+	postings, err := a.Parse(resp.Body)
 	if err != nil {
 		return result, err
 	}
@@ -224,7 +173,7 @@ func (a *Adapter) convert(j *wireJob) (source.RawPosting, error) {
 		DescriptionHTML: j.DescriptionHTML,
 		ApplyURL:        applyURL,
 		PostingURL:      j.JobURL,
-		Department:      firstNonEmpty(j.Department, j.Team),
+		Department:      source.FirstNonEmpty(j.Department, j.Team),
 		EmploymentType:  normaliseEmployment(j.EmploymentType),
 		Raw:             raw,
 	}
@@ -388,26 +337,4 @@ func valueOr(p *float64, def float64) float64 {
 	return *p
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v = strings.TrimSpace(v); v != "" {
-			return v
-		}
-	}
-	return ""
-}
 
-func parseRetryAfter(v string) time.Duration {
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && secs >= 0 {
-		return time.Duration(secs) * time.Second
-	}
-	if t, err := http.ParseTime(v); err == nil {
-		if d := time.Until(t); d > 0 {
-			return d
-		}
-	}
-	return 0
-}

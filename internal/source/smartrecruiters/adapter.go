@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -166,7 +165,7 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 			result.StatusCode = res.StatusCode
 			result.ETag = res.Header.Get("ETag")
 			result.LastModified = res.Header.Get("Last-Modified")
-			result.RetryAfter = parseRetryAfter(res.Header.Get("Retry-After"))
+			result.RetryAfter = source.ParseRetryAfter(res.Header.Get("Retry-After"))
 
 			if res.StatusCode == http.StatusNotModified {
 				result.NotModified = true
@@ -419,7 +418,7 @@ func (a *Adapter) convert(j *wireJob, boardToken string) (source.RawPosting, err
 	// detail document appends is optional — verified 200 against a live posting
 	// on 2026-08-24. Deriving it is not guessing at a number; it is the vendor's
 	// own canonical address for the posting we are holding the id of.
-	fallbackURL := publicURL(firstNonEmpty(boardToken, j.Company.Identifier), j.ID)
+	fallbackURL := publicURL(source.FirstNonEmpty(boardToken, j.Company.Identifier), j.ID)
 
 	p := source.RawPosting{
 		ExternalID: j.ID,
@@ -430,8 +429,8 @@ func (a *Adapter) convert(j *wireJob, boardToken string) (source.RawPosting, err
 		Title:           strings.TrimSpace(j.Name),
 		LocationRaw:     locationOf(j.Location),
 		DescriptionHTML: descriptionOf(j.JobAd),
-		ApplyURL:        firstNonEmpty(j.ApplyURL, j.PostingURL, fallbackURL),
-		PostingURL:      firstNonEmpty(j.PostingURL, j.ApplyURL, fallbackURL),
+		ApplyURL:        source.FirstNonEmpty(j.ApplyURL, j.PostingURL, fallbackURL),
+		PostingURL:      source.FirstNonEmpty(j.PostingURL, j.ApplyURL, fallbackURL),
 		Department:      j.Department.Label,
 		EmploymentType:  j.TypeOfEmp.Label,
 		WorkplaceType:   workplaceOf(j.Location),
@@ -518,26 +517,4 @@ func workplaceOf(l wireLoc) string {
 	}
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v = strings.TrimSpace(v); v != "" {
-			return v
-		}
-	}
-	return ""
-}
 
-func parseRetryAfter(v string) time.Duration {
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
-		return time.Duration(secs) * time.Second
-	}
-	if t, err := http.ParseTime(v); err == nil {
-		if d := time.Until(t); d > 0 {
-			return d
-		}
-	}
-	return 0
-}
