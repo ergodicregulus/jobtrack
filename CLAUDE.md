@@ -124,6 +124,40 @@ make arch-check-update   # rewrite the baselines, then READ THE DIFF
 
 A `-` line is debt paid off. A `+` line is new debt and needs a sentence in the commit message.
 
+## Where the canonical answer lives
+
+One document per question. If two disagree, the one named here wins and the
+other is a bug. `make arch-check` fails on any doc unreachable from this file or
+`docs/README.md`, so this map is also the reachability root.
+
+| Question | Canonical source |
+|---|---|
+| Why is it built this way? | [docs/architecture/adr/](docs/architecture/adr/) — decisions are binding; overturn with a superseding ADR, never a PR argument |
+| What may this product never do? | [docs/product/principles.md](docs/product/principles.md) — the anti-features are absolute |
+| How do I write code here? | [docs/engineering/coding-standards.md](docs/engineering/coding-standards.md) |
+| How do I run it? | [docs/engineering/dev-environment.md](docs/engineering/dev-environment.md) |
+| What does the schema mean? | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
+| How is a score computed? | [docs/architecture/matching-and-scoring.md](docs/architecture/matching-and-scoring.md) |
+| Where may a posting come from? | [docs/research/source-catalog.md](docs/research/source-catalog.md), governed by ADR-0004 |
+| Is this number true? | [docs/research/evidence-ledger.md](docs/research/evidence-ledger.md) — with its grade |
+| How does a release not break? | [docs/operations/deployment-zdt.md](docs/operations/deployment-zdt.md) |
+| When may I add infrastructure? | [docs/architecture/caching-and-storage.md](docs/architecture/caching-and-storage.md) — cite the metric that fired |
+| What is left to do? | [docs/engineering/phase-5-production-readiness.md](docs/engineering/phase-5-production-readiness.md) |
+
+## Skills — use them, they are not documentation
+
+Typing the command loads a procedure written for this repository.
+
+| Command | When |
+|---|---|
+| `/verify` | Before claiming anything is done. The ladder, and the traps that fake a green result |
+| `/adr` | Any technology or architecture decision. Refuses the question until it has numbers |
+| `/new-source` | Adding an ATS adapter. The acquisition-policy gate and the pagination-cap trap |
+| `/design-law` | Any interface change. The rules generic design guidance cannot know |
+
+`.claude/agents/architecture-reviewer.md` reviews a diff against the binding
+ADRs — for what a script cannot judge.
+
 ## Repository shape
 
 ```

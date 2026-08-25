@@ -342,3 +342,110 @@ func TestFeedCursorPagination(t *testing.T) {
 		})
 	}
 }
+
+// TestReadsSurviveAllNullableColumns is a guard for a whole bug class, not one
+// bug. Three of them were found by hand on 2026-08-25: yoe_confidence in the
+// posting detail, then yoe_confidence and location_raw again in the feed. Each
+// was a nullable column scanned into a plain Go value, so a single NULL would
+// have failed the scan and taken the whole endpoint with it.
+//
+// None of them could fire against production data, because UpsertPosting always
+// writes those columns. That is exactly why they survived: the only way to
+// reach them is a row inserted by some other path — a data migration, a new
+// adapter, a manual fix — which is a thing that happens rarely and at the worst
+// possible time.
+//
+// So this inserts the most hostile row the schema permits: every NOT NULL
+// column set, every nullable column left NULL. Any read path that cannot
+// tolerate it fails here instead of in production.
+func TestReadsSurviveAllNullableColumns(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestDB(t)
+
+	userID := seedUser(t, pool, "nulls@example.test")
+
+	var companyID, sourceID, postingID int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO companies (name, slug) VALUES ('Null Co', 'null-co') RETURNING id`).
+		Scan(&companyID); err != nil {
+		t.Fatalf("seed company: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO sources (company_id, vendor, board_token) VALUES ($1, 'greenhouse', 'nulls')
+		 RETURNING id`, companyID).Scan(&sourceID); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+
+	// Only the columns the schema actually requires. Everything nullable stays
+	// NULL, including location_raw and yoe_confidence.
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO job_postings
+			(company_id, source_id, external_id, title, title_normalised, status, apply_url)
+		VALUES ($1, $2, 'null-ext', 'Role With Nothing Stated', 'role with nothing stated',
+		        'live', 'https://example.test/apply')
+		RETURNING id`, companyID, sourceID).Scan(&postingID); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	// Assert the row really is as sparse as intended, so this test cannot
+	// quietly stop testing anything if a future migration adds a default.
+	var nulls int
+	if err := pool.QueryRow(ctx, `
+		SELECT (location_raw IS NULL)::int + (yoe_confidence IS NULL)::int
+		     + (posted_at IS NULL)::int + (comp_min IS NULL)::int
+		  FROM job_postings WHERE id = $1`, postingID).Scan(&nulls); err != nil {
+		t.Fatalf("check sparseness: %v", err)
+	}
+	if nulls != 4 {
+		t.Fatalf("the posting is not sparse enough to test anything: %d/4 columns NULL", nulls)
+	}
+
+	t.Run("feed", func(t *testing.T) {
+		page, err := Feed(ctx, pool, FeedFilter{UserID: &userID, Limit: 10}, "")
+		if err != nil {
+			t.Fatalf("Feed: %v", err)
+		}
+		if len(page.Items) != 1 {
+			t.Fatalf("feed returned %d items, want 1", len(page.Items))
+		}
+		if page.Items[0].Title != "Role With Nothing Stated" {
+			t.Errorf("title = %q", page.Items[0].Title)
+		}
+	})
+
+	t.Run("posting detail, anonymous", func(t *testing.T) {
+		if _, err := LoadPostingDetail(ctx, pool, postingID, nil); err != nil {
+			t.Fatalf("LoadPostingDetail: %v", err)
+		}
+	})
+
+	t.Run("posting detail, signed in", func(t *testing.T) {
+		if _, err := LoadPostingDetail(ctx, pool, postingID, userID); err != nil {
+			t.Fatalf("LoadPostingDetail: %v", err)
+		}
+	})
+
+	t.Run("dashboard", func(t *testing.T) {
+		if _, err := LoadDashboard(ctx, pool, userID); err != nil {
+			t.Fatalf("LoadDashboard: %v", err)
+		}
+	})
+
+	t.Run("save and list", func(t *testing.T) {
+		if _, err := SaveJob(ctx, pool, userID, postingID); err != nil {
+			t.Fatalf("SaveJob: %v", err)
+		}
+		if _, err := ListApplications(ctx, pool, userID); err != nil {
+			t.Fatalf("ListApplications: %v", err)
+		}
+	})
+
+	t.Run("scoring reads", func(t *testing.T) {
+		if _, err := PostingForScoring(ctx, pool, postingID); err != nil {
+			t.Fatalf("PostingForScoring: %v", err)
+		}
+		if _, err := PostingsForScoring(ctx, pool, 10); err != nil {
+			t.Fatalf("PostingsForScoring: %v", err)
+		}
+	})
+}

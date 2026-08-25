@@ -18,7 +18,13 @@ import (
 // product. It is now written once.
 
 // postingScoringColumns is what the scorer needs to judge a posting.
-const postingScoringColumns = `p.id, p.yoe_min, p.yoe_max, p.yoe_confidence,
+const postingScoringColumns = `p.id, p.yoe_min, p.yoe_max,
+       -- COALESCE for the same reason as the feed and the detail query:
+       -- yoe_confidence is nullable and the scorer's field is a plain float64.
+       -- Found by TestReadsSurviveAllNullableColumns after the identical bug
+       -- had already been fixed twice elsewhere, which is the argument for
+       -- having a test for the class rather than fixing instances.
+       COALESCE(p.yoe_confidence, 0),
 		       COALESCE(p.country,''), p.mode::text,
 		       p.comp_min, p.comp_max, COALESCE(p.comp_currency,''),
 		       COALESCE(p.posted_at, p.first_seen_at), p.parse_confidence,
