@@ -38,7 +38,6 @@ Thirty-odd documents is a lot. This page exists so you never have to read them a
 this is a query rather than an argument.
 
 **"What actually works right now?"**
-[scaffold-status](engineering/scaffold-status.md) — verified behaviour, honest stubs, and what is not started.
 
 **"I'm an AI agent about to change something."**
 [consistency-and-drift §10](engineering/consistency-and-drift.md#10-for-ai-agents-working-in-this-repo)
@@ -79,7 +78,6 @@ this is a query rather than an argument.
 |---|---|
 | [repository-structure.md](engineering/repository-structure.md) | Layout and the import rules that keep it honest |
 | [dev-environment.md](engineering/dev-environment.md) | **Fully containerised** — `make dev` with only Docker and git on the host |
-| [scaffold-status.md](engineering/scaffold-status.md) | **What is built, stubbed, and verified running** — plus the three bugs the scaffold's own tests caught |
 | [consistency-and-drift.md](engineering/consistency-and-drift.md) | **Precheck gates and drift detection** — how nothing goes stale. Includes the AI-agent checklist |
 | [coding-standards.md](engineering/coding-standards.md) | Go and TS conventions, error handling, the comment policy |
 | [testing-strategy.md](engineering/testing-strategy.md) | Test pyramid, golden files, contract tests, what we do not test |

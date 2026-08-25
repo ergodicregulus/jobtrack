@@ -142,7 +142,6 @@ jobs:
           context: .
           target: ${{ matrix.service }}
           build-args: |
-            SERVICE=${{ matrix.service }}
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
           push: false

@@ -166,7 +166,6 @@ images: ## Build production images for every service
 	@for s in $(SERVICES); do \
 	  echo "--> $$s"; \
 	  docker build --target $$s \
-	    --build-arg SERVICE=$$s \
 	    --build-arg VERSION=$(VERSION) \
 	    --build-arg COMMIT=$(COMMIT) \
 	    --build-arg BUILD_TIME=$(BUILD_TIME) \

@@ -25,10 +25,19 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # ---------------------------------------------------------------------------
-# build — one compile per target, sharing the module and build caches
+# build — the compile environment, shared by every service stage
+#
+# It does NOT compile anything itself. Each service stage below runs its own
+# `go build ./cmd/<name>`, which is more verbose than one parameterised build
+# and is the point: `docker build --target api .` used to need
+# `--build-arg SERVICE=api` alongside it, and passing a different one produced
+# an image TAGGED api containing another service's binary, silently. A build
+# argument that must agree with the target is a footgun, not a parameter.
+#
+# The caches are shared regardless: every stage mounts the same module and
+# build caches, so the second service compiles against a warm cache.
 # ---------------------------------------------------------------------------
 FROM deps AS build
-ARG SERVICE
 ARG VERSION=0.0.0-dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
@@ -38,15 +47,8 @@ COPY . .
 # CGO_ENABLED=0 produces a static binary, which is what allows a distroless
 # static base. -trimpath keeps absolute build paths out of the binary, making
 # the build reproducible and leaking nothing about the builder.
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build \
-      -trimpath \
-      -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
-      -o /out/app ./cmd/${SERVICE}
+ENV CGO_ENABLED=0 GOOS=linux
+ENV GOFLAGS="-trimpath"
 
 # ---------------------------------------------------------------------------
 # base — shared final layer contents
@@ -62,6 +64,13 @@ WORKDIR /
 # ---------------------------------------------------------------------------
 
 FROM build AS build-api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/api
 FROM runtime-base AS api
 COPY --from=build-api /out/app /app
 EXPOSE 8080
@@ -71,16 +80,37 @@ EXPOSE 8080
 ENTRYPOINT ["/app"]
 
 FROM build AS build-ingestor
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/ingestor
 FROM runtime-base AS ingestor
 COPY --from=build-ingestor /out/app /app
 ENTRYPOINT ["/app"]
 
 FROM build AS build-matcher
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/matcher
 FROM runtime-base AS matcher
 COPY --from=build-matcher /out/app /app
 ENTRYPOINT ["/app"]
 
 FROM build AS build-scheduler
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/scheduler
 FROM runtime-base AS scheduler
 COPY --from=build-scheduler /out/app /app
 ENTRYPOINT ["/app"]
@@ -114,6 +144,13 @@ RUN mkdir -p /poppler/lib \
 # filters inside the service instead of inside a child process that can be
 # killed. See ADR-0012.
 FROM build AS build-resume-parser
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/resume-parser
 FROM gcr.io/distroless/base-debian12:nonroot AS resume-parser
 COPY --from=poppler /poppler/pdftotext /usr/bin/pdftotext
 COPY --from=poppler /poppler/lib/ /usr/lib/
@@ -124,6 +161,13 @@ ENTRYPOINT ["/app"]
 
 # migrate runs as a Job to completion before a rollout, never as a Deployment.
 FROM build AS build-migrate
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags="-s -w \
+        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+      -o /out/app ./cmd/migrate
 FROM runtime-base AS migrate
 COPY --from=build-migrate /out/app /app
 ENTRYPOINT ["/app"]

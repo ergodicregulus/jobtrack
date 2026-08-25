@@ -29,6 +29,7 @@ HERE = Path(__file__).parent
 ORDER = [
     "check_adr_index.py",
     "check_citations.py",
+    "check_docs.py",
     "check_layering.py",
     "check_db_access.py",
     "check_sql_location.py",
