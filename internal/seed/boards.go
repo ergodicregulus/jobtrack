@@ -36,9 +36,9 @@ type Board struct {
 	Openings int
 }
 
-// Boards is the starter set: 65 boards, roughly 15,000 live postings.
+// Boards is the starter set: 75 boards, roughly 15,100 live postings.
 //
-// The mix is deliberate on three axes. Both vendors are represented heavily
+// The mix is deliberate on three axes. Vendors are represented heavily
 // enough to exercise the normalisation paths that only differ across vendors —
 // Ashby's structured compensation against Greenhouse's text-embedded ranges.
 // Four markets (US, EU, UK, IN) appear so location normalisation and currency
@@ -213,5 +213,43 @@ func Boards() []Board {
 			Vendor: source.VendorSmartRecruiters, Token: "Wise", Openings: 438},
 		{Slug: "ubisoft", Name: "Ubisoft", Domain: "ubisoft.com", Country: "FR",
 			Vendor: source.VendorSmartRecruiters, Token: "Ubisoft2", Openings: 273},
+		// --- Recruitee ---
+		// The richest list endpoint of any vendor: full description, structured
+		// salary WITH a period, and explicit workplace flags, all in one
+		// request. Boards are small — Recruitee sells to European SMEs — so
+		// these are worth more per posting than per board.
+		{Slug: "channable", Name: "Channable", Domain: "channable.com", Country: "NL",
+			Vendor: source.VendorRecruitee, Token: "channable", Openings: 15},
+		{Slug: "nmbrs", Name: "Nmbrs", Domain: "nmbrs.com", Country: "NL",
+			Vendor: source.VendorRecruitee, Token: "nmbrs", Openings: 4},
+		{Slug: "hotelchamp", Name: "Hotelchamp", Domain: "hotelchamp.com", Country: "NL",
+			Vendor: source.VendorRecruitee, Token: "hotelchamp", Openings: 1},
+
+		// --- Workable ---
+		// One request per board including descriptions, via details=true.
+		// published_on is a date with no time, so every Workable posting carries
+		// PostedAtIsEstimate and none of them can feed the ingest-latency
+		// measurement.
+		{Slug: "blueground", Name: "Blueground", Domain: "theblueground.com", Country: "GR",
+			Vendor: source.VendorWorkable, Token: "blueground", Openings: 26},
+		{Slug: "skroutz", Name: "Skroutz", Domain: "skroutz.gr", Country: "GR",
+			Vendor: source.VendorWorkable, Token: "skroutz", Openings: 9},
+		{Slug: "epignosis", Name: "Epignosis", Domain: "epignosishq.com", Country: "GR",
+			Vendor: source.VendorWorkable, Token: "epignosis", Openings: 5},
+		{Slug: "persado", Name: "Persado", Domain: "persado.com", Country: "US",
+			Vendor: source.VendorWorkable, Token: "persado", Openings: 3},
+
+		// --- Personio ---
+		// The only vendor publishing SENIORITY and a years-of-experience range
+		// as structured fields, and one of only three with a real time of day on
+		// the posting date. German-language descriptions are deliberate: they
+		// exercise the normalisation paths that a corpus of English postings
+		// never reaches.
+		{Slug: "urbansportsclub", Name: "Urban Sports Club", Domain: "urbansportsclub.com", Country: "DE",
+			Vendor: source.VendorPersonio, Token: "urbansportsclub", Openings: 38},
+		{Slug: "orderbird", Name: "orderbird", Domain: "orderbird.com", Country: "DE",
+			Vendor: source.VendorPersonio, Token: "orderbird", Openings: 5},
+		{Slug: "personio", Name: "Personio", Domain: "personio.com", Country: "DE",
+			Vendor: source.VendorPersonio, Token: "personio", Openings: 1},
 	}
 }

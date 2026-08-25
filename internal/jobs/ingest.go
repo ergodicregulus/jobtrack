@@ -17,7 +17,10 @@ import (
 	"github.com/jobtrack/jobtrack/internal/source"
 	"github.com/jobtrack/jobtrack/internal/source/ashby"
 	"github.com/jobtrack/jobtrack/internal/source/greenhouse"
+	"github.com/jobtrack/jobtrack/internal/source/personio"
+	"github.com/jobtrack/jobtrack/internal/source/recruitee"
 	"github.com/jobtrack/jobtrack/internal/source/smartrecruiters"
+	"github.com/jobtrack/jobtrack/internal/source/workable"
 	"github.com/jobtrack/jobtrack/internal/source/workday"
 	"github.com/jobtrack/jobtrack/internal/store"
 )
@@ -55,6 +58,9 @@ func (d *Deps) Init() {
 		source.VendorAshby:           ashby.New(client, ua),
 		source.VendorWorkday:         workday.New(client, ua),
 		source.VendorSmartRecruiters: smartrecruiters.New(client, ua),
+		source.VendorRecruitee:       recruitee.New(client, ua),
+		source.VendorWorkable:        workable.New(client, ua),
+		source.VendorPersonio:        personio.New(client, ua),
 	}
 	d.limiter = newHostLimiter(2 * time.Second)
 }

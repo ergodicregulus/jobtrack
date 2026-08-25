@@ -729,7 +729,20 @@ real**, and because it is the cheapest work here.
 ### Block B — Coverage (the largest user-visible win)
 
 Workday adapter with facet-walking beneath the 2,000 cap and a test that fails on
-truncation. Then Personio, Recruitee, Workable. Re-measure
+truncation: **built**. **Personio, Recruitee and Workable: built 2026-08-25**,
+all three verified live before a line was written and again after, ingesting 106
+postings across 10 boards with zero errors. See
+[A-34](../research/evidence-ledger.md#a-34).
+
+Three of the endpoint facts recorded in
+[source-catalog](../research/source-catalog.md) turned out to be wrong and are
+corrected there: Workable's URL and its supposed need to join separate
+locations/departments endpoints, Recruitee's compensation described as "Rare"
+when it is the second-best of any vendor, and Personio's `?language=en` which
+does nothing at all.
+
+Still open: the JSON-LD career-page tier (§7.3), and verifying
+Darwinbox/Keka/iCIMS/BambooHR. Re-measure
 [A-00f](../research/evidence-ledger.md#a-00f) once the SmartRecruiters sweep
 completes.
 

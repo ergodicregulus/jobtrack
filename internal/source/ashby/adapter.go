@@ -174,7 +174,7 @@ func (a *Adapter) convert(j *wireJob) (source.RawPosting, error) {
 		ApplyURL:        applyURL,
 		PostingURL:      j.JobURL,
 		Department:      source.FirstNonEmpty(j.Department, j.Team),
-		EmploymentType:  normaliseEmployment(j.EmploymentType),
+		EmploymentType:  source.NormaliseEmployment(j.EmploymentType),
 		Raw:             raw,
 	}
 
@@ -281,54 +281,11 @@ func applyCompensation(p *source.RawPosting, j *wireJob) {
 		p.CompMax = &max
 	}
 	p.CompCurrency = currency
-	p.CompPeriod = normaliseInterval(interval)
+	p.CompPeriod = source.NormalisePeriod(interval)
 	p.CompIsStructured = true
 }
 
-// normaliseInterval maps Ashby's period onto ours.
-//
-// Both spellings are accepted because both appear: the "1 HOUR" form is what
-// live boards send today, and the "HOURLY" form was here first and costs
-// nothing to keep.
-//
-// An unrecognised period returns "", not "year". Defaulting to a year is
-// assuming the most common case and stating it as fact, which is how the rate
-// bug above stayed invisible — every wrong answer looked like a normal salary.
-// An empty period is stored as NULL, and the UI shows a range without a period
-// rather than the wrong one.
-func normaliseInterval(v string) string {
-	switch strings.ToUpper(strings.TrimSpace(v)) {
-	case "1 HOUR", "HOURLY", "PER_HOUR":
-		return "hour"
-	case "1 DAY", "DAILY", "PER_DAY":
-		return "day"
-	case "1 WEEK", "WEEKLY", "PER_WEEK":
-		return "week"
-	case "1 MONTH", "MONTHLY", "PER_MONTH":
-		return "month"
-	case "1 YEAR", "YEARLY", "ANNUAL", "ANNUALLY", "PER_YEAR":
-		return "year"
-	default:
-		return ""
-	}
-}
 
-func normaliseEmployment(v string) string {
-	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), " ", "")) {
-	case "fulltime":
-		return "full_time"
-	case "parttime":
-		return "part_time"
-	case "contract", "contractor":
-		return "contract"
-	case "intern", "internship":
-		return "intern"
-	case "temporary", "temp":
-		return "temporary"
-	default:
-		return ""
-	}
-}
 
 func valueOr(p *float64, def float64) float64 {
 	if p == nil {

@@ -39,3 +39,35 @@ func TestFirstNonEmpty(t *testing.T) {
 		t.Errorf("got %q, want empty", got)
 	}
 }
+
+// Moved here from the ashby package with NormalisePeriod. The left column is
+// measured from live boards: Ashby 2026-08-19, Recruitee and Workable
+// 2026-08-25.
+func TestNormalisePeriod(t *testing.T) {
+	cases := map[string]string{
+		"1 YEAR": "year", "1 MONTH": "month", "1 HOUR": "hour",
+		"HOURLY": "hour", "MONTHLY": "month",
+		"month": "month", "year": "year", // Recruitee sends these bare.
+		"": "", "1 AEON": "",
+	}
+	for in, want := range cases {
+		if got := NormalisePeriod(in); got != want {
+			t.Errorf("NormalisePeriod(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormaliseEmployment(t *testing.T) {
+	cases := map[string]string{
+		"FullTime": "full_time", "Full-time": "full_time", // Ashby, Workable
+		"fulltime_permanent": "full_time", "permanent": "full_time", // Recruitee, Personio
+		"working-student": "intern", "internship": "intern",
+		"freelance": "contract", "contractor": "contract",
+		"": "", "wizard": "",
+	}
+	for in, want := range cases {
+		if got := NormaliseEmployment(in); got != want {
+			t.Errorf("NormaliseEmployment(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

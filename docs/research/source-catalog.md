@@ -238,42 +238,123 @@ GET https://{company}.recruitee.com/api/offers/
 | Property | Value |
 |---|---|
 | Auth | None |
-| Pagination | None |
-| Fields | id, title, location, department, careers_url, careers_apply_url, employment_type_code, remote |
-| Compensation | Rare |
+| Pagination | None — the whole board in one response |
+| Fields | id, title, slug, description, requirements, careers_url, careers_apply_url, created_at, published_at, salary{min,max,period,currency}, remote/hybrid/on_site, country_code, city, state_name, department, employment_type_code, status |
+| Compensation | **Structured, with a period — 12 of 15 disclosed on channable** |
 | Stable ID | ✅ `id` |
 
-**Quirks:**
-- ⚠️ **Per-company subdomain**, so an invalid slug fails as **DNS resolution, not HTTP 404**. A
-  completely different error path, and the adapter must classify it correctly or the circuit breaker
-  misfires.
-- Dates are `YYYY-MM-DD HH:MM:SS UTC` — not ISO-8601.
-- `employment_type_code` uses composite codes needing normalisation.
-- Lighter metadata than Greenhouse or Ashby.
+**Verified live 2026-08-25** against channable (15), nmbrs (4) and hotelchamp (1).
 
-**Fixtures:** `full-board.json`, `dns-failure.txt`, `composite-employment-codes.json`
+**This is the richest list endpoint of any vendor we support.** Full description, structured salary
+*with a period*, and explicit workplace flags, all without a detail fetch — so a Recruitee adapter
+has no detail phase at all. An earlier version of this page called its compensation "Rare"; the
+measurement says 80% on the board we checked, which is better than every vendor except Ashby.
+Boards are small because Recruitee sells to European SMEs, so these are worth more per posting than
+per board.
+
+**Quirks:**
+- ⚠️ **Per-company subdomain**, so an invalid slug fails as **DNS resolution, not HTTP 404** — a
+  completely different error path, and the adapter must classify it or the circuit breaker misfires.
+- ⚠️ **`api.recruitee.com/c/{company}/offers` is a different endpoint and returns 401 on every
+  tenant.** That is the authenticated admin API, and it is out of scope under
+  [ADR-0004](../architecture/adr/0004-source-acquisition-policy.md). The public one is the
+  careers-site path above.
+- Dates are `YYYY-MM-DD HH:MM:SS UTC` — a space rather than a `T`, and a zone abbreviation rather
+  than an offset. Neither ISO-8601 nor RFC 3339. Parsing it with a Go `MST` layout silently yields a
+  zero offset for anything but UTC, so the suffix is required and checked.
+- Salary figures are **strings**, and the object is present with four nulls when undisclosed —
+  "salary present" and "salary disclosed" are different questions.
+- `remote`, `hybrid` and `on_site` are **not mutually exclusive**; hotelchamp returns hybrid and
+  on_site together. Read them in priority order.
+- `description` and `requirements` are two separate HTML bodies. The second is where
+  years-of-experience and skills live, so dropping it loses most of the scoring signal.
+- `published_at` ≠ `created_at`, sometimes by years: channable's "Open application" evergreen was
+  created in 2019 and published in 2021.
+
+**Fixtures:** `board-full.json` (one offer per salary/workplace variant)
 
 ### Workable
 
 ```
-GET https://www.workable.com/api/accounts/{subdomain}?details=true
+GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true
 ```
 
-**Quirks:** locations and departments come from **separate endpoints** and must be joined. Lighter
-metadata overall.
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | None |
+| Fields | title, shortcode, code, department, employment_type, telecommuting, url, application_url, published_on, created_at, country/city/state, locations[], description (with `details=true`) |
+| Compensation | Not exposed |
+| Stable ID | ✅ `shortcode` |
 
-**Fixtures:** `account.json`, `locations.json`, `departments.json`
+**Verified live 2026-08-25** against blueground (26), skroutz (9), epignosis (5), persado (3).
+
+An earlier version of this page gave the endpoint as `www.workable.com/api/accounts/{subdomain}`
+and said locations and departments **come from separate endpoints and must be joined**. Neither is
+true of the endpoint above: `details=true` returns descriptions and a structured `locations` array
+in the same response, which is what makes this a one-request adapter rather than one request per
+posting.
+
+**Quirks:**
+- ⚠️ **`published_on` is a DATE with no time of day.** Parsed as midnight UTC, which makes a posting
+  look up to 24 hours *older* than it is. That direction is the only safe one — the opposite
+  rounding manufactures freshness — and every Workable posting therefore carries
+  `PostedAtIsEstimate`. It also means Workable cannot contribute to the ingest-latency measurement.
+- ⚠️ **Without `details=true` there is no description at all.** Omitting it returns a board that
+  parses cleanly and is useless.
+- An account with no live vacancies returns **200 with an empty `jobs` array**, identical to a board
+  that just closed every role.
+- `employment_type` is often `""`. It stays empty rather than being guessed at.
+- `code` is the employer's own requisition reference and makes a free dedup key.
+- The flat `country`/`city` pair only ever holds the FIRST location; the `locations` array is
+  authoritative.
+
+**Fixtures:** `board-full.json`
 
 ### Personio
 
 ```
-GET https://{company}.jobs.personio.de/xml?language=en
+GET https://{company}.jobs.personio.de/xml
 ```
 
-**Quirks:** ⚠️ **XML, not JSON** — the only such vendor, requiring a separate parse path. Domain may
-be `.com` rather than `.de`. Mostly European employers; lower priority for the India-first v1.
+| Property | Value |
+|---|---|
+| Auth | None |
+| Pagination | None |
+| Fields | id, name, subcompany, office, additionalOffices, department, jobDescriptions[{name,value}], employmentType, seniority, schedule, yearsOfExperience, keywords, occupationCategory, createdAt |
+| Compensation | Not exposed |
+| Stable ID | ✅ `id` |
 
-**Fixtures:** `board.xml`
+**Verified live 2026-08-25** against urbansportsclub (38), orderbird (5), personio (1).
+
+**The only vendor publishing seniority and a years-of-experience range as structured fields**, and
+one of only three with a real time of day on the posting date. Both are scoring inputs we otherwise
+infer from prose, which makes a Personio board unusually valuable per posting despite small tenants.
+
+**Quirks:**
+- ⚠️ **XML, not JSON** — the only such vendor.
+- ⚠️ **A non-existent tenant does not 404.** It 307s to personio.com, which sits behind a bot check,
+  so a wrong token yields HTML rather than an error. The guard is declaring `XMLName` on the root
+  struct: with it `xml.Unmarshal` rejects a mismatched root instead of returning an empty feed that
+  downstream would read as "this company closed every role".
+- ⚠️ **The feed contains no links of any kind** — not to the posting, not to the application form.
+  Both URLs are constructed from the tenant and the id, which makes them *our* claim rather than the
+  vendor's.
+- `?language=en` **does nothing**: orderbird returns German section names either way. An earlier
+  version of this page listed the parameter as though it selected a language.
+- Both `.de` and `.com` resolve; `.de` is canonical for every tenant including non-German ones,
+  because Personio is a German company and never moved it.
+- `yearsOfExperience` is a **range string** — "2-5", "lt-1" — not a number.
+- `employmentType` is the contract ("permanent", "working_student") and `schedule` is the hours
+  ("full-time"). They answer different questions and the more specific one wins: orderbird's
+  Werkstudent role is `part-time` + `working_student`, and calling it merely part-time discards the
+  fact that it is a student position.
+- Descriptions arrive as named `{name, value}` sections in the employer's own language — often the
+  only structure the body has, so the names are kept as headings.
+- German-language descriptions are a feature for the corpus: they exercise normalisation paths that
+  an all-English corpus never reaches.
+
+**Fixtures:** `board-full.xml`
 
 ---
 

@@ -432,6 +432,25 @@ ingestor is writing, which is why `make load-test` says so in its own recipe.
 A fresh account was rejected as the test subject: no resume means no scores, an empty dashboard, and
 single-digit milliseconds that would pass the budget while measuring nothing.
 
+<a id="a-34"></a>**A-34 — Personio, Recruitee and Workable: 106 postings across 10 boards, 0 errors.**
+Measured 2026-08-25 after building all three adapters: Personio 3 boards / 44 postings,
+Recruitee 3 / 20, Workable 4 / 42. Every board token was called from this machine before the adapter
+was written and the resulting count re-checked against the database afterwards; the two agree.
+Recruitee disclosed structured salary on 12 of 20. Grade A — our rows, our boards, one command to
+reproduce.
+
+*Caveat.* Ten boards is a thin sample and the tenants are European SMEs, so this says nothing about
+how these vendors behave at Greenhouse scale. Two of the three add little to the India-first corpus.
+The value is not volume: Recruitee is the only vendor besides Ashby with structured salary **and a
+period**, and Personio is the only one publishing seniority and a years-of-experience range as
+fields rather than prose.
+
+**The number that nearly went in here was zero.** Personio's first live poll produced 44 postings
+and stored none of them: `RawPosting.Raw` was marshalled back to XML, which the jsonb column rejects
+on every row. Golden tests could not have caught it — they never touch a database — and the count
+this entry would have reported without the live check was three boards, zero postings, zero errors.
+`TestParse_RawIsValidJSON` now exists in all three packages.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

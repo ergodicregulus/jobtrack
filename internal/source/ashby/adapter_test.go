@@ -174,20 +174,3 @@ func TestParse_MalformedBodyIsAnErrorNotAnEmptyBoard(t *testing.T) {
 	}
 }
 
-func TestNormaliseInterval_CoversWhatAshbyActuallySends(t *testing.T) {
-	// Left column measured from live boards on 2026-08-19.
-	cases := map[string]string{
-		"1 YEAR":  "year",
-		"1 MONTH": "month",
-		"1 HOUR":  "hour",
-		"HOURLY":  "hour",
-		"MONTHLY": "month",
-		"":        "",
-		"1 AEON":  "",
-	}
-	for in, want := range cases {
-		if got := normaliseInterval(in); got != want {
-			t.Errorf("normaliseInterval(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
