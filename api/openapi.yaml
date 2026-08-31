@@ -414,6 +414,32 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MarketSummary' }
 
+  /v1/market/coverage:
+    get:
+      tags: [market]
+      summary: What the corpus knows about itself
+      description: >-
+        Counts of live postings for which we hold each fact, as of the last
+        rollup. The landing page draws these as a field of marks with a void
+        wherever a fact is missing.
+
+
+        Named for what WE know rather than what the employer stated: `mode` is
+        often our own parse of the prose rather than a field anyone filled in,
+        and crediting the employer with a disclosure they did not make is the one
+        thing this product may not do.
+
+
+        Reads `source_daily`, so the cost is one day of source rows and does not
+        grow with the corpus. See ADR-0017.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Coverage' }
+
   /v1/market/ingest:
     get:
       tags: [jobs]
@@ -1351,6 +1377,20 @@ components:
         companies: { type: integer }
         added_this_week: { type: integer }
         remote_share: { type: number }
+
+    Coverage:
+      type: object
+      required: [as_of, live, comp, yoe, mode, skills]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: When the rollup last recomputed. The page says this rather than implying it is live to the second.
+        live: { type: integer, description: Live postings in the corpus. }
+        comp: { type: integer, description: Of those, how many we hold a pay figure for. }
+        yoe: { type: integer, description: How many we could read an experience range from. }
+        mode: { type: integer, description: How many we could determine a work mode for. }
+        skills: { type: integer, description: How many we extracted at least one skill from. Zero is the ADR-0011 abstention path. }
 
     IngestSeries:
       type: object

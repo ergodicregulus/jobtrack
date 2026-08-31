@@ -1,6 +1,8 @@
 <script lang="ts">
   import { compactNumber } from '$lib/format';
   import IngestChart from '$lib/components/IngestChart.svelte';
+  import AbsenceField from '$lib/components/AbsenceField.svelte';
+  import { reveal } from '$lib/reveal';
   import type { PageData } from './$types';
 
   const { data }: { data: PageData } = $props();
@@ -124,6 +126,20 @@
   </section>
 
   <!--
+    THE SIGNATURE.
+
+    The headline says the product tells you what it does not know; this is that
+    sentence drawn. It sits directly under the hero because it is the argument,
+    not an illustration of one — and because the hero was a headline in a
+    half-empty frame, which is the shape of a page that has nothing to show.
+  -->
+  {#if data.coverage && data.coverage.live > 0}
+    <section use:reveal class="reveal-target signature" aria-label="What the corpus does not know">
+      <AbsenceField coverage={data.coverage} shows={data.shows} />
+    </section>
+  {/if}
+
+  <!--
     The signature element.
 
     A score breakdown at full width, set like an instrument readout: the total
@@ -132,7 +148,7 @@
     other product buries what it could not determine; here it is the thing the
     eye lands on.
   -->
-  <section class="report" aria-label="Example score breakdown">
+  <section use:reveal class="reveal-target report" aria-label="Example score breakdown">
     <div class="report-head">
       <span class="tag">Example breakdown</span>
       <span class="role">{report.role}</span>
@@ -181,7 +197,7 @@
     Coverage in both directions. The right column is the distinctive asset:
     stating what we cannot see is what makes the left column credible.
   -->
-  <section class="ledger">
+  <section use:reveal class="reveal-target ledger">
     <h2 class="section-head">What we can see, and what we cannot</h2>
     <div class="cols">
       <div class="col">
@@ -205,7 +221,7 @@
     </div>
   </section>
 
-  <section class="figures" aria-label="Current corpus">
+  <section use:reveal class="reveal-target figures" aria-label="Current corpus">
     <h2 class="section-head">Counted when this page loaded</h2>
     <dl class="figure-row">
       {#each figures as f (f.label)}
@@ -229,7 +245,7 @@
     </div>
   </section>
 
-  <section class="refusals">
+  <section use:reveal class="reveal-target refusals">
     <h2 class="section-head">What it will not do</h2>
     <ul>
       {#each refusals as [head, body] (head)}
@@ -244,7 +260,7 @@
     </ul>
   </section>
 
-  <section class="close">
+  <section use:reveal class="reveal-target close">
     <h2>Start with the feed.<br />An account is only needed to score it.</h2>
     <div class="actions">
       <a class="btn primary" href="/signup">Create an account</a>
@@ -568,6 +584,15 @@
     font-size: var(--t-sm);
     color: var(--fg-muted);
     line-height: 1.5;
+  }
+
+  /*
+    The signature gets more air than any other section. Tines and Wispr both
+    earn their sense of craft partly by letting one element own a screen; the
+    previous version gave every section the same margin, which reads as a list.
+  */
+  .signature {
+    margin: clamp(3rem, 7vw, 6rem) 0 clamp(3.5rem, 8vw, 7rem);
   }
 
   /* Shared section rhythm -------------------------------------------------- */

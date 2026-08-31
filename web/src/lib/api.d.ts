@@ -326,6 +326,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/market/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the corpus knows about itself
+         * @description Counts of live postings for which we hold each fact, as of the last rollup. The landing page draws these as a field of marks with a void wherever a fact is missing.
+         *
+         *     Named for what WE know rather than what the employer stated: `mode` is often our own parse of the prose rather than a field anyone filled in, and crediting the employer with a disclosure they did not make is the one thing this product may not do.
+         *
+         *     Reads `source_daily`, so the cost is one day of source rows and does not grow with the corpus. See ADR-0017.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Coverage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/market/ingest": {
         parameters: {
             query?: never;
@@ -979,6 +1022,23 @@ export interface components {
             companies: number;
             added_this_week: number;
             remote_share: number;
+        };
+        Coverage: {
+            /**
+             * Format: date-time
+             * @description When the rollup last recomputed. The page says this rather than implying it is live to the second.
+             */
+            as_of: string;
+            /** @description Live postings in the corpus. */
+            live: number;
+            /** @description Of those */
+            comp: number;
+            /** @description How many we could read an experience range from. */
+            yoe: number;
+            /** @description How many we could determine a work mode for. */
+            mode: number;
+            /** @description How many we extracted at least one skill from. Zero is the ADR-0011 abstention path. */
+            skills: number;
         };
         IngestSeries: {
             /** @description Every day in the window, including days with no activity. A gap and a zero mean different things on a chart and the client cannot tell them apart unless the zero is present. */

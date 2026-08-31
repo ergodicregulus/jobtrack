@@ -36,6 +36,23 @@ test('the whole product, as one stranger walks it', async ({ page }) => {
   // --- create an account ---------------------------------------------------
   const email = `acceptance-${Date.now()}@jobtrack.test`;
   await page.getByRole('link', { name: /create an account/i }).first().click();
+
+  // Arrive before typing.
+  //
+  // This is the only test that reaches /signup by CLICKING rather than by
+  // page.goto — deliberately, because it walks the product as a person does —
+  // and so it is the only one exposed to the client-side navigation still
+  // finishing. Playwright can fill an input that exists mid-transition; the
+  // component then re-renders and the value is gone, the form fails HTML5
+  // validation in silence, and the failure surfaces ten seconds later as "still
+  // on /signup" with no error on screen.
+  //
+  // hydrated() does not help here: data-hydrated was set on the root layout back
+  // on /, and is already true. What has to be waited for is this navigation.
+  //
+  // A person cannot hit that window — the field is not on screen to type into
+  // until the render completes.
+  await expect(page).toHaveURL(/\/signup/);
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill('correct-horse-battery-staple');
   await page.getByRole('button', { name: /create account/i }).click();

@@ -20,6 +20,47 @@ type SourceDay struct {
 	PostingsLive   int       `db:"postings_live"`
 }
 
+// Coverage is what the corpus knows about itself, as of one moment.
+//
+// The homepage's signature graphic is drawn from this: every live posting is a
+// mark, and a mark is hollow where we could not read the thing being asked
+// about. Four dimensions rather than one because they differ by a factor of
+// four — pay is known for 15% of postings and work mode for 56% — and a graphic
+// that could only show the worst case would be making a point rather than
+// reporting one.
+type Coverage struct {
+	AsOf  time.Time `json:"as_of"`
+	Live  int       `json:"live"`
+	Comp  int       `json:"comp"`
+	YoE   int       `json:"yoe"`
+	Mode  int       `json:"mode"`
+	Skill int       `json:"skills"`
+}
+
+// CorpusCoverage reads the latest rolled-up day.
+//
+// Rows read is one per source for a single day — about 75 — and that does not
+// grow with the corpus, which is the whole reason this reads source_daily
+// rather than job_postings. AsOf is the rollup's own computed_at, so the page
+// can say when it last looked instead of implying it is live to the second.
+func CorpusCoverage(ctx context.Context, pool *pgxpool.Pool) (Coverage, error) {
+	var c Coverage
+	err := pool.QueryRow(ctx, `
+		SELECT coalesce(max(computed_at), now()),
+		       coalesce(sum(postings_live), 0)::int,
+		       coalesce(sum(known_comp), 0)::int,
+		       coalesce(sum(known_yoe), 0)::int,
+		       coalesce(sum(known_mode), 0)::int,
+		       coalesce(sum(known_skills), 0)::int
+		  FROM source_daily
+		 WHERE day = (SELECT max(day) FROM source_daily)`,
+	).Scan(&c.AsOf, &c.Live, &c.Comp, &c.YoE, &c.Mode, &c.Skill)
+	if err != nil {
+		return c, fmt.Errorf("corpus coverage: %w", err)
+	}
+	return c, nil
+}
+
 // rebuildSourceDailySQL recomputes the rollup from job_postings alone.
 //
 // One statement, and that is ADR-0017's rule rather than a flourish: a rollup
@@ -33,24 +74,56 @@ type SourceDay struct {
 // different things, and the widget can only tell them apart if the zero is
 // present.
 const rebuildSourceDailySQL = `
-	INSERT INTO source_daily (source_id, day, postings_new, postings_closed, postings_live, computed_at)
+	WITH skilled AS (
+	    -- Folded once through a CTE rather than a correlated EXISTS per posting:
+	    -- the rebuild runs over sources x days, so a per-row subquery would
+	    -- multiply by both.
+	    SELECT DISTINCT posting_id FROM posting_skills
+	)
+	INSERT INTO source_daily (
+	    source_id, day, postings_new, postings_closed, postings_live,
+	    known_comp, known_yoe, known_mode, known_skills, computed_at)
 	SELECT s.id,
 	       d.day::date,
 	       count(*) FILTER (WHERE p.first_seen_at::date = d.day::date),
 	       count(*) FILTER (WHERE p.closed_at::date = d.day::date),
-	       count(*) FILTER (
-	           WHERE p.first_seen_at::date <= d.day::date
-	             AND (p.closed_at IS NULL OR p.closed_at::date > d.day::date)
-	       ),
+	       count(*) FILTER (WHERE live.ok),
+	       count(*) FILTER (WHERE live.ok AND p.comp_min IS NOT NULL),
+	       count(*) FILTER (WHERE live.ok AND (p.yoe_min IS NOT NULL OR p.yoe_max IS NOT NULL)),
+	       count(*) FILTER (WHERE live.ok AND p.mode IS NOT NULL AND p.mode <> 'unknown'),
+	       count(*) FILTER (WHERE live.ok AND sk.posting_id IS NOT NULL),
 	       now()
 	  FROM sources s
 	  CROSS JOIN generate_series($1::date, current_date, interval '1 day') AS d(day)
 	  LEFT JOIN job_postings p ON p.source_id = s.id
+	  LEFT JOIN skilled sk ON sk.posting_id = p.id
+	  -- "Live at the end of this day" is needed by five of the counts, so it is
+	  -- computed once rather than repeated in each FILTER.
+	  --
+	  -- SUPERSEDED POSTINGS ARE EXCLUDED, and leaving them in was a shipped bug.
+	  -- A superseded posting is one dedup found to be a duplicate of another; it
+	  -- never gets a closed_at, because it was not closed — it was merged. The
+	  -- test used to be closed_at IS NULL alone, which counted all 5,371 of
+	  -- them, so the homepage chart read "18,102 live now" directly beneath a
+	  -- hero that read "13k live postings" from /v1/market. Same page, same word,
+	  -- 38% apart.
+	  --
+	  -- The feed has always filtered status = 'live', so the corpus a reader
+	  -- can actually browse never included these. The rollup is what disagreed.
+	  LEFT JOIN LATERAL (
+	      SELECT p.status <> 'superseded'
+	         AND p.first_seen_at::date <= d.day::date
+	         AND (p.closed_at IS NULL OR p.closed_at::date > d.day::date) AS ok
+	  ) live ON true
 	 GROUP BY s.id, d.day
 	ON CONFLICT (source_id, day) DO UPDATE
 	   SET postings_new    = EXCLUDED.postings_new,
 	       postings_closed = EXCLUDED.postings_closed,
 	       postings_live   = EXCLUDED.postings_live,
+	       known_comp      = EXCLUDED.known_comp,
+	       known_yoe       = EXCLUDED.known_yoe,
+	       known_mode      = EXCLUDED.known_mode,
+	       known_skills    = EXCLUDED.known_skills,
 	       computed_at     = now()`
 
 // RebuildSourceDaily recomputes the rollup for the last `days` days.

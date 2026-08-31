@@ -451,6 +451,31 @@ on every row. Golden tests could not have caught it — they never touch a datab
 this entry would have reported without the live check was three boards, zero postings, zero errors.
 `TestParse_RawIsValidJSON` now exists in all three packages.
 
+<a id="a-35"></a>**A-35 — What the corpus knows about itself: pay 15.0%, skills 50.4%, experience 54.5%, work mode 55.9%.**
+Measured 2026-08-31 from the `source_daily` rollup over 14,036 live postings, and rendered live on the
+landing page by the absence field. Grade A — our own instrumentation over our own rows, recomputed
+hourly and reproducible with one query.
+
+**Pay is the outlier and it is not close.** We hold a figure for 2,110 of 14,036 roles; the other
+three facts are known for roughly half. A reader's most-used filter is the one we can answer least
+often, and the honest response is to show that rather than to fill the gap with an estimate. It also
+corroborates [design-law's](../../.claude/skills/design-law/SKILL.md) 14.6% from an independent
+recount five days later.
+
+*Caveat.* These are counts of what **we** hold, not of what employers disclosed. Work mode in
+particular is usually our own parse of the prose rather than a field anyone filled in, so a rise in
+any of these numbers may mean our extraction improved rather than that the market got more open. The
+column names say `known_*` for exactly this reason. Treat them as a measure of our coverage, and only
+weakly as a measure of employer behaviour.
+
+**A 38% overcount was found and fixed in the same work.** `source_daily.postings_live` tested
+liveness as `closed_at IS NULL`, which counted all 5,371 *superseded* postings — duplicates that
+dedup merged, and which therefore never get a `closed_at` because they were never closed. The
+homepage was rendering "18,102 live now" on the corpus chart directly beneath a hero reading "13k
+live postings" from `/v1/market`: same page, same word, two numbers 38% apart. The feed had always
+filtered `status = 'live'`, so no reader could ever browse the roles the chart was counting. Both
+figures now read 14,036.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

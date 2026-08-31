@@ -156,7 +156,12 @@ const TEXT_PAIRINGS: { fg: string; bg: string; where: string; under?: string }[]
  * results. It is now restricted to the search icon and the "·" separator.
  */
 const NON_TEXT_PAIRINGS: { fg: string; bg: string; where: string }[] = [
-  { fg: '--fg-faint', bg: '--bg-raised', where: 'search icon, the "·" meta separator' }
+  { fg: '--fg-faint', bg: '--bg-raised', where: 'search icon, the "·" meta separator' },
+  // The absence field's hollow mark. It is the only ring in the product that
+  // carries meaning rather than separating surfaces — a hollow mark IS the
+  // statement "we could not read this" — so it has to clear 3:1 on the page
+  // ground like any other graphical object conveying information.
+  { fg: '--fg-subtle', bg: '--bg', where: 'AbsenceField hollow mark: a fact we do not hold' }
 ];
 
 const THEMES: Theme[] = ['light', 'dark'];

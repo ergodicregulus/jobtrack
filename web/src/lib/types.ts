@@ -45,6 +45,7 @@ export type ApplicationStatus = S['ApplicationStatus'];
 export type WorkMode = S['WorkMode'];
 export type FieldError = S['FieldError'];
 export type ProblemDetail = S['ProblemDetail'];
+export type Coverage = S['Coverage'];
 export type Preferences = S['Preferences'];
 
 /**

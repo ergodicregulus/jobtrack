@@ -182,6 +182,25 @@ func (a *API) handleMarket(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// handleCoverage reports what the corpus knows about itself.
+//
+// The landing page draws this as a field of marks with a void wherever a fact is
+// missing, so the four numbers are the graphic. Public, identical for every
+// caller, and the rollup only moves hourly — the same sixty seconds handleMarket
+// uses, for the same reason.
+func (a *API) handleCoverage(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+
+	cov, err := store.CorpusCoverage(ctx, a.pool)
+	if err != nil {
+		return httpx.ErrInternal(err)
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	httpx.WriteJSON(ctx, w, a.log, http.StatusOK, cov)
+	return nil
+}
+
 // handleActivity returns the last 12 weeks of application activity.
 //
 // "Activity" is deliberately narrow: an application sent, or a status that

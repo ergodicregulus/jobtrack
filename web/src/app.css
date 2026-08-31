@@ -779,3 +779,28 @@ img, svg { display: block; max-width: 100%; }
 .scroll-y::-webkit-scrollbar { width: 8px; }
 .scroll-y::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); }
 .scroll-y::-webkit-scrollbar-track { background: transparent; }
+
+/*
+  Scroll reveal. The class is added by the `reveal` action and removed when the
+  section enters, so the transition runs in one direction only and the element
+  is never hidden to a reader without JavaScript — `reveal-pending` is applied
+  BY the script, so its absence is the safe state.
+*/
+.reveal-pending {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+[class*='reveal'],
+.reveal-target {
+  transition:
+    opacity 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-pending {
+    opacity: 1;
+    transform: none;
+  }
+}
