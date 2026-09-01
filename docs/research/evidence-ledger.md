@@ -526,6 +526,28 @@ their city and reach IN through the city table, so the bare code bought nothing 
 The new region table deliberately omits every code that collides with a country — CA, DE, IN, ID, PA
 and the rest — because a wrong country on a filter people rely on is worse than an absent one.
 
+<a id="a-38"></a>**A-38 — The field classifier is precise and low-recall: 93.5% vs 44.4%.**
+Measured 2026-09-01 over 11,213 live postings, using an engineering-title regex as an independent
+check on the classifier. Of postings it labels `software`, **93.5% carry an engineering title**. The
+default feed, which hides only `other`, is **44.4%**. The whole corpus is 34.3%. Grade A — our rows,
+two independent signals.
+
+**Precision is high and recall is low, and the shape matters more than either number.** When the
+classifier commits, it is nearly always right; it simply declines to commit on 43% of the corpus,
+because one employer posts in German, Chinese and Hungarian and a token table cannot follow. Those
+land in `unknown`, stay visible under the default, and are why Bosch is still 33.2% of the default
+feed after classification.
+
+This is the ADR-0018 trade working as designed rather than failing: hiding what we cannot name would
+hide software jobs with it. But it also showed the design was one chip short — the most precise view
+in the product existed and no reader could reach it. The rail now offers Software / + unsorted /
+Everything.
+
+*Caveat.* The 93.5% is measured against a title regex, which is itself imperfect — it misses
+"Engineering Manager" and matches "Sales Engineer". It is an independent signal rather than ground
+truth, and the right reading is "these two disagree rarely", not "the classifier is 93.5% accurate".
+A labelled sample is still the honest way to claim accuracy, and has not been built.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

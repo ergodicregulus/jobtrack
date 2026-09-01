@@ -113,7 +113,7 @@
   });
 
   /**
-   * Two chips, not three, from a three-way split.
+   * Three chips, and the third was added because a measurement said so.
    *
    * The column stores software / other / unknown, and the feed's default hides
    * only `other` — so "Engineering" here means software PLUS the ones we could
@@ -121,9 +121,17 @@
    * as software and leaves 43% unknown, and hiding what we cannot name would
    * hide software jobs along with everything else. See ADR-0018.
    *
-   * Exposing the raw three would make the reader carry that reasoning. Two
-   * choices — the filtered view and the unfiltered one — is the question they
-   * actually have.
+   * It shipped with two — the default and everything — on the argument that the
+   * three-way split was internal detail. Measuring the result showed that was
+   * wrong: 93.5% of `field=software` postings carry an engineering title, while
+   * the default view is 44.4%, because one employer's German, Chinese and
+   * Hungarian titles land in `unknown` and stay visible. The most precise view
+   * in the product existed and nobody could reach it.
+   *
+   * So: "Software" is what we are confident about, "+ unsorted" adds what we
+   * could not classify, and "Everything" turns the filter off. Named for what
+   * each contains rather than for the column's values, because `unknown` is our
+   * problem and not a category of work.
    */
   function engineeringChips(f: Facets | null): Chip[] {
     const counts = f?.fields;
@@ -132,7 +140,8 @@
     const unknown = counts.unknown ?? 0;
     const other = counts.other ?? 0;
     return [
-      { label: 'Engineering', value: '', count: software + unknown },
+      { label: 'Software', value: 'software', count: software },
+      { label: '+ unsorted', value: '', count: software + unknown },
       { label: 'Everything', value: 'all', count: software + unknown + other }
     ];
   }
