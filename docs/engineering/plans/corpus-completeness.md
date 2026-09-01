@@ -15,7 +15,7 @@ Measured 2026-09-01, mid-sweep:
 | Skills — at least one read | 52.2% | — |
 | Work mode | 55.9% | — |
 | Experience range | 54.5% | — |
-| Country | 61.1% | — |
+| Country | **90.8%** | 61.1% before the parser fix |
 | Pay | 15.0% | — |
 
 The description figure is moving because the sweeps are running. Everything else

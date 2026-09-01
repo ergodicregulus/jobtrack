@@ -1,6 +1,9 @@
 package normalise
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Normalisation is where ingestion is most likely to be quietly wrong: a bad
 // parse does not error, it just produces a posting that is filtered away from
@@ -542,4 +545,61 @@ func TestExtractSkills_DeliberatelyOmittedAliases(t *testing.T) {
 			t.Error(`bare "lambda" resolved to serverless; it is also an anonymous function`)
 		}
 	}
+}
+
+// Every string here was a live posting with country NULL on 2026-09-01.
+//
+// Grouped by the reason the parser missed them, because the fix for each was
+// different: a country table that knew nine countries, and a region that was
+// computed and then discarded.
+func TestParseLocation_RecoversTheCountriesWeWereMissing(t *testing.T) {
+	cases := map[string]string{
+		// The country was spelled out in the last segment and the table had no
+		// entry. 71% of the gap, and 451 postings from China alone.
+		"Shanghai, Shanghai, China": "CN",
+		"Suzhou, Jiangsu, China":    "CN",
+		"Budapest, , Hungary":       "HU",
+		"Tokyo, Japan":              "JP",
+		"Braga, Braga, Portugal":    "PT",
+		"Bangkok, Thailand":         "TH",
+
+		// A state or province code, computed as a Region and then thrown away
+		// because the result carried no city the curated list knew.
+		"Washington, DC": "US",
+		"Vancouver, BC":  "CA",
+	}
+	for raw, want := range cases {
+		if got := ParseLocation(raw); got.Country != want {
+			t.Errorf("ParseLocation(%q).Country = %q, want %q", raw, got.Country, want)
+		}
+	}
+}
+
+// The omissions from regionCountry are the load-bearing part.
+//
+// CA is California and Canada, DE is Delaware and Germany, IN is Indiana and
+// India. Resolving a bare code for any of them would put a wrong country on a
+// filter people rely on, and a wrong country is worse than an absent one.
+func TestParseLocation_DoesNotGuessAnAmbiguousRegionCode(t *testing.T) {
+	if c := ParseLocation("Munich, DE").Country; c == "DE" {
+		t.Error("a bare DE was read as Germany; it is also Delaware")
+	}
+	if c := ParseLocation("Springfield, IN").Country; c == "IN" {
+		t.Error("a bare IN was read as India; it is also Indiana")
+	}
+	// The spelled-out name is unambiguous and must still resolve.
+	if c := ParseLocation("Munich, Germany").Country; c != "DE" {
+		t.Errorf("ParseLocation(\"Munich, Germany\") = %q, want DE", c)
+	}
+}
+
+// A string with no country in it must stay empty. "Remote" is 6.7% of the gap
+// and there is nothing in it to find.
+func TestParseLocation_StillAbstainsOnAPlacelessString(t *testing.T) {
+	for _, raw := range []string{"Remote", "Hybrid", "In-Office"} {
+		if c := ParseLocation(raw).Country; c != "" {
+			t.Errorf("ParseLocation(%q).Country = %q, want empty", raw, c)
+		}
+	}
+	_ = strings.TrimSpace("")
 }

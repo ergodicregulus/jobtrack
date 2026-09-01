@@ -502,6 +502,30 @@ for its entire life, and no posting had EVER been closed: 1,920 were absent from
 for 29 consecutive polls, every one still served, scored and shown as applicable. Live postings fell
 from 12,918 to 10,998 when the backfill ran.
 
+<a id="a-37"></a>**A-37 — Country coverage: 64.5% → 90.8% of live postings, from one table.**
+Measured 2026-09-01. Before: 4,005 of 11,276 live postings (35.5%) had no country. After widening
+the country-name table and resolving unambiguous state codes: 1,036 of 11,266 (9.2%). Grade A — our
+rows, one backfill, reproducible.
+
+**The cause was nine entries.** `countryNames` knew India, the US, the UK, Germany, the Netherlands,
+Singapore, Ireland, Canada and Australia. A 150-posting sample of the failures showed 71% named their
+country in plain English in the last comma-segment — "Shanghai, Shanghai, China", "Budapest, ,
+Hungary", "Tokyo, Japan" — and the lookup had no entry for it. SmartRecruiters posts a clean
+City / Region / Country triple every time, and 58% of its live postings were landing with a null
+country purely because of this map. A further ~5% carried a US or Canadian state code that the parser
+computed into `Region` and then discarded, because a result with no city and no country was rejected.
+
+*Caveat, and it is the reason the number is not higher.* The remaining 9.2% is mostly strings with no
+country in them to find — "Remote", "Hybrid", "In-Office" were 6.7% of the sample — plus cities the
+curated table does not know. Those are honestly unresolvable from `location_raw` alone, and inventing
+a country for a posting that says only "Remote" would be worse than leaving it null.
+
+**One pre-existing bug fell out of writing the tests.** `countryNames` mapped the bare code `"in"` to
+India, so "Springfield, IN" resolved to India rather than Indiana. Removed: Indian postings spell
+their city and reach IN through the city table, so the bare code bought nothing and cost a US state.
+The new region table deliberately omits every code that collides with a country — CA, DE, IN, ID, PA
+and the rest — because a wrong country on a filter people rely on is worse than an absent one.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

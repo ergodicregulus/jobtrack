@@ -48,12 +48,75 @@ var cityCountry = map[string]string{
 	"Singapore": "SG", "Dublin": "IE", "Toronto": "CA",
 }
 
+// countryNames maps what employers actually write to ISO 3166-1 alpha-2.
+//
+// It held nine countries and that was the single largest cause of missing
+// locations in the corpus. Sampled 2026-09-01 over 150 live postings with no
+// country: 71% of them named their country in plain English in the last
+// comma-segment — "Shanghai, Shanghai, China", "Budapest, , Hungary", "Tokyo,
+// Japan" — and the lookup simply had no entry. SmartRecruiters posts a clean
+// City, Region, Country triple every time and 58% of its live postings were
+// landing with country NULL because of this map.
+//
+// The additions below are the countries observed in that sample and in the forty
+// most frequent unparsed values, not a world list: a country nobody posts from
+// is a line nobody can verify. Add one when a posting needs it.
 var countryNames = map[string]string{
-	"india": "IN", "in": "IN",
+	// "in" is deliberately NOT here. It is India's code and also Indiana's, and
+	// with it "Springfield, IN" resolved to India. Indian postings spell their
+	// city — Bengaluru, Mumbai, Hyderabad — and reach IN through cityCountry, so
+	// dropping the bare code loses nothing and stops a US state being read as
+	// the primary market.
+	"india":         "IN",
 	"united states": "US", "usa": "US", "us": "US", "u.s.": "US", "america": "US",
 	"united kingdom": "GB", "uk": "GB", "england": "GB", "britain": "GB",
 	"germany": "DE", "netherlands": "NL", "singapore": "SG",
 	"ireland": "IE", "canada": "CA", "australia": "AU",
+
+	// Observed in the corpus, most frequent first. China alone accounted for 451
+	// postings across Shanghai, Suzhou and Wuxi.
+	"china": "CN", "japan": "JP", "hungary": "HU", "portugal": "PT",
+	"vietnam": "VN", "viet nam": "VN", "thailand": "TH", "france": "FR",
+	"spain": "ES", "poland": "PL", "brazil": "BR", "malaysia": "MY",
+	"turkey": "TR", "türkiye": "TR", "estonia": "EE", "philippines": "PH",
+	"bulgaria": "BG", "serbia": "RS", "slovenia": "SI", "finland": "FI",
+	"israel": "IL", "colombia": "CO", "mexico": "MX", "belgium": "BE",
+	"italy": "IT", "switzerland": "CH", "austria": "AT", "sweden": "SE",
+	"denmark": "DK", "norway": "NO", "czechia": "CZ", "czech republic": "CZ",
+	"romania": "RO", "greece": "GR", "south africa": "ZA", "new zealand": "NZ",
+	"united arab emirates": "AE", "uae": "AE", "indonesia": "ID",
+	"south korea": "KR", "korea": "KR", "taiwan": "TW", "hong kong": "HK",
+}
+
+// regionCountry resolves a bare state or province code to its country.
+//
+// The parser already computed Region and then threw it away: ParseLocation only
+// accepted a result carrying a City or a Country, so "Washington, DC" and
+// "Vancouver, BC" produced a Region and were discarded. A state code implies its
+// country as surely as the word does.
+//
+// ONLY CODES WITH NO ISO 3166-1 COUNTRY COLLISION APPEAR HERE, and the omissions
+// are the point. CA is California and Canada. DE is Delaware and Germany. IN is
+// Indiana and India. "Munich, DE" would resolve to Delaware, and a US state is
+// not a plausible thing to be wrong about on a country filter someone is
+// relying on — a wrong country is worse than an absent one.
+//
+// The colliding codes are therefore left to the city and country tables, which
+// have the context to disambiguate. This map only closes the cases where two
+// letters can mean exactly one thing.
+var regionCountry = map[string]string{
+	// Canadian provinces. NL (Netherlands), ON and PE (Peru) are omitted.
+	"AB": "CA", "BC": "CA", "MB": "CA", "NB": "CA", "NS": "CA",
+	"NT": "CA", "NU": "CA", "QC": "CA", "SK": "CA", "YT": "CA",
+
+	// US states. Omitted for collision: AL AR AZ CA CO DE GA ID IN KY LA MD ME
+	// MN MO MS MT NC NE PA PE SC SD SN TN VA VI.
+	"AK": "US", "CT": "US", "DC": "US", "FL": "US", "HI": "US",
+	"IA": "US", "IL": "US", "KS": "US", "MA": "US", "MI": "US",
+	"ND": "US", "NH": "US", "NJ": "US", "NM": "US", "NV": "US",
+	"NY": "US", "OH": "US", "OK": "US", "OR": "US", "RI": "US",
+	"TX": "US", "UT": "US", "VT": "US", "WA": "US", "WI": "US",
+	"WV": "US", "WY": "US",
 }
 
 // indiaRegions covers the states our primary market actually posts from.
@@ -91,6 +154,9 @@ func ParseLocation(raw string) Location {
 		if cleaned == "" {
 			continue
 		}
+		// Country included: a segment like "Vancouver, BC" resolves through the
+		// region table and would otherwise be discarded for having no city the
+		// curated list knows.
 		if parsed := parseSingleLocation(cleaned); parsed.City != "" || parsed.Country != "" {
 			parsed.Raw = loc.Raw
 			return parsed
@@ -132,6 +198,15 @@ func parseSingleLocation(s string) Location {
 		}
 		if r, ok := indiaRegions[out.City]; ok && (out.Region == "" || out.Country == "IN") {
 			out.Region = r
+		}
+	}
+
+	// A region we recognise names its country. LAST, so a named city always
+	// wins: "Bengaluru, DC" is a Bengaluru posting with a stray code, not a
+	// Washington one.
+	if out.Country == "" && out.Region != "" {
+		if c, ok := regionCountry[out.Region]; ok {
+			out.Country = c
 		}
 	}
 	return out
