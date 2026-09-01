@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import type { FeedPage, Facets, SavedSearch, Preferences } from '$lib/types';
+import type { FeedPage, Facets, SavedSearch, Preferences, Dismissal } from '$lib/types';
 
 /**
  * The feed is loaded on the server.
@@ -36,13 +36,19 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   // most-requested page in the product. In parallel they add none.
   let searches: SavedSearch[] = [];
   let prefs: Preferences | null = null;
+  let hidden: Dismissal[] = [];
   if (signedIn) {
-    const [searchRes, prefRes] = await Promise.all([
+    const [searchRes, prefRes, hiddenRes] = await Promise.all([
       fetch('/v1/me/searches'),
-      fetch('/v1/me/preferences')
+      fetch('/v1/me/preferences'),
+      // Hiding was one-way: the feed remembered a dismissal forever and offered
+      // no way to see or undo it after the page that made it. A control the
+      // reader cannot reverse is a trap, not a feature.
+      fetch('/v1/me/dismissals?limit=50')
     ]);
     if (searchRes.ok) searches = (await searchRes.json()).items ?? [];
     if (prefRes.ok) prefs = await prefRes.json();
+    if (hiddenRes.ok) hidden = (await hiddenRes.json()).items ?? [];
   }
 
   // A default saved search is applied ONLY to a bare /jobs.
@@ -71,7 +77,13 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   // best matches first, because sorting a personalised feed by date buries the
   // scoring work behind whatever happened to be posted most recently.
   if (!params.has('sort')) {
-    if (prefs?.sort) params.set('sort', prefs.sort);
+    // A search is ranked by the search. Typing "software engineer" and getting
+    // the newest posting that happens to contain those words in its body is
+    // what made results look random — the match was real and nothing ordered it
+    // below a title hit. A stored preference does not override this, because
+    // the reader has just told us what they want by typing it.
+    if (params.has('q')) params.set('sort', 'relevance');
+    else if (prefs?.sort) params.set('sort', prefs.sort);
     else if (signedIn && profile?.onboarded) params.set('sort', 'match');
   }
 
@@ -105,6 +117,7 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
       error: `The job feed is unavailable (${feedRes.status}).`,
       params: params.toString(),
       signedIn,
+      hidden,
       canMatch: Boolean(signedIn && profile?.onboarded),
       searches
     };
@@ -114,7 +127,7 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   const facets: Facets | null = facetsRes.ok ? await facetsRes.json() : null;
 
   return {
-    feed, facets, error: null, params: params.toString(), signedIn, searches,
+    feed, facets, error: null, params: params.toString(), signedIn, searches, hidden,
     // Best match needs something to match against.
     canMatch: Boolean(signedIn && profile?.onboarded)
   };

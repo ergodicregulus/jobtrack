@@ -47,6 +47,7 @@ export type FieldError = S['FieldError'];
 export type ProblemDetail = S['ProblemDetail'];
 export type Coverage = S['Coverage'];
 export type Preferences = S['Preferences'];
+export type Dismissal = S['Dismissal'];
 
 /**
  * Presentation-only types. These have no server counterpart: the theme is a

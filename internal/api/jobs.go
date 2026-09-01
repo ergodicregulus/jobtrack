@@ -115,6 +115,22 @@ var validFields = map[string]bool{
 	"": true, "software": true, "other": true, "unknown": true, "all": true,
 }
 
+var validYoEBands = map[string]bool{"0-2": true, "3-5": true, "6-8": true, "9+": true}
+
+// yoeBandFor maps a legacy threshold to its band.
+func yoeBandFor(n int) string {
+	switch {
+	case n <= 2:
+		return "0-2"
+	case n <= 5:
+		return "3-5"
+	case n <= 8:
+		return "6-8"
+	default:
+		return "9+"
+	}
+}
+
 var validSorts = map[string]bool{
 	"": true, "newest": true, "comp": true, "match": true, "relevance": true,
 }
@@ -139,7 +155,6 @@ func parseFeedFilter(r *http.Request) (store.FeedFilter, error) {
 		// Default true. A large share of SDE-1 postings say "2+ years"; that
 		// band is soft in practice and self-filtering there costs real
 		// opportunities, so the stretch is opt-out rather than opt-in.
-		YoEStretch:        q.Get("yoe_stretch") != "false",
 		CompDisclosedOnly: q.Get("comp_disclosed_only") == "true",
 	}
 
@@ -194,14 +209,20 @@ func validateEnums(f *store.FeedFilter, q url.Values) error {
 
 // parseFeedNumbers reads the bounded numeric parameters.
 func parseFeedNumbers(f *store.FeedFilter, q url.Values) error {
-	if v := q.Get("yoe"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 16)
-		if err != nil || n < 0 || n > 50 {
-			return httpx.ErrBadRequest("yoe must be between 0 and 50",
-				httpx.FieldError{Field: "yoe", Code: "range", Message: "0-50"})
+	// Bands, keyed as the chips and the facets are. A bare integer is accepted
+	// and mapped to the band it falls in, so saved searches and links written
+	// under the old threshold form keep working rather than 400ing.
+	for _, raw := range csv(q.Get("yoe")) {
+		band := raw
+		if n, err := strconv.Atoi(raw); err == nil {
+			band = yoeBandFor(n)
 		}
-		y := int16(n)
-		f.YoE = &y
+		if !validYoEBands[band] {
+			return httpx.ErrBadRequest("invalid experience band: "+raw,
+				httpx.FieldError{Field: "yoe", Code: "invalid",
+					Message: "must be 0-2, 3-5, 6-8 or 9+"})
+		}
+		f.YoEBands = append(f.YoEBands, band)
 	}
 
 	if v := q.Get("comp_min"); v != "" {

@@ -3,6 +3,7 @@
   import SortControl from '$lib/components/SortControl.svelte';
   import FilterRail from '$lib/components/FilterRail.svelte';
   import SavedSearches from '$lib/components/SavedSearches.svelte';
+  import HiddenPostings from '$lib/components/HiddenPostings.svelte';
   import FilterSearch from '$lib/components/FilterSearch.svelte';
   import { attachFeedKeys } from '$lib/keyboard.svelte';
   import type { PageData } from './$types';
@@ -22,7 +23,17 @@
   const newCount = $derived(
     since ? jobs.filter((j) => new Date(j.first_seen_at) > since).length : 0
   );
-  const showSince = $derived(since !== null && newCount > 0 && newCount < jobs.length);
+  // The divider splits the list at position `newCount`, which only means
+  // anything when the list is in date order. Sorted by salary or relevance the
+  // new postings are scattered, so the divider fell at an arbitrary point and
+  // labelled everything below it "here on your last visit" — a claim that was
+  // simply false. It now appears only when the ordering makes it true.
+  const sortedByDate = $derived(
+    (new URLSearchParams(data.params).get('sort') ?? 'newest') === 'newest'
+  );
+  const showSince = $derived(
+    since !== null && sortedByDate && newCount > 0 && newCount < jobs.length
+  );
   const sinceLabel = $derived(
     since ? since.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) : ''
   );
@@ -153,6 +164,7 @@
            success. Signed-in only — a save control for someone with nowhere to
            save it is an invitation to a dead end. -->
       {#if data.signedIn}
+        <HiddenPostings hidden={data.hidden} />
         <SavedSearches searches={data.searches} {params} />
       {/if}
     </aside>

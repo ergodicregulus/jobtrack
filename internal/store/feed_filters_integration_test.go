@@ -227,6 +227,38 @@ func TestFeedFilters_EachFilterReturnsExactlyTheRightPostings(t *testing.T) {
 			"ancient", "gb-hybrid", "in-remote", "no-comp", "no-yoe", "nowhere", "us-onsite", "us-remote")
 	})
 
+	// THE GAP THAT LET A REAL BUG THROUGH.
+	//
+	// The first version of this suite asserted exact sets for country, mode and
+	// vendor, and for experience only checked that an unstated posting survives.
+	// It never asked which postings an experience filter RETURNS — and the
+	// filter was returning the wrong ones: a single threshold widened by an
+	// invisible +2, so "0–2 yrs" came back with 3-, 4- and 3–5-year roles while
+	// the chip beside it read 835.
+	//
+	// Asserting the exact set is the difference between a test that checks a
+	// filter runs and one that checks it filters.
+	t.Run("experience bands return exactly their band", func(t *testing.T) {
+		// in-remote 3, us-remote 6, us-onsite 1, gb-hybrid 4, nowhere 5,
+		// no-comp 2, sales 3, ancient 8, no-yoe unstated.
+		assertSet(t, "yoe=0-2",
+			run(t, pool, FeedFilter{Field: "all", YoEBands: []string{"0-2"}}),
+			"no-comp", "no-yoe", "us-onsite")
+
+		assertSet(t, "yoe=3-5",
+			run(t, pool, FeedFilter{Field: "all", YoEBands: []string{"3-5"}}),
+			"gb-hybrid", "in-remote", "no-yoe", "nowhere", "sales")
+
+		// Multi-select is a union of the bands, never a widening of one.
+		assertSet(t, "yoe=0-2,3-5",
+			run(t, pool, FeedFilter{Field: "all", YoEBands: []string{"0-2", "3-5"}}),
+			"gb-hybrid", "in-remote", "no-comp", "no-yoe", "nowhere", "sales", "us-onsite")
+
+		assertSet(t, "yoe=6-8",
+			run(t, pool, FeedFilter{Field: "all", YoEBands: []string{"6-8"}}),
+			"ancient", "no-yoe", "us-remote")
+	})
+
 	t.Run("search matches title and body", func(t *testing.T) {
 		got := run(t, pool, FeedFilter{Field: "all", Query: "kubernetes"})
 		if !contains(got, "us-remote") {
@@ -250,14 +282,13 @@ func TestFeedFilters_UnstatedValuesAreNeverHidden(t *testing.T) {
 	pool := newTestDB(t)
 	seedFilterCorpus(t, pool)
 
-	yoe := int16(5)
 	cases := []struct {
 		what string
 		f    FeedFilter
 		keep string
 	}{
 		{"experience filter keeps a posting that states none",
-			FeedFilter{Field: "all", YoE: &yoe}, "no-yoe"},
+			FeedFilter{Field: "all", YoEBands: []string{"3-5"}}, "no-yoe"},
 		{"salary filter keeps a posting that publishes none",
 			FeedFilter{Field: "all", CompMin: ptrF(100000)}, "no-comp"},
 		{"country filter keeps a posting with no country",

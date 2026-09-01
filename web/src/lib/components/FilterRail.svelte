@@ -65,12 +65,19 @@
       {
         key: 'yoe',
         label: 'Experience',
-        hint: 'the level the posting asks for',
+        hint: 'pick any',
+        // Multi-select, and the values are the SAME keys the facet counts use.
+        // They were thresholds (2, 5, 8, 12) filtered with an invisible +2
+        // stretch, so the chip was labelled by band, counted by band and
+        // filtered by something else: selecting "0–2 yrs 835" returned postings
+        // asking for 3, 4 and 3–5 years. The number on a chip and the rows
+        // behind it are now the same claim by construction.
+        multi: true,
         chips: [
-          { label: '0–2 yrs', value: '2', count: n(f?.yoe?.['0-2']) },
-          { label: '3–5 yrs', value: '5', count: n(f?.yoe?.['3-5']) },
-          { label: '6–8 yrs', value: '8', count: n(f?.yoe?.['6-8']) },
-          { label: '9+ yrs', value: '12', count: n(f?.yoe?.['9+']) }
+          { label: '0–2 yrs', value: '0-2', count: n(f?.yoe?.['0-2']) },
+          { label: '3–5 yrs', value: '3-5', count: n(f?.yoe?.['3-5']) },
+          { label: '6–8 yrs', value: '6-8', count: n(f?.yoe?.['6-8']) },
+          { label: '9+ yrs', value: '9+', count: n(f?.yoe?.['9+']) }
         ],
         note: f?.yoe?.unstated
           ? `${f.yoe.unstated.toLocaleString()} postings state no range, so they are never filtered out by this.`

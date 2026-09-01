@@ -20,8 +20,12 @@
   }
   const { params, canMatch = false }: Props = $props();
 
+  // Relevance only exists when there is a query to be relevant to.
+  const hasQuery = $derived(Boolean(params.get('q')?.trim()));
+
   const options = $derived(
     [
+      hasQuery ? { value: 'relevance', label: 'Relevance' } : null,
       { value: 'newest', label: 'Newest' },
       { value: 'comp', label: 'Salary' },
       canMatch ? { value: 'match', label: 'Best match' } : null
@@ -36,7 +40,12 @@
    * control that showed nothing selected would be claiming the list is unordered
    * when it is not.
    */
-  const active = $derived(params.get('sort') ?? (canMatch ? 'match' : 'newest'));
+  // Mirrors the loader's precedence exactly: a search ranks by relevance, then
+  // a stored preference, then the product's default. A control that showed
+  // something other than what the list is doing would be the worst of both.
+  const active = $derived(
+    params.get('sort') ?? (hasQuery ? 'relevance' : canMatch ? 'match' : 'newest')
+  );
 
   function href(value: string): string {
     const next = new URLSearchParams(params);

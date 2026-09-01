@@ -24,11 +24,16 @@ type FeedFilter struct {
 	Countries []string
 	Modes     []string
 
-	YoE *int16
-	// YoEStretch widens the band upward. Default true: a large share of SDE-1
-	// postings say "2+ years", that band is soft in practice, and
-	// self-filtering there costs real opportunities.
-	YoEStretch bool
+	// YoEBands are experience bands, keyed exactly as the facet buckets and the
+	// chips: "0-2", "3-5", "6-8", "9+". Multi-select, because "0-2 or 3-5" is
+	// one question.
+	//
+	// It used to be a single threshold with an invisible +2 stretch, and the
+	// three parts of the control disagreed: the chip was LABELLED by band,
+	// COUNTED by band, and FILTERED by threshold-plus-stretch. Selecting
+	// "0-2 yrs 835" returned postings asking for 3, 4 and 3-5 years. A control
+	// whose own count contradicts its result is worse than no control.
+	YoEBands []string
 
 	CompMin      *float64
 	CompCurrency string
@@ -191,6 +196,11 @@ const maxFeedLimit = 50
 // in exactly this kind of code, and a mis-numbered parameter here would
 // silently filter on the wrong value rather than fail.
 type feedPredicates struct {
+	// queryPos is where the search text was bound, or 0. The relevance sort
+	// ranks on the same parameter rather than binding it twice — two copies of
+	// one string is two things that can drift.
+	queryPos int
+
 	conds []string
 	args  []any
 }
@@ -249,19 +259,34 @@ func (p *feedPredicates) addLocation(f FeedFilter) {
 	}
 }
 
+// yoeBandSQL is the band test, keyed identically to the facet buckets in
+// facetsSQL. The two must agree by construction: the number on a chip and the
+// rows behind it are the same claim.
+var yoeBandSQL = map[string]string{
+	"0-2": "p.yoe_min <= 2",
+	"3-5": "p.yoe_min BETWEEN 3 AND 5",
+	"6-8": "p.yoe_min BETWEEN 6 AND 8",
+	"9+":  "p.yoe_min >= 9",
+}
+
 func (p *feedPredicates) addExperience(f FeedFilter) {
-	if f.YoE == nil {
+	if len(f.YoEBands) == 0 {
 		return
 	}
-	upper := *f.YoE
-	if f.YoEStretch {
-		upper += 2
+	bands := make([]string, 0, len(f.YoEBands))
+	for _, b := range f.YoEBands {
+		if sql, ok := yoeBandSQL[b]; ok {
+			bands = append(bands, sql)
+		}
 	}
-	// Low-confidence YoE is treated as unknown rather than excluded, and a
-	// posting with no stated band matches everyone.
-	p.where(`(p.yoe_confidence < 0.5 OR p.yoe_min IS NULL
-			  OR (p.yoe_min <= $%d AND (p.yoe_max IS NULL OR p.yoe_max >= $%d)))`,
-		p.bind(upper), p.bind(*f.YoE))
+	if len(bands) == 0 {
+		return
+	}
+	// A posting that states no range, or one we read with low confidence, is
+	// never filtered out — our failure to read a requirement must not hide the
+	// job. The rail says so beside the chips.
+	p.where("(p.yoe_confidence < 0.5 OR p.yoe_min IS NULL OR (%s))",
+		strings.Join(bands, " OR "))
 }
 
 func (p *feedPredicates) addCompensation(f FeedFilter) {
@@ -332,7 +357,8 @@ func (p *feedPredicates) addSource(f FeedFilter) {
 
 func (p *feedPredicates) addSearch(f FeedFilter) {
 	if q := strings.TrimSpace(f.Query); q != "" {
-		p.where("p.search_tsv @@ websearch_to_tsquery('english', $%d)", p.bind(q))
+		p.queryPos = p.bind(q)
+		p.where("p.search_tsv @@ websearch_to_tsquery('english', $%d)", p.queryPos)
 	}
 	if len(f.Skills) > 0 {
 		// Require ALL requested skills, not any: a filter that returns postings
@@ -443,9 +469,12 @@ SELECT p.id, p.title, c.name, c.slug,
 const scoreCandidateCap = 2_000
 
 // needsRanking reports whether this request cannot be answered without scores.
+//
+// "relevance" is deliberately NOT here. It ranks by the text index, which is a
+// SQL ordering the keyset path can do — routing it through the scorer would
+// rank search results by profile fit rather than by what the reader typed.
 func needsRanking(f FeedFilter) bool {
-	switch f.Sort {
-	case "match", "relevance":
+	if f.Sort == "match" {
 		return true
 	}
 	return len(f.Bands) > 0
@@ -503,8 +532,6 @@ func feedKeyset(
 		limit = 25
 	}
 
-	sort := feedSort(f.Sort)
-
 	p := newFeedPredicates(f.UserID)
 	p.addLocation(f)
 	p.addExperience(f)
@@ -513,6 +540,11 @@ func feedKeyset(
 	p.addSearch(f)
 	p.addField(f)
 	p.addDismissed(f)
+
+	// After addSearch, because relevance ranks on the parameter it bound. The
+	// cursor then compares the same expression, so paging a ranked list stays
+	// consistent.
+	sort := feedSort(f.Sort, p.queryPos)
 	p.addCursor(cursorStr, sort)
 
 	// One extra row is what tells us whether another page exists.
@@ -707,7 +739,7 @@ func feedItemsByID(
 	if userID != nil {
 		viewer = *userID
 	}
-	sortMode := feedSort("newest")
+	sortMode := feedSort("newest", 0)
 	query := fmt.Sprintf(feedSelect, sortMode.expr, viewerPos, "p.id = ANY($2)", sortMode.col, 3)
 
 	rows, err := pool.Query(ctx, query, viewer, ids, len(ids))
@@ -878,26 +910,42 @@ const compInUSD = `(COALESCE(p.comp_min, 0) / CASE p.comp_currency
 	ELSE 1.0
 END)`
 
-func feedSort(name string) sortMode {
+func feedSort(name string, queryPos int) sortMode {
+	// Recency is both the default and the fallback, so it is named once.
+	newest := sortMode{
+		"COALESCE(p.posted_at, p.first_seen_at)::text",
+		"COALESCE(p.posted_at, p.first_seen_at)",
+		"timestamptz",
+	}
+
 	switch name {
 	case "comp":
 		return sortMode{compInUSD + "::text", compInUSD, "numeric"}
-	case "match", "relevance":
+
+	case "relevance":
+		// Rank by the text index. The tsvector weights the title 'A' and the
+		// body 'B', so a title hit outranks a passing mention in a description —
+		// which is exactly why searching "software engineer 1" returned
+		// "Enterprise Customer Engineer, Vietnam" first. websearch_to_tsquery
+		// ANDs the terms, so that posting genuinely contained all three
+		// somewhere in its body; nothing ranked it below a title match, and the
+		// list came back in date order.
+		//
+		// Relevance to nothing is not an ordering, so with no query this falls
+		// back to recency rather than ranking every row equally and shuffling.
+		if queryPos == 0 {
+			return newest
+		}
+		rank := fmt.Sprintf("ts_rank(p.search_tsv, websearch_to_tsquery('english', $%d))", queryPos)
+		return sortMode{rank + "::text", rank, "real"}
+
+	case "match":
 		// Handled entirely in Go by feedRanked — there is no score column to
 		// order by any more. SQL still orders the CANDIDATE set by recency,
 		// which is what this returns.
-		return sortMode{
-			"COALESCE(p.posted_at, p.first_seen_at)::text",
-			"COALESCE(p.posted_at, p.first_seen_at)",
-			"timestamptz",
-		}
-	default: // newest
-		return sortMode{
-			"COALESCE(p.posted_at, p.first_seen_at)::text",
-			"COALESCE(p.posted_at, p.first_seen_at)",
-			"timestamptz",
-		}
+		return newest
 	}
+	return newest
 }
 
 // FeedFacets returns counts per filter value for the current context.
