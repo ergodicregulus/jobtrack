@@ -142,7 +142,8 @@ other is a bug. `make arch-check` fails on any doc unreachable from this file or
 | Is this number true? | [docs/research/evidence-ledger.md](docs/research/evidence-ledger.md) — with its grade |
 | How does a release not break? | [docs/operations/deployment-zdt.md](docs/operations/deployment-zdt.md) |
 | When may I add infrastructure? | [docs/architecture/caching-and-storage.md](docs/architecture/caching-and-storage.md) — cite the metric that fired |
-| What is left to do? | [docs/engineering/phase-5-production-readiness.md](docs/engineering/phase-5-production-readiness.md) |
+| What is left to do? | [docs/engineering/plans/](docs/engineering/plans/README.md) — specified work, each with its measurement and its done-condition |
+| How did we get here? | [docs/engineering/phase-5-production-readiness.md](docs/engineering/phase-5-production-readiness.md) |
 
 ## Skills — use them, they are not documentation
 

@@ -37,6 +37,11 @@ Thirty-odd documents is a lot. This page exists so you never have to read them a
 [caching-and-storage](architecture/caching-and-storage.md) — every answer has a numeric trigger, so
 this is a query rather than an argument.
 
+**"What should I work on next?"**
+[plans](engineering/plans/README.md) — one file per unit of remaining work, each with the
+query that found the problem and a falsifiable done-condition. A plan is deleted when it is
+done, so anything still there is still true.
+
 **"What actually works right now?"**
 
 **"I'm an AI agent about to change something."**

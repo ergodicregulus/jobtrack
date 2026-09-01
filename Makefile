@@ -65,7 +65,7 @@ check: arch-check fmt-check vet lint test build-all web-test web-check bench-bud
 	@echo "  ✓ check passed"
 
 .PHONY: arch-check
-arch-check: ## Architecture invariants: layering, SQL location, function length, ADR index, citations
+arch-check: ## Architecture invariants: layering, SQL location, function length, ADR index, citations, plans
 	@python3 scripts/arch/check.py
 
 .PHONY: arch-check-update
