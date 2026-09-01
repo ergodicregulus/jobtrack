@@ -145,7 +145,14 @@ test.describe('dashboard', () => {
     // connotation whether we intend it or not, so the copy DISCLAIMS it
     // explicitly rather than merely avoiding the word — asserting the word is
     // absent would have failed the honest version of this text, and did.
-    await expect(grid).toContainText(/no streak to keep|not a target/i);
+    // Both branches of the component must disclaim, and both are asserted.
+    // The empty state says "no streak to keep"; the populated one says "rather
+    // than a target". The regex knew only the first, so this passed for as long
+    // as the seeded account happened to have no activity — and started failing
+    // the moment another test gave it some. A test whose result depends on
+    // which branch it happened to hit is not testing the copy, it is testing
+    // the fixture.
+    await expect(grid).toContainText(/no streak to keep|not a target|rather than a target/i);
 
     // The grid itself is hidden from assistive tech — 84 cells announced one
     // by one is a minute of noise — so the same fact must exist as text.

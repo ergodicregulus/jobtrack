@@ -89,8 +89,21 @@
       {
         key: 'country',
         label: 'Country',
-        hint: 'where the role is based',
-        chips: topCountries(f)
+        // Multi-select, because "India and America" is one search, not two. The
+        // API has always accepted a comma-separated list here; only this flag
+        // was missing, so the rail quietly restricted a filter the server could
+        // already answer.
+        hint: 'pick any',
+        multi: true,
+        chips: topCountries(f),
+        // The same disclosure the work-style group makes, for the same
+        // behaviour. A posting whose location we could not read is INCLUDED in
+        // a country filter rather than hidden — our parse failure is not the
+        // reader's problem — and saying so is the difference between a
+        // deliberate trade and a filter that looks broken.
+        note: f?.countries?.unknown
+          ? `${f.countries.unknown.toLocaleString()} postings do not say where. They are included so a location we could not read never hides a job.`
+          : undefined
       },
       {
         key: 'field',

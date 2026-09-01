@@ -1,5 +1,6 @@
 <script lang="ts">
   import JobCard from '$lib/components/JobCard.svelte';
+  import SortControl from '$lib/components/SortControl.svelte';
   import FilterRail from '$lib/components/FilterRail.svelte';
   import SavedSearches from '$lib/components/SavedSearches.svelte';
   import FilterSearch from '$lib/components/FilterSearch.svelte';
@@ -221,6 +222,9 @@
         No matching roles
       {/if}
     </h2>
+    {#if jobs.length}
+      <SortControl params={new URLSearchParams(data.params)} canMatch={data.canMatch} />
+    {/if}
   </div>
 
   <!-- Announced politely so a screen-reader user learns that filtering did

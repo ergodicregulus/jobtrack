@@ -105,6 +105,7 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
       error: `The job feed is unavailable (${feedRes.status}).`,
       params: params.toString(),
       signedIn,
+      canMatch: Boolean(signedIn && profile?.onboarded),
       searches
     };
   }
@@ -112,5 +113,9 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   const feed: FeedPage = await feedRes.json();
   const facets: Facets | null = facetsRes.ok ? await facetsRes.json() : null;
 
-  return { feed, facets, error: null, params: params.toString(), signedIn, searches };
+  return {
+    feed, facets, error: null, params: params.toString(), signedIn, searches,
+    // Best match needs something to match against.
+    canMatch: Boolean(signedIn && profile?.onboarded)
+  };
 };

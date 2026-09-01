@@ -841,10 +841,47 @@ type sortMode struct {
 //
 // Allowlisted, never interpolated from user input — this is the one place a
 // feed query could become an injection point.
+// compInUSD orders salaries across currencies.
+//
+// Sorting on the raw figure is wrong and visibly so: 13,750,000 JPY is about
+// $92,000 and outranked every $850,000 role in the corpus, purely because yen
+// are numerous. A reader sorting by salary got the currencies with the largest
+// numbers, not the best-paid jobs.
+//
+// THE RATES ORDER, THEY NEVER DISPLAY. The figure shown to a reader is always
+// the employer's own, in the employer's own currency; this expression exists
+// only to decide which row comes first. That distinction is what makes a
+// hardcoded rate acceptable here — a stale rate shuffles two similar salaries,
+// where a stale rate on a DISPLAYED figure would be a fabricated number, which
+// this product may not do.
+//
+// Mid-market rates against USD, exchangerate-api.com, 2026-09-01. Nine
+// currencies because nine are what the corpus contains; a rate for a currency
+// nobody posts in is a line nobody can verify. An unlisted currency falls
+// through to 1.0 and sorts on its raw figure, which is the old behaviour and no
+// worse than it was.
+//
+// Drift is tolerable by construction. These move a few percent a year, and a
+// few percent only reorders salaries that were already neighbours.
+// Parenthesised: the cursor appends ::text to this expression, and ::text binds
+// tighter than /, so an unwrapped version parsed as numeric / (CASE...)::text
+// and the feed 500'd with "operator does not exist: numeric / text".
+const compInUSD = `(COALESCE(p.comp_min, 0) / CASE p.comp_currency
+	WHEN 'GBP' THEN 0.738359
+	WHEN 'EUR' THEN 0.861401
+	WHEN 'CAD' THEN 1.386295
+	WHEN 'SGD' THEN 1.271737
+	WHEN 'AUD' THEN 1.395860
+	WHEN 'JPY' THEN 159.787727
+	WHEN 'SEK' THEN 9.580693
+	WHEN 'INR' THEN 95.201365
+	ELSE 1.0
+END)`
+
 func feedSort(name string) sortMode {
 	switch name {
 	case "comp":
-		return sortMode{"COALESCE(p.comp_min, 0)::text", "COALESCE(p.comp_min, 0)", "numeric"}
+		return sortMode{compInUSD + "::text", compInUSD, "numeric"}
 	case "match", "relevance":
 		// Handled entirely in Go by feedRanked — there is no score column to
 		// order by any more. SQL still orders the CANDIDATE set by recency,
