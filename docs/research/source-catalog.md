@@ -353,6 +353,12 @@ infer from prose, which makes a Personio board unusually valuable per posting de
   only structure the body has, so the names are kept as headings.
 - German-language descriptions are a feature for the corpus: they exercise normalisation paths that
   an all-English corpus never reaches.
+- ⚠️ **Some tenants publish `<jobDescriptions />` — present and empty.** Verified 2026-09-01:
+  orderbird returns four sections per position, urbansportsclub returns none for any of its 38. It is
+  not a parse failure and there is no second source for the text: the job page is a JS-rendered
+  Next.js app, so the description exists only after client-side hydration. Those postings are stored
+  and score as an honest abstention. **Expect a Personio board's description coverage to be all or
+  nothing**, and do not read a low figure as an adapter bug without checking the feed first.
 
 **Fixtures:** `board-full.xml`
 

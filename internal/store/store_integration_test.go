@@ -206,3 +206,94 @@ func TestReconcileAbsent_ClosesAPostingThatStaysGone(t *testing.T) {
 		t.Errorf("closed %d already-closed postings, want 0", n)
 	}
 }
+
+// An empty body must never erase one we already hold.
+//
+// This is the guard for the bug that cost 36% of the corpus its description.
+// Two-phase vendors serve bodies from a per-posting endpoint and fill a bounded
+// window per poll, but every poll re-upserts the WHOLE board — so before the
+// fix, each poll wrote a real body for the window and blanked the thousands
+// outside it. Coverage could never accumulate; it settled at window ÷ board
+// size, which measured 1.9% on a 3,995-posting board.
+//
+// The test writes a body, then upserts the same posting without one, exactly as
+// a poll outside the detail window does.
+func TestUpsertPosting_AnEmptyBodyDoesNotEraseAStoredOne(t *testing.T) {
+	pool := newTestDB(t)
+	ctx := context.Background()
+
+	postingID := seedPosting(t, pool, "Platform Engineer")
+	var sourceID, companyID int64
+	if err := pool.QueryRow(ctx,
+		`SELECT source_id, company_id FROM job_postings WHERE id = $1`, postingID).
+		Scan(&sourceID, &companyID); err != nil {
+		t.Fatalf("read ids: %v", err)
+	}
+
+	upsert := func(html, text string, conf float64) {
+		t.Helper()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		_, err = UpsertPosting(ctx, tx, Posting{
+			SourceID: sourceID, CompanyID: companyID,
+			ExternalID: "ext-Platform Engineer", Title: "Platform Engineer",
+			TitleNormalised: "platform engineer",
+			DescriptionHTML: html, DescriptionText: text,
+			ApplyURL: "https://example.test/apply", ParseConfidence: conf,
+			// mode is a NOT NULL enum with no empty member, so the zero value of
+			// the struct is not a valid row. Real ingest always sets it via
+			// normalise.Mode.
+			Mode:  "unknown",
+			Field: "software", FieldConfidence: 0.9, FieldBecause: "test",
+		})
+		if err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+
+	read := func() (html, text string, conf float64) {
+		t.Helper()
+		if err := pool.QueryRow(ctx,
+			`SELECT description_html, description_text, parse_confidence
+			   FROM job_postings WHERE id = $1`, postingID).Scan(&html, &text, &conf); err != nil {
+			t.Fatalf("read posting: %v", err)
+		}
+		return html, text, conf
+	}
+
+	body := "<p>" + strings.Repeat("we build platforms. ", 40) + "</p>"
+	upsert(body, strings.Repeat("we build platforms. ", 40), 0.9)
+	if html, _, _ := read(); html == "" {
+		t.Fatal("the detail phase's body was not stored at all")
+	}
+
+	// The next poll, for a posting outside the detail window: same row, no body.
+	upsert("", "", 0.2)
+
+	html, text, conf := read()
+	if html == "" || text == "" {
+		t.Error("an empty body erased the stored one — the corpus cannot accumulate")
+	}
+	// parse_confidence is derived FROM the body, so it has to follow it. Keeping
+	// the description while taking the confidence computed for an absence would
+	// leave the row readable and permanently below the scoring floor.
+	// Compared with a tolerance: parse_confidence is a float4, so 0.9 round-trips
+	// as 0.89999997 and an exact test fails on the storage type rather than on
+	// the behaviour.
+	if conf < 0.89 {
+		t.Errorf("parse_confidence fell to %.4f with the body intact", conf)
+	}
+
+	// A real body still replaces a real body: this must not become a write-once
+	// column, or an edited posting freezes at its first version.
+	upsert("<p>rewritten</p>", "rewritten", 0.8)
+	if _, text, _ := read(); text != "rewritten" {
+		t.Errorf("a genuine update was rejected: text = %q", text)
+	}
+}
