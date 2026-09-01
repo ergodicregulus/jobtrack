@@ -1,0 +1,27 @@
+-- The contract half of ADR-0016, deferred one release and now due.
+--
+-- ADR-0016 removed the materialised score table's reason to exist: scores are
+-- computed on the read path, and the measurement that forced it was that this
+-- table reached 1,952 MB for 244 users — 78.4% of the database, projecting to
+-- 16 TB at a million users — to avoid 22 ms of CPU. Removing it made the feed
+-- FASTER (p95 75.6 ms to 43.9) and deleted a whole deployment unit.
+--
+-- The rows went then; the table stayed, because deployment-zdt requires every
+-- migration to be backward-compatible with the PREVIOUS release, and the
+-- release that still wrote to it was the previous one. Dropping it in the same
+-- deploy would have broken a rollback. That release has since shipped and
+-- shipped again — the matcher went nineteen commits ago — so the constraint has
+-- been served and the drop is safe.
+--
+-- IT IS STILL 1,953 MB WITH ZERO LIVE ROWS. The deletes left dead tuples that
+-- no autovacuum reclaims to the filesystem, so the space has been carried this
+-- whole time for a table nothing reads. The database is 2,534 MB; this is 77%
+-- of it.
+--
+-- No Go code references it. The only remaining mentions are in earlier
+-- migrations, which is history rather than usage, and in migration 0022's
+-- comment explaining why dismissals are NOT modelled the same way.
+--
+-- Irreversible by design. That is what a contract migration is: the expand ran,
+-- the release proved out, and this is the half that reclaims the cost.
+DROP TABLE IF EXISTS user_job_scores;

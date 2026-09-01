@@ -1,0 +1,3 @@
+# Plans missing a done-condition, a tag, or an index entry.
+#
+# Empty. The rule holds with no exceptions.
