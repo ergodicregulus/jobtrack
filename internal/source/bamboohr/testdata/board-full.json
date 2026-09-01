@@ -1,0 +1,87 @@
+{
+ "meta": {
+  "totalCount": 4
+ },
+ "result": [
+  {
+   "id": "35",
+   "jobOpeningName": "Infrastructure Ops Engineer",
+   "departmentId": "18593",
+   "departmentLabel": "Infrastructure Operations",
+   "employmentStatusLabel": "US Employee",
+   "employmentType": null,
+   "location": {
+    "city": null,
+    "state": null
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "1"
+  },
+  {
+   "id": "36",
+   "jobOpeningName": "Developer Relations Engineer",
+   "departmentId": "18579",
+   "departmentLabel": "Engineering",
+   "employmentStatusLabel": "US Employee",
+   "employmentType": null,
+   "location": {
+    "city": null,
+    "state": null
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "1"
+  },
+  {
+   "id": "37",
+   "jobOpeningName": "Solutions Architect ",
+   "departmentId": "18637",
+   "departmentLabel": "Sales",
+   "employmentStatusLabel": "US Employee",
+   "employmentType": null,
+   "location": {
+    "city": null,
+    "state": null
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "1"
+  },
+  {
+   "id": "38",
+   "jobOpeningName": "Technical Writer - Developer Docs",
+   "departmentId": "18579",
+   "departmentLabel": "Engineering",
+   "employmentStatusLabel": "US Employee",
+   "employmentType": null,
+   "location": {
+    "city": null,
+    "state": null
+   },
+   "atsLocation": {
+    "country": null,
+    "state": null,
+    "province": null,
+    "city": null
+   },
+   "isRemote": null,
+   "locationType": "1"
+  }
+ ]
+}

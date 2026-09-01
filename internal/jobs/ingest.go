@@ -16,6 +16,7 @@ import (
 	"github.com/jobtrack/jobtrack/internal/normalise"
 	"github.com/jobtrack/jobtrack/internal/source"
 	"github.com/jobtrack/jobtrack/internal/source/ashby"
+	"github.com/jobtrack/jobtrack/internal/source/bamboohr"
 	"github.com/jobtrack/jobtrack/internal/source/greenhouse"
 	"github.com/jobtrack/jobtrack/internal/source/keka"
 	"github.com/jobtrack/jobtrack/internal/source/personio"
@@ -63,6 +64,7 @@ func (d *Deps) Init() {
 		source.VendorWorkable:        workable.New(client, ua),
 		source.VendorPersonio:        personio.New(client, ua),
 		source.VendorKeka:            keka.New(client, ua),
+		source.VendorBambooHR:        bamboohr.New(client, ua),
 	}
 	d.limiter = newHostLimiter(2 * time.Second)
 }

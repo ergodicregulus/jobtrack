@@ -1,0 +1,11 @@
+-- +migrate no-transaction
+--
+-- Adds `bamboohr` to source_vendor.
+--
+-- ALTER TYPE ... ADD VALUE cannot run inside a transaction, hence the marker —
+-- the same reason migrations 0019 and 0025 carry it. IF NOT EXISTS makes it
+-- re-runnable, which matters because a no-transaction migration that fails
+-- halfway cannot be rolled back.
+--
+-- Verified unauthenticated on flyio, posthog and palantir, 2026-09-01.
+ALTER TYPE source_vendor ADD VALUE IF NOT EXISTS 'bamboohr';

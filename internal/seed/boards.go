@@ -267,5 +267,13 @@ func Boards() []Board {
 		{Slug: "softprodigy", Name: "SoftProdigy", Domain: "softprodigy.com", Country: "IN",
 			Vendor: source.VendorKeka,
 			Token:  "softprodigy:default/c6dbd897-0831-47b1-b411-0e5c4bf13354", Openings: 1},
+		// --- BambooHR ---
+		// Two-phase: the list carries no description, so every posting needs a
+		// detail fetch. Boards are small — ten postings is typical — so one poll
+		// covers a whole board.
+		{Slug: "flyio", Name: "Fly.io", Domain: "fly.io", Country: "US",
+			Vendor: source.VendorBambooHR, Token: "flyio", Openings: 10},
+		{Slug: "posthog", Name: "PostHog", Domain: "posthog.com", Country: "GB",
+			Vendor: source.VendorBambooHR, Token: "posthog", Openings: 1},
 	}
 }

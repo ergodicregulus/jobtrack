@@ -369,7 +369,7 @@ Four vendors probed live. Findings, not plans.
 | Vendor | Endpoint | Result | Verdict |
 |---|---|---|---|
 | **Keka** | `{tenant}.keka.com/careers/api/embedjobs/{portal}/active/{orgId}` | 200 JSON on 3 tenants (spyneai, softprodigy, awfis) | ✅ **Built 2026-09-01** |
-| **BambooHR** | `{company}.bamboohr.com/careers/list` | 200 JSON on 3 tenants (flyio, posthog, palantir) | ✅ **Public feed** |
+| **BambooHR** | `{company}.bamboohr.com/careers/list` + `/careers/{id}/detail` | 200 JSON on 3 tenants (flyio, posthog, palantir) | ✅ **Built 2026-09-01** |
 | **Darwinbox** | `{tenant}.darwinbox.in/ms/candidateapi/job` | 403 Cloudflare bot challenge on 3/3 tenants | ❌ Out of scope |
 | **iCIMS** | `{tenant}.icims.com/jobs` | 405 AWS WAF CAPTCHA on 3/3; documented feed is OAuth2 partner-gated | ❌ Out of scope |
 
@@ -392,6 +392,17 @@ product that names India as its primary market. Its payload is unusually rich �
 — which is structured compensation AND structured skills in the list response.
 Caveat: the org identifier is a tenant-specific GUID that has to be read once
 from the careers page, so board tokens are two-part and cannot be guessed.
+
+**BambooHR is two-phase, and needs a browser User-Agent.** The list carries a
+title, a department and a location and nothing else — the description, the
+posting date and the seniority all live on `/careers/{id}/detail`. Shipping the
+list alone would add postings that can never be scored on skills.
+
+Both endpoints answer **403 to a bare HTTP client**. That is bot-shaping rather
+than authentication: no key, no session, no challenge, and the same public data
+the careers page shows. Sending a normal User-Agent is how a normal client
+identifies itself. Contrast Darwinbox below, which sits behind an actual
+Cloudflare challenge — the difference is whether there is a control to defeat.
 
 **Darwinbox is a policy decision, not a technical one.** The JSON endpoint
 exists and returns data to a browser; it sits behind Cloudflare bot mitigation
