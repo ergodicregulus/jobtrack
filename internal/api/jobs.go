@@ -100,11 +100,19 @@ var knownFeedParams = map[string]bool{
 	"country": true, "mode": true, "yoe": true, "yoe_stretch": true,
 	"comp_min": true, "comp_currency": true, "comp_disclosed_only": true,
 	"posted_within": true, "skills": true, "vendor": true, "q": true,
-	"sort": true, "limit": true, "cursor": true, "band": true,
+	"field": true,
+	"sort":  true, "limit": true, "cursor": true, "band": true,
 }
 
 var validModes = map[string]bool{
 	"onsite": true, "hybrid": true, "remote": true, "unknown": true,
+}
+
+// Empty is the default — hide `other`, keep `software` and `unknown`. "all"
+// turns the filter off entirely, which a reader who disagrees with the
+// classifier must be able to do.
+var validFields = map[string]bool{
+	"": true, "software": true, "other": true, "unknown": true, "all": true,
 }
 
 var validSorts = map[string]bool{
@@ -162,6 +170,13 @@ func validateEnums(f *store.FeedFilter, q url.Values) error {
 			httpx.FieldError{Field: "sort", Code: "invalid",
 				Message: "must be newest, comp or match"})
 	}
+	f.Field = strings.ToLower(strings.TrimSpace(q.Get("field")))
+	if !validFields[f.Field] {
+		return httpx.ErrBadRequest("invalid field: "+f.Field,
+			httpx.FieldError{Field: "field", Code: "invalid",
+				Message: "must be software, other, unknown or all"})
+	}
+
 	for _, b := range csv(q.Get("band")) {
 		// Lowercased, unlike the other enums: bands appear in shared URLs and
 		// "Strong" is what a person types. Modes and sorts are only ever

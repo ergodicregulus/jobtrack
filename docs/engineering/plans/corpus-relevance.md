@@ -1,6 +1,6 @@
 # Corpus relevance
 
-**Status:** blocked on a product decision. **Done when:** the share of live
+**Status:** decided (ADR-0018) and built to the API. The feed filters; the UI chip and the vocabulary's long tail remain. **Done when:** the share of live
 postings that are software-engineering roles is stated on the homepage and is
 high enough that the claim "a job-search instrument for software engineers" is
 true without qualification.

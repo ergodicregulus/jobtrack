@@ -356,6 +356,32 @@ infer from prose, which makes a Personio board unusually valuable per posting de
 
 **Fixtures:** `board-full.xml`
 
+### Verified 2026-09-01 — Keka and BambooHR are open; Darwinbox and iCIMS are not
+
+Four vendors probed live. Findings, not plans.
+
+| Vendor | Endpoint | Result | Verdict |
+|---|---|---|---|
+| **Keka** | `{tenant}.keka.com/careers/api/embedjobs/{portal}/active/{orgId}` | 200 JSON on 3 tenants (spyneai, softprodigy, awfis) | ✅ **Public feed** |
+| **BambooHR** | `{company}.bamboohr.com/careers/list` | 200 JSON on 3 tenants (flyio, posthog, palantir) | ✅ **Public feed** |
+| **Darwinbox** | `{tenant}.darwinbox.in/ms/candidateapi/job` | 403 Cloudflare bot challenge on 3/3 tenants | ❌ Out of scope |
+| **iCIMS** | `{tenant}.icims.com/jobs` | 405 AWS WAF CAPTCHA on 3/3; documented feed is OAuth2 partner-gated | ❌ Out of scope |
+
+**Keka matters most.** It is India-first, and India is 7.1% of a corpus for a
+product that names India as its primary market. Its payload is unusually rich —
+`title, description, jobLocations, jobType, experience, salaryRange, skillNames`
+— which is structured compensation AND structured skills in the list response.
+Caveat: the org identifier is a tenant-specific GUID that has to be read once
+from the careers page, so board tokens are two-part and cannot be guessed.
+
+**Darwinbox is a policy decision, not a technical one.** The JSON endpoint
+exists and returns data to a browser; it sits behind Cloudflare bot mitigation
+that a plain HTTP client cannot pass. Getting through it would mean impersonating
+a browser well enough to defeat a control the vendor deliberately put there,
+which is not what [ADR-0004](../architecture/adr/0004-source-acquisition-policy.md)
+means by a public first-party feed. **Excluded, and not to be revisited by
+trying harder.**
+
 ---
 
 ## Tier 2 — JSON-LD career pages

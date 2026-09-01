@@ -56,6 +56,11 @@ type FeedFilter struct {
 	// that the set shrank.
 	Bands []string
 
+	// Field narrows to a kind of work. Empty means the DEFAULT, which is not
+	// "everything" — it hides `other` and keeps `software` and `unknown`. See
+	// addField for why that asymmetry is the honest one.
+	Field string
+
 	Sort  string // newest | comp | match
 	Limit int
 
@@ -281,6 +286,32 @@ func (p *feedPredicates) addCompensation(f FeedFilter) {
 // Anonymous viewers have no dismissals, so the predicate is omitted entirely
 // rather than bound to NULL — an unnecessary subquery on every anonymous feed
 // request is the most-served query in the product.
+// addField hides work that is not what this product is for.
+//
+// The default is `field <> 'other'`, NOT `field = 'software'`, and the
+// difference is the whole design. Two-thirds of the corpus is not software
+// engineering, but the classifier can only name a third of it with confidence —
+// the rest is a multilingual long tail from one conglomerate's board. Defaulting
+// to `= 'software'` would hide every posting we failed to classify, including
+// the software ones.
+//
+// So the two ways of being wrong are priced differently: a non-software posting
+// left in the feed costs the reader one row they can see is wrong, and a
+// software posting excluded costs them a job they will never know existed.
+//
+// `all` is a real option rather than a hidden one, because a reader who
+// disagrees with the classifier has to be able to overrule it.
+func (p *feedPredicates) addField(f FeedFilter) {
+	switch f.Field {
+	case "all":
+		return
+	case "software", "other", "unknown":
+		p.where("p.field = $%d", p.bind(f.Field))
+	default:
+		p.where("p.field <> 'other'")
+	}
+}
+
 func (p *feedPredicates) addDismissed(f FeedFilter) {
 	if f.UserID == nil || f.IncludeDismissed {
 		return
@@ -480,6 +511,7 @@ func feedKeyset(
 	p.addCompensation(f)
 	p.addSource(f)
 	p.addSearch(f)
+	p.addField(f)
 	p.addDismissed(f)
 	p.addCursor(cursorStr, sort)
 
@@ -606,6 +638,7 @@ func rankCandidates(
 	p.addCompensation(f)
 	p.addSource(f)
 	p.addSearch(f)
+	p.addField(f)
 	p.addDismissed(f)
 	capPos := p.bind(scoreCandidateCap)
 

@@ -27,5 +27,6 @@ func All() []migrate.DataMigration {
 		&BackfillYoEConfidence{},
 		&BackfillSmartRecruitersURLs{},
 		&CloseLongAbsentPostings{},
+		&ClassifyPostingField{},
 	}
 }

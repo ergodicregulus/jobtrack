@@ -54,6 +54,11 @@ type Posting struct {
 	Raw             []byte
 
 	Skills []normalise.ExtractedSkill
+
+	// What kind of work this is, and why we think so. See ADR-0018.
+	Field           string
+	FieldConfidence float64
+	FieldBecause    string
 }
 
 // UpsertResult reports what an ingest run changed, so the caller can decide
@@ -90,6 +95,7 @@ INSERT INTO job_postings (
     posted_at, posted_at_is_estimate,
     ai_screening_disclosed, ai_disclaimer, ai_opt_out_url,
     parse_confidence, raw,
+    field, field_confidence, field_because,
     status, last_seen_at, missing_count
 ) VALUES (
     $1,$2,$3,NULLIF($4,''),
@@ -101,6 +107,7 @@ INSERT INTO job_postings (
     $24,$25,
     $26,NULLIF($27,''),NULLIF($28,''),
     $29,$30,
+    $31,$32,$33,
     'live', now(), 0
 )
 ON CONFLICT (source_id, external_id) DO UPDATE SET
@@ -169,6 +176,12 @@ ON CONFLICT (source_id, external_id) DO UPDATE SET
     -- Follows the body, because it is derived from it. Keeping a description
     -- while taking the confidence computed for an empty one would leave the row
     -- readable and permanently below the scoring floor.
+    -- Re-classified on every poll: the classifier improves, and a posting
+    -- stored under an older vocabulary should get the benefit of a newer one
+    -- without needing a backfill each time.
+    field            = EXCLUDED.field,
+    field_confidence = EXCLUDED.field_confidence,
+    field_because    = EXCLUDED.field_because,
     parse_confidence = CASE
         WHEN EXCLUDED.description_text <> '' THEN EXCLUDED.parse_confidence
         ELSE greatest(job_postings.parse_confidence, EXCLUDED.parse_confidence)
@@ -197,6 +210,7 @@ func UpsertPosting(ctx context.Context, tx pgx.Tx, p Posting) (UpsertResult, err
 		p.PostedAt, p.PostedAtIsEstimate,
 		p.AIScreeningDisclosed, p.AIDisclaimer, p.AIOptOutURL,
 		p.ParseConfidence, p.Raw,
+		p.Field, p.FieldConfidence, p.FieldBecause,
 	).Scan(&res.PostingID, &res.Created, &untouched)
 	if err != nil {
 		return res, fmt.Errorf("upsert posting %s/%s: %w", p.ExternalID, p.Title, err)
@@ -430,6 +444,14 @@ func PostingFromRaw(raw source.RawPosting, src source.Source, vocab *normalise.V
 	if vocab != nil {
 		p.Skills = vocab.ExtractSkills(text)
 	}
+
+	// Classified here, after skills, because the skill count is half the
+	// evidence. Doing it in the adapter would mean seven copies and no access to
+	// the vocabulary; doing it in SQL would put a judgement in a place that
+	// cannot explain itself.
+	guess := normalise.ClassifyField(raw.Title, len(p.Skills))
+	p.Field, p.FieldConfidence, p.FieldBecause = string(guess.Field), guess.Confidence, guess.Because
+
 	p.ParseConfidence = parseConfidence(p)
 	return p
 }
