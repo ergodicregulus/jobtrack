@@ -289,14 +289,27 @@ func (p *feedPredicates) addExperience(f FeedFilter) {
 		strings.Join(bands, " OR "))
 }
 
+// addCompensation filters on VALUE, not on the size of the number.
+//
+// The chips say "$100k", "$150k", "$200k" — a dollar figure — and the predicate
+// compared them against comp_min in the posting's OWN currency. A "$200k+"
+// filter therefore returned a 3,575,300 INR role worth $37,555 and an
+// 11,950,000 JPY role worth $74,787, because both are numerically larger than
+// 200000. Eight such postings were in the corpus.
+//
+// The conversion is the same expression the salary sort uses, for the same
+// reason and with the same caveat: the rates decide COMPARISONS, never what is
+// displayed. The figure a reader sees is always the employer's own.
 func (p *feedPredicates) addCompensation(f FeedFilter) {
 	switch {
 	case f.CompMin != nil && f.CompDisclosedOnly:
-		p.where("p.comp_min >= $%d", p.bind(*f.CompMin))
+		p.where(compInUSD+" >= $%d", p.bind(*f.CompMin))
 	case f.CompMin != nil:
-		// Undisclosed postings are kept: excluding them would hide ~20% of the
-		// market behind a filter the user did not intend.
-		p.where("(p.comp_min IS NULL OR p.comp_min >= $%d)", p.bind(*f.CompMin))
+		// Undisclosed postings are kept: excluding them would hide a fifth of
+		// the market behind a filter the user did not intend. COALESCE makes an
+		// undisclosed salary 0, so the IS NULL test is what keeps them — not an
+		// accident of the arithmetic.
+		p.where("(p.comp_min IS NULL OR "+compInUSD+" >= $%d)", p.bind(*f.CompMin))
 	case f.CompDisclosedOnly:
 		p.where("p.comp_min IS NOT NULL")
 	}

@@ -34,10 +34,22 @@ type fixture struct {
 	mode     string
 	yoeMin   *int
 	compMax  *float64
+	compMin  *float64
+	currency string
+	skills   []string
 	field    string
 	postedAt time.Time
 	vendor   string
 	body     string
+}
+
+// cur defaults the currency so a fixture that does not care about money still
+// writes a valid row.
+func cur(v string) string {
+	if v == "" {
+		return "USD"
+	}
+	return v
 }
 
 func seedFilterCorpus(t *testing.T, pool *pgxpool.Pool) map[string]int64 {
@@ -49,16 +61,25 @@ func seedFilterCorpus(t *testing.T, pool *pgxpool.Pool) map[string]int64 {
 
 	corpus := []fixture{
 		{ext: "in-remote", title: "Backend Engineer", country: "IN", mode: "remote",
-			yoeMin: i(3), compMax: f(4000000), field: "software", postedAt: now.AddDate(0, 0, -1),
+			yoeMin: i(3), compMax: f(4000000), compMin: f(3500000), currency: "INR",
+			skills: []string{"go", "postgresql"},
+			field:  "software", postedAt: now.AddDate(0, 0, -1),
 			vendor: "greenhouse", body: "we use go and postgres"},
 		{ext: "us-remote", title: "Platform Engineer", country: "US", mode: "remote",
-			yoeMin: i(6), compMax: f(220000), field: "software", postedAt: now.AddDate(0, 0, -3),
+			yoeMin: i(6), compMax: f(220000), compMin: f(180000), currency: "USD",
+			skills: []string{"kubernetes", "terraform"},
+			field:  "software", postedAt: now.AddDate(0, 0, -3),
 			vendor: "ashby", body: "kubernetes and terraform"},
 		{ext: "us-onsite", title: "Data Engineer", country: "US", mode: "onsite",
 			yoeMin: i(1), compMax: f(120000), field: "software", postedAt: now.AddDate(0, 0, -10),
 			vendor: "greenhouse", body: "python and airflow"},
+		// £150,000 is about $203,000. Numerically below a 200000 bar and above it
+		// once converted — the exact shape that was being hidden from a "$200k+"
+		// search before the comparison was fixed.
 		{ext: "gb-hybrid", title: "Frontend Engineer", country: "GB", mode: "hybrid",
-			yoeMin: i(4), compMax: f(90000), field: "software", postedAt: now.AddDate(0, 0, -20),
+			yoeMin: i(4), compMax: f(190000), compMin: f(150000), currency: "GBP",
+			skills: []string{"typescript"},
+			field:  "software", postedAt: now.AddDate(0, 0, -20),
 			vendor: "ashby", body: "typescript and svelte"},
 		// No country: must never be hidden by a country filter.
 		{ext: "nowhere", title: "Site Reliability Engineer", country: "", mode: "remote",
@@ -115,12 +136,33 @@ func seedFilterCorpus(t *testing.T, pool *pgxpool.Pool) map[string]int64 {
 				 country, mode, yoe_min, comp_max, comp_currency, field, posted_at,
 				 parse_confidence)
 			VALUES ($1,$2,$3,$4,lower($4),$5,$5,'live','https://x.test/a',
-			        $6,$7::work_mode,$8,$9,'USD',$10,$11,0.9)
+			        $6,$7::work_mode,$8,$9,$10,$11,$12,0.9)
 			RETURNING id`,
 			companyID, sources[c.vendor], c.ext, c.title, c.body,
-			country, c.mode, c.yoeMin, c.compMax, c.field, c.postedAt).Scan(&id)
+			country, c.mode, c.yoeMin, c.compMax, cur(c.currency), c.field, c.postedAt).Scan(&id)
 		if err != nil {
 			t.Fatalf("seed posting %s: %v", c.ext, err)
+		}
+		if c.compMin != nil {
+			if _, err := pool.Exec(ctx,
+				`UPDATE job_postings SET comp_min = $2 WHERE id = $1`, id, *c.compMin); err != nil {
+				t.Fatalf("set comp_min %s: %v", c.ext, err)
+			}
+		}
+		for _, sk := range c.skills {
+			var skillID int64
+			if err := pool.QueryRow(ctx, `
+				INSERT INTO skills (canonical, display_name, category)
+				VALUES ($1, $2, 'language')
+				ON CONFLICT (canonical) DO UPDATE SET display_name = EXCLUDED.display_name
+				RETURNING id`, sk, sk).Scan(&skillID); err != nil {
+				t.Fatalf("seed skill %s: %v", sk, err)
+			}
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO posting_skills (posting_id, skill_id, requirement)
+				VALUES ($1, $2, 'must_have') ON CONFLICT DO NOTHING`, id, skillID); err != nil {
+				t.Fatalf("link skill %s: %v", sk, err)
+			}
 		}
 		ids[c.ext] = id
 	}
@@ -264,6 +306,58 @@ func TestFeedFilters_EachFilterReturnsExactlyTheRightPostings(t *testing.T) {
 		if !contains(got, "us-remote") {
 			t.Errorf("full-text search missed a body term: %v", got)
 		}
+	})
+
+	// The salary bar is a DOLLAR figure — the chips say "$100k" — so it has to
+	// compare converted value. Comparing the raw number let a 3,575,300 INR role
+	// worth $37,555 through a "$200k+" filter, and hid a GBP 150,000 role worth
+	// $203,000 from it. The second is the expensive direction: a job the reader
+	// never learns exists.
+	t.Run("salary floor compares value, not the size of the number", func(t *testing.T) {
+		got := run(t, pool, FeedFilter{Field: "all", CompMin: ptrF(200000), CompDisclosedOnly: true})
+		// in-remote is 3,500,000 INR = about $36,800: numerically far above the
+		// bar, actually far below it.
+		if contains(got, "in-remote") {
+			t.Error("an INR salary passed a $200k bar on its raw number")
+		}
+		// gb-hybrid is GBP 150,000 = about $203,000: numerically below, actually
+		// above.
+		if !contains(got, "gb-hybrid") {
+			t.Error("a GBP salary worth $203k was hidden from a $200k bar")
+		}
+		assertSet(t, "comp_min=200000 disclosed only", got, "gb-hybrid")
+	})
+
+	t.Run("disclosed-only excludes exactly the undisclosed", func(t *testing.T) {
+		assertSet(t, "comp_disclosed_only",
+			run(t, pool, FeedFilter{Field: "all", CompDisclosedOnly: true}),
+			"gb-hybrid", "in-remote", "us-remote")
+	})
+
+	t.Run("skills require ALL of them, never any", func(t *testing.T) {
+		assertSet(t, "skills=kubernetes",
+			run(t, pool, FeedFilter{Field: "all", Skills: []string{"kubernetes"}}), "us-remote")
+
+		assertSet(t, "skills=kubernetes,terraform",
+			run(t, pool, FeedFilter{Field: "all", Skills: []string{"kubernetes", "terraform"}}),
+			"us-remote")
+
+		// One posting has go, another has kubernetes; nothing has both. A filter
+		// returning either would be an OR wearing an AND's label.
+		assertSet(t, "skills=go,kubernetes",
+			run(t, pool, FeedFilter{Field: "all", Skills: []string{"go", "kubernetes"}}))
+	})
+
+	t.Run("freshness window cuts exactly at its edge", func(t *testing.T) {
+		// Ages: in-remote 1d, nowhere 2d, us-remote 3d, no-comp 4d, no-yoe 5d,
+		// sales 6d, us-onsite 10d, gb-hybrid 20d, ancient 120d.
+		assertSet(t, "posted_within=7d",
+			run(t, pool, FeedFilter{Field: "all", PostedWithin: 7 * 24 * time.Hour}),
+			"in-remote", "no-comp", "no-yoe", "nowhere", "sales", "us-remote")
+
+		assertSet(t, "posted_within=14d",
+			run(t, pool, FeedFilter{Field: "all", PostedWithin: 14 * 24 * time.Hour}),
+			"in-remote", "no-comp", "no-yoe", "nowhere", "sales", "us-onsite", "us-remote")
 	})
 }
 
