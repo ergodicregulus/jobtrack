@@ -53,7 +53,17 @@ test('the whole product, as one stranger walks it', async ({ page }) => {
   // A person cannot hit that window — the field is not on screen to type into
   // until the render completes.
   await expect(page).toHaveURL(/\/signup/);
-  await page.getByLabel('Email').fill(email);
+  // The URL settles before the component finishes rendering, so the URL alone is
+  // not arrival. networkidle waits for the navigation's own data load, which is
+  // when the re-render that discards a half-typed value happens.
+  await page.waitForLoadState('networkidle');
+
+  const emailField = page.getByLabel('Email');
+  await emailField.fill(email);
+  // Assert it stuck. This is the check that turns a silent HTML5 validation
+  // failure ten seconds later into a failure that names its own cause.
+  await expect(emailField).toHaveValue(email);
+
   await page.getByLabel('Password').fill('correct-horse-battery-staple');
   await page.getByRole('button', { name: /create account/i }).click();
   await expect(page).toHaveURL(/\/onboarding/);

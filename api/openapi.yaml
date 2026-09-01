@@ -1162,6 +1162,14 @@ components:
             CUMULATIVE, not disjoint: "150000" is every posting paying at least
             that, which is what the chip claims and therefore what its count
             must mean.
+        fields:
+          type: object
+          additionalProperties: { type: integer }
+          description: >-
+            Live postings by kind of work: software, other, unknown. The raw
+            three-way split, not the two views the filter rail draws — the client
+            composes "engineering" as software+unknown so that judgement lives in
+            one place. See ADR-0018.
         comp_undisclosed:
           type: integer
           description: >-

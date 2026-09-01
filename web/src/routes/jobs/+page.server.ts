@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ url, fetch, setHeaders, parent }) =
   // failure here, because the user believes they are looking at a filtered list.
   const allowed = [
     'q', 'mode', 'country', 'yoe', 'yoe_stretch', 'comp_min',
-    'comp_disclosed_only', 'posted_within', 'skills', 'vendor', 'sort', 'cursor'
+    'comp_disclosed_only', 'posted_within', 'skills', 'vendor', 'field', 'sort', 'cursor'
   ];
   for (const key of allowed) {
     const values = url.searchParams.getAll(key);

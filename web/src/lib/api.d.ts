@@ -880,6 +880,10 @@ export interface components {
             comp: {
                 [key: string]: number;
             };
+            /** @description Live postings by kind of work: software, other, unknown. The raw three-way split, not the two views the filter rail draws — the client composes "engineering" as software+unknown so that judgement lives in one place. See ADR-0018. */
+            fields?: {
+                [key: string]: number;
+            };
             /** @description Postings publishing no salary. Surfaced because a salary filter silently excludes them, and about a fifth of the market is in here. */
             comp_undisclosed: number;
             total: number;

@@ -93,6 +93,12 @@
         chips: topCountries(f)
       },
       {
+        key: 'field',
+        label: 'Kind of work',
+        hint: 'we hide what we can name as something else',
+        chips: engineeringChips(f)
+      },
+      {
         key: 'posted_within',
         label: 'Posted',
         hint: 'freshness is the product',
@@ -105,6 +111,31 @@
       }
     ];
   });
+
+  /**
+   * Two chips, not three, from a three-way split.
+   *
+   * The column stores software / other / unknown, and the feed's default hides
+   * only `other` — so "Engineering" here means software PLUS the ones we could
+   * not classify. That is deliberate: the classifier can name 23% of the corpus
+   * as software and leaves 43% unknown, and hiding what we cannot name would
+   * hide software jobs along with everything else. See ADR-0018.
+   *
+   * Exposing the raw three would make the reader carry that reasoning. Two
+   * choices — the filtered view and the unfiltered one — is the question they
+   * actually have.
+   */
+  function engineeringChips(f: Facets | null): Chip[] {
+    const counts = f?.fields;
+    if (!counts) return [];
+    const software = counts.software ?? 0;
+    const unknown = counts.unknown ?? 0;
+    const other = counts.other ?? 0;
+    return [
+      { label: 'Engineering', value: '', count: software + unknown },
+      { label: 'Everything', value: 'all', count: software + unknown + other }
+    ];
+  }
 
   /** The five biggest, so the rail does not become a country list. */
   function topCountries(f: Facets | null): Chip[] {
@@ -125,6 +156,10 @@
     // a chip is on. Without this the rail claims no filter while the feed is
     // filtered, which is the worst kind of disagreement.
     if (!params.get('posted_within')) out.set('posted_within', new Set(['7d']));
+    // Same reason: the default kind-of-work filter is active with no parameter
+    // in the URL, so the rail has to show it on or it claims an unfiltered feed
+    // while the feed is filtered.
+    if (!params.get('field')) out.set('field', new Set(['']));
     return out;
   });
 

@@ -874,6 +874,13 @@ type FeedFacets struct {
 	Countries map[string]int64 `json:"countries"`
 	Vendors   map[string]int64 `json:"vendors"`
 
+	// Fields is the raw three-way split — software, other, unknown — rather
+	// than the two views the rail draws from it. The client composes
+	// "engineering" as software+unknown because that is what the feed's default
+	// predicate does, and sending a pre-summed number would put the same
+	// judgement in two places and let them drift.
+	Fields map[string]int64 `json:"fields"`
+
 	// YoE and Comp are bucketed rather than continuous, because the filter UI
 	// is chips and a chip needs a countable set. The keys are the same strings
 	// the query parameters take, so the client never has to translate between
@@ -889,16 +896,12 @@ type FeedFacets struct {
 	Total int64 `json:"total"`
 }
 
-func Facets(ctx context.Context, pool *pgxpool.Pool) (FeedFacets, error) {
-	out := FeedFacets{
-		Modes:     map[string]int64{},
-		Countries: map[string]int64{},
-		Vendors:   map[string]int64{},
-		YoE:       map[string]int64{},
-		Comp:      map[string]int64{},
-	}
-
-	rows, err := pool.Query(ctx, `
+// facetsSQL counts every chip in the filter rail in one pass.
+//
+// At package scope because it is fifty lines of SQL around fifteen lines of
+// Go, and burying it made Facets read as a long function when the only long
+// thing is the statement. Same reason upsertPostingSQL sits out here.
+const facetsSQL = `
 SELECT 'mode', p.mode::text, count(*)
   FROM job_postings p WHERE p.status = 'live' GROUP BY 2
 UNION ALL
@@ -935,8 +938,23 @@ SELECT 'comp', b.key, count(*)
    AND p.comp_max >= b.key::numeric
  GROUP BY 2
 UNION ALL
+SELECT 'field', p.field, count(*)
+  FROM job_postings p WHERE p.status = 'live' GROUP BY 2
+UNION ALL
 SELECT 'comp_undisclosed', 'n', count(*)
-  FROM job_postings p WHERE p.status = 'live' AND p.comp_max IS NULL`)
+  FROM job_postings p WHERE p.status = 'live' AND p.comp_max IS NULL`
+
+func Facets(ctx context.Context, pool *pgxpool.Pool) (FeedFacets, error) {
+	out := FeedFacets{
+		Modes:     map[string]int64{},
+		Countries: map[string]int64{},
+		Vendors:   map[string]int64{},
+		Fields:    map[string]int64{},
+		YoE:       map[string]int64{},
+		Comp:      map[string]int64{},
+	}
+
+	rows, err := pool.Query(ctx, facetsSQL)
 	if err != nil {
 		return out, fmt.Errorf("facets: %w", err)
 	}
@@ -960,6 +978,8 @@ SELECT 'comp_undisclosed', 'n', count(*)
 			out.YoE[value] = n
 		case "comp":
 			out.Comp[value] = n
+		case "field":
+			out.Fields[value] = n
 		case "comp_undisclosed":
 			out.CompUndisclosed = n
 		}
