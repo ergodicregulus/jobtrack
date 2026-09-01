@@ -548,6 +548,34 @@ Everything.
 truth, and the right reading is "these two disagree rarely", not "the classifier is 93.5% accurate".
 A labelled sample is still the honest way to claim accuracy, and has not been built.
 
+<a id="a-39"></a>**A-39 — Adding 18 engineering-dense boards moved the corpus 34.3% → 35.4% engineering-titled.**
+Measured 2026-09-02 after adding 18 verified Greenhouse and Ashby boards (1,182 live postings, zero
+errors): whole corpus 13,484 postings at 35.4% engineering-titled, up from 34.3%. Grade A — our rows.
+
+**The corpus-level number barely moved, and that is the finding.** One employer's board grew from
+4,698 to 34.8% of the corpus over the same period — it posts faster than eighteen curated boards
+could dilute it. **Board curation cannot outrun a single 4,700-posting conglomerate board**, which
+settles a question [ADR-0018](../architecture/adr/0018-classify-and-expose-not-filter-at-ingest.md)
+left open: curation was kept as a live alternative if classification underdelivered, and it is now
+measured as the weaker lever, not the stronger one.
+
+**What DID move is the view a reader actually uses.** `field=software` grew from 2,596 to 3,188
+postings while holding 94.0% precision. That is 592 more genuinely-software roles at no cost to
+quality, which is the entire point of the exercise even though the headline percentage is flat.
+
+Description coverage also reached 80.9% (from 77.5%) as the SmartRecruiters sweeps continued.
+
+*Caveat.* India moved 7.3% → 7.5%. Four of the eighteen boards were chosen for India presence and
+the effect is within noise; most large India-native SaaS companies do not publish on Greenhouse or
+Ashby at all — roughly 140 candidate tokens were tried and 404'd.
+
+**The classifier cannot be improved by re-running it.** Of the 5,940 postings it labels `unknown`,
+ZERO have six or more recognised skills and the bucket averages 0.90. Re-classifying now that
+descriptions exist would change nothing, and the low skill count is itself evidence that most of that
+bucket genuinely is not software work. Inferring `other` from an absence of recognised skills was
+considered and rejected: it is the direction that hides a real job, which is the trade ADR-0018 is
+built to refuse.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

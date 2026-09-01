@@ -275,5 +275,56 @@ func Boards() []Board {
 			Vendor: source.VendorBambooHR, Token: "flyio", Openings: 10},
 		{Slug: "posthog", Name: "PostHog", Domain: "posthog.com", Country: "GB",
 			Vendor: source.VendorBambooHR, Token: "posthog", Openings: 1},
+		// --- Engineering-dense additions, verified live 2026-09-01 ---
+		//
+		// Added to dilute a corpus that was 31% one industrial conglomerate and
+		// only ~34% engineering-titled. Every token below was called before it
+		// was written down, and the Openings figure is what the endpoint
+		// returned. Ordered by measured engineering density, highest first.
+		//
+		// andurilindustries was found, confirmed (2,186 postings) and
+		// DELIBERATELY LEFT OUT: 2,000+ roles at ~16% software, mostly
+		// mechanical, electrical and manufacturing. Adding it would reproduce
+		// exactly the skew these boards exist to correct.
+		{Slug: "poolside", Name: "Poolside", Domain: "poolside.ai", Country: "FR",
+			Vendor: source.VendorAshby, Token: "poolside", Openings: 15},
+		{Slug: "character-ai", Name: "Character.AI", Domain: "character.ai", Country: "US",
+			Vendor: source.VendorAshby, Token: "character", Openings: 13},
+		{Slug: "togetherai", Name: "Together AI", Domain: "together.ai", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "togetherai", Openings: 58},
+		{Slug: "anyscale", Name: "Anyscale", Domain: "anyscale.com", Country: "US",
+			Vendor: source.VendorAshby, Token: "anyscale", Openings: 19},
+		{Slug: "clickhouse", Name: "ClickHouse", Domain: "clickhouse.com", Country: "US",
+			Vendor: source.VendorAshby, Token: "clickhouse", Openings: 173},
+		{Slug: "roblox", Name: "Roblox", Domain: "roblox.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "roblox", Openings: 226},
+		{Slug: "confluent", Name: "Confluent", Domain: "confluent.io", Country: "US",
+			Vendor: source.VendorAshby, Token: "confluent", Openings: 23},
+		{Slug: "cockroachlabs", Name: "Cockroach Labs", Domain: "cockroachlabs.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "cockroachlabs", Openings: 26},
+		{Slug: "launchdarkly", Name: "LaunchDarkly", Domain: "launchdarkly.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "launchdarkly", Openings: 49},
+		{Slug: "workos", Name: "WorkOS", Domain: "workos.com", Country: "US",
+			Vendor: source.VendorAshby, Token: "workos", Openings: 28},
+		{Slug: "langchain", Name: "LangChain", Domain: "langchain.com", Country: "US",
+			Vendor: source.VendorAshby, Token: "langchain", Openings: 104},
+		{Slug: "cartesia", Name: "Cartesia", Domain: "cartesia.ai", Country: "US",
+			Vendor: source.VendorAshby, Token: "cartesia", Openings: 33},
+		{Slug: "scaleai", Name: "Scale AI", Domain: "scale.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "scaleai", Openings: 214},
+		{Slug: "snowflake", Name: "Snowflake", Domain: "snowflake.com", Country: "US",
+			Vendor: source.VendorAshby, Token: "snowflake", Openings: 384},
+
+		// India presence, which was 7.3% of the corpus. Atlan is India-founded
+		// and every one of its postings is India-located; Druva is Pune-founded;
+		// Rubrik and Turing both run substantial Bengaluru engineering.
+		{Slug: "atlan", Name: "Atlan", Domain: "atlan.com", Country: "IN",
+			Vendor: source.VendorAshby, Token: "atlan", Openings: 5},
+		{Slug: "druva", Name: "Druva", Domain: "druva.com", Country: "IN",
+			Vendor: source.VendorGreenhouse, Token: "druva", Openings: 42},
+		{Slug: "rubrik", Name: "Rubrik", Domain: "rubrik.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "rubrik", Openings: 136},
+		{Slug: "turing", Name: "Turing", Domain: "turing.com", Country: "US",
+			Vendor: source.VendorGreenhouse, Token: "turing", Openings: 25},
 	}
 }
