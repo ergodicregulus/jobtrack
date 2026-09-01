@@ -541,11 +541,25 @@
   /* The action column is width-capped so Apply sits beside the content rather
      than pinned to the far edge of a 1400px card, where it reads as belonging
      to the page rather than to this posting. */
+  /*
+    A row, not a column.
+    
+    Three stacked buttons made a 116px-wide column about 110px tall, and every
+    card inherited that as a floor — a two-line posting was mostly empty space,
+    and a list of them read as loosely as a list of long ones. Card height is
+    now set by the posting, so a dense result looks dense and a rich one looks
+    rich, which is the difference a scanner actually uses.
+    
+    Aligned to the start rather than centred: the buttons sit level with the
+    title, where the eye already is after reading it.
+  */
   .actions {
-    display: flex; flex-direction: column; align-items: stretch; gap: var(--s-1);
-    width: 116px;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s-1);
     padding: var(--card-pad);
   }
+  .actions :global(.btn) { white-space: nowrap; }
   .apply { white-space: nowrap; }
 
   /* The hide control is deliberately the quietest thing in the row. It is
