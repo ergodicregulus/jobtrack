@@ -285,9 +285,15 @@ func TestFetch_UnchangedBoardIsSkippedOnlyAfterAFullSweep(t *testing.T) {
 	board := &fakeBoard{n: 10}
 
 	first := fetchBoard(t, board, source.Source{})
-	if first.DetailCursor != board.n {
+	// sweepDone means FINISHED, which for a board smaller than the budget happens
+	// in one poll. Deliberately not zero: zero means "never swept", and a signal
+	// that cannot tell those apart reports an unread board as complete.
+	if first.DetailCursor != sweepDone {
 		t.Fatalf("cursor = %d, want %d — a board smaller than the budget sweeps in one poll",
-			first.DetailCursor, board.n)
+			first.DetailCursor, sweepDone)
+	}
+	if n := len(board.seen()); n != board.n {
+		t.Fatalf("filled %d of %d details on the first poll", n, board.n)
 	}
 
 	board.reset()
@@ -300,6 +306,64 @@ func TestFetch_UnchangedBoardIsSkippedOnlyAfterAFullSweep(t *testing.T) {
 	}
 	if n := len(board.seen()); n != 0 {
 		t.Errorf("fetched %d details for an unchanged, fully-swept board", n)
+	}
+}
+
+// A board that stops changing mid-sweep must still finish it.
+//
+// This is the bug that cost BoschGroup 98% of its descriptions. The list request
+// carried validators unconditionally, so once a board went quiet the vendor
+// answered 304, Fetch returned before the detail phase, and the postings past
+// the cursor never got a body — permanently, because the board was never going
+// to change again to dislodge it. Measured before the fix: 3,995 postings, 75
+// with a description.
+func TestFetch_AQuietBoardStillFinishesItsSweep(t *testing.T) {
+	board := &fakeBoard{n: 2 * maxDetailFetches}
+
+	first := fetchBoard(t, board, source.Source{})
+	if first.DetailCursor != maxDetailFetches {
+		t.Fatalf("cursor = %d, want %d after one bounded window",
+			first.DetailCursor, maxDetailFetches)
+	}
+
+	// The board is now byte-identical AND would answer 304. Neither may stop the
+	// sweep while bodies are still missing.
+	board.reset()
+	second := fetchBoard(t, board, source.Source{
+		DetailCursor: first.DetailCursor,
+		ContentHash:  first.ContentHash,
+		ETag:         "unchanged",
+	})
+	if second.NotModified {
+		t.Error("an unchanged board short-circuited with its sweep unfinished")
+	}
+	if n := len(board.seen()); n == 0 {
+		t.Error("no details fetched on the second poll — the sweep stalled")
+	}
+	if second.DetailCursor != sweepDone {
+		t.Errorf("cursor = %d, want %d once the sweep reaches the end",
+			second.DetailCursor, sweepDone)
+	}
+}
+
+// A cursor of zero is an UNREAD board, never a finished one.
+//
+// The distinction is the whole reason sweepDone is negative. With zero standing
+// for both, resetting a source to re-read it told the adapter it was already
+// done: it sent validators, took the 304, and filled nothing — for good.
+func TestFetch_AResetCursorMeansUnreadNotFinished(t *testing.T) {
+	board := &fakeBoard{n: 10}
+
+	res := fetchBoard(t, board, source.Source{
+		DetailCursor: 0,
+		ContentHash:  []byte("identical"),
+		ETag:         "identical",
+	})
+	if res.NotModified {
+		t.Fatal("a board with an unread cursor was skipped as unchanged")
+	}
+	if n := len(board.seen()); n != board.n {
+		t.Errorf("filled %d of %d — a reset cursor must re-read the board", n, board.n)
 	}
 }
 

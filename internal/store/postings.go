@@ -107,8 +107,33 @@ ON CONFLICT (source_id, external_id) DO UPDATE SET
     requisition_id  = EXCLUDED.requisition_id,
     title           = EXCLUDED.title,
     title_normalised = EXCLUDED.title_normalised,
-    description_html = EXCLUDED.description_html,
-    description_text = EXCLUDED.description_text,
+    -- AN EMPTY BODY NEVER ERASES ONE WE ALREADY HOLD.
+    --
+    -- Two-phase vendors serve descriptions from a per-posting endpoint, and the
+    -- detail phase is bounded per poll (SmartRecruiters: 250). Every poll
+    -- re-upserts the WHOLE board, so before this, each poll wrote a real body
+    -- for the 250 in the window and blanked the other few thousand. The corpus
+    -- could never accumulate: coverage settled at roughly window/board_size.
+    --
+    -- Measured on 2026-09-01, before the fix: Swiggy (41 postings) 87.8% had a
+    -- body, Wise (559) 15.6%, BoschGroup (3,995) 1.9%. That is not a fetch
+    -- failure — the detail endpoint returns 200 with 7 KB — it is this line
+    -- overwriting good data with an absence, once every two hours.
+    --
+    -- It cost 4,604 of SmartRecruiters' 4,802 live postings their description,
+    -- which is 36% of the whole corpus scoring as an ADR-0011 abstention rather
+    -- than on its merits. Nothing alerted, because a missing body is a state the
+    -- scorer handles honestly and the adapter treats a failed detail fetch as
+    -- acceptable — so the one thing nobody checked was whether we were doing it
+    -- to ourselves.
+    description_html = CASE
+        WHEN EXCLUDED.description_html <> '' THEN EXCLUDED.description_html
+        ELSE job_postings.description_html
+    END,
+    description_text = CASE
+        WHEN EXCLUDED.description_text <> '' THEN EXCLUDED.description_text
+        ELSE job_postings.description_text
+    END,
     apply_url       = EXCLUDED.apply_url,
     posting_url     = EXCLUDED.posting_url,
     location_raw    = EXCLUDED.location_raw,
@@ -141,7 +166,13 @@ ON CONFLICT (source_id, external_id) DO UPDATE SET
     ai_screening_disclosed = EXCLUDED.ai_screening_disclosed,
     ai_disclaimer   = EXCLUDED.ai_disclaimer,
     ai_opt_out_url  = EXCLUDED.ai_opt_out_url,
-    parse_confidence = EXCLUDED.parse_confidence,
+    -- Follows the body, because it is derived from it. Keeping a description
+    -- while taking the confidence computed for an empty one would leave the row
+    -- readable and permanently below the scoring floor.
+    parse_confidence = CASE
+        WHEN EXCLUDED.description_text <> '' THEN EXCLUDED.parse_confidence
+        ELSE greatest(job_postings.parse_confidence, EXCLUDED.parse_confidence)
+    END,
     raw             = EXCLUDED.raw,
     -- Seeing a posting again resurrects it: a role that came back is live
     -- again, and the miss counter must reset or it would close prematurely.

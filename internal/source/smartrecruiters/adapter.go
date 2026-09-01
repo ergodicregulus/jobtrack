@@ -161,7 +161,7 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 
 	end := min(start+maxDetailFetches, len(all))
 	filled := a.fillDescriptions(ctx, src, all[start:end])
-	result.DetailCursor = cursorAfter(ctx, filled, start, end)
+	result.DetailCursor = cursorAfter(ctx, filled, start, end, len(all))
 	result.Postings = a.convertAll(all, src.BoardToken)
 	return result, nil
 }
@@ -183,7 +183,14 @@ func (a *Adapter) listBoard(ctx context.Context, src source.Source) ([]wireJob, 
 		url := fmt.Sprintf("%s/companies/%s/postings?limit=%d&offset=%d",
 			baseURL, src.BoardToken, pageSize, page*pageSize)
 
-		body, res, err := a.get(ctx, url, src, page == 0)
+		// Validators go on the first page ONLY when the detail sweep is FINISHED
+		// (cursor < 0). A 304 returns before the detail phase runs, so a board
+		// that has stopped changing can never complete a sweep it started — it
+		// sits forever at whatever fraction of bodies it had when the board
+		// settled. That is how BoschGroup reached 1.9%: 3,995 postings, 250
+		// filled per poll, and the board went quiet long before the sweep came
+		// round.
+		body, res, err := a.get(ctx, url, src, page == 0 && src.DetailCursor == sweepDone)
 		if err != nil {
 			return nil, source.FetchResult{}, err
 		}
@@ -247,14 +254,36 @@ func firstPage(result *source.FetchResult, src source.Source, res *http.Response
 // top: positions shift as postings open and close, so there is no position that
 // is reliably "the new ones", and a second pass also refreshes bodies that have
 // been edited.
+// sweepDone marks a completed detail sweep.
+//
+// Negative, and NOT zero, because zero already means "never swept" — a fresh
+// source, or one whose cursor was reset. Conflating them tells the system a
+// board it has never read is finished, and it then answers every future poll
+// with a 304 and no bodies. Wise and Ubisoft2 sat at 87/441 and 0/207 doing
+// exactly that for the length of one debugging round.
+const sweepDone = -1
+
 func sweepStart(src source.Source, hash []byte, total int) (start int, unchanged bool) {
-	start = src.DetailCursor
-	if start < total {
-		return start, false
+	// Finished. An identical board now means identical bodies, so the detail
+	// phase can be skipped — the difference between one request per poll and
+	// hundreds. A changed board starts again from the top: positions shift as
+	// postings open and close, so there is no position that is reliably "the new
+	// ones", and a second pass also refreshes bodies that were edited.
+	if src.DetailCursor == sweepDone {
+		if len(src.ContentHash) > 0 && string(hash) == string(src.ContentHash) {
+			return 0, true
+		}
+		return 0, false
 	}
-	if len(src.ContentHash) > 0 && string(hash) == string(src.ContentHash) {
-		return start, true
+
+	// Never swept, or mid-sweep. Resume and never skip: the postings past the
+	// cursor still have no body, so an unchanged board is not a reason to stop.
+	if src.DetailCursor < total {
+		return max(0, src.DetailCursor), false
 	}
+
+	// The board shrank under us — more postings closed than the cursor knows
+	// about. Start again rather than reading past the end.
 	return 0, false
 }
 
@@ -267,9 +296,16 @@ func sweepStart(src source.Source, hash []byte, total int) (start int, unchanged
 // until the sweep came round again. That happened on the first live run — two
 // boards advanced 250 places having filled nothing, while the database pool was
 // saturated.
-func cursorAfter(ctx context.Context, filled, start, end int) int {
+func cursorAfter(ctx context.Context, filled, start, end, total int) int {
 	if filled == 0 && ctx.Err() != nil {
 		return start
+	}
+	// sweepDone re-enables both the conditional request and the unchanged-board
+	// short-circuit. Storing `end` here instead would leave the cursor at the
+	// board's length, which reads as mid-sweep forever and refetches the whole
+	// list every poll.
+	if end >= total {
+		return sweepDone
 	}
 	return end
 }
