@@ -16,7 +16,6 @@ thing well.
 | Plan | Problem it addresses | Blocked on a decision? |
 |---|---|---|
 | [corpus-relevance](corpus-relevance.md) | 67% of live postings are not engineering roles; one employer is 37% of the corpus | **Yes** — product scope |
-| [corpus-freshness](corpus-freshness.md) | No posting has ever been closed. 42% are over 60 days old | No |
 | [corpus-completeness](corpus-completeness.md) | 39% have no country; skills read for 52%; the description fix is unverified on three vendors | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
 | [digest-email](digest-email.md) | The last Block C item, and the only one needing new infrastructure | **Yes** — provider |

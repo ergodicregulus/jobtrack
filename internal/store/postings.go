@@ -274,27 +274,63 @@ func RecordObservation(ctx context.Context, tx pgx.Tx, postingID int64, contentH
 //
 // Callers MUST NOT invoke this after a 304 or a partial response: absence from
 // a response we did not fully receive means nothing.
+// absenceLimit is how many consecutive polls a posting may be missing from its
+// board before it is closed.
+//
+// Two, at a 2-hour tier, is four hours of absence. Deliberately not one: a board
+// that paginates unstably can drop a posting from one page and restore it on the
+// next, and closing on a single miss would make the corpus flap.
+const absenceLimit = 2
+
+// ReconcileAbsent counts a poll against every posting the board no longer lists,
+// and closes the ones that have been gone long enough.
+//
+// ONE UPDATE PER ROW, and that is the entire point of this shape. The previous
+// version bumped the counter in a data-modifying CTE and then updated the same
+// rows again in the outer statement:
+//
+//	WITH bumped AS (UPDATE ... RETURNING id, missing_count)
+//	UPDATE job_postings p SET status='closed' FROM bumped b
+//	 WHERE p.id = b.id AND b.missing_count >= 2
+//
+// PostgreSQL does not apply a second update to a row already modified by the
+// same command — "only one of the modifications takes place, and it is not
+// reliably possible to predict which one". The outer UPDATE matched, reported
+// rows affected, and changed nothing. This function returned a closure count it
+// had not performed for its entire life, and NOT ONE POSTING WAS EVER CLOSED:
+// 2,020 sat absent from their boards, one of them for 29 consecutive polls,
+// every one still reading as live. It is why 42% of the corpus was over 60 days
+// old.
+//
+// The count is taken from RETURNING rather than from the command tag, because
+// the command tag is exactly what lied before.
 func ReconcileAbsent(ctx context.Context, tx pgx.Tx, sourceID int64, seenExternalIDs []string) (closed int64, err error) {
 	const q = `
-WITH bumped AS (
+WITH touched AS (
     UPDATE job_postings
        SET missing_count = missing_count + 1,
+           status = CASE WHEN missing_count + 1 >= $3
+                         THEN 'closed'::posting_status ELSE status END,
+           closed_at = CASE WHEN missing_count + 1 >= $3
+                            THEN now() ELSE closed_at END,
            updated_at = now()
      WHERE source_id = $1
        AND status = 'live'
-       AND NOT (external_id = ANY($2::text[]))
-    RETURNING id, missing_count
+       -- COALESCE, because a nil slice arrives as NULL and x = ANY(NULL) is
+       -- NULL, so NOT NULL matches nothing: a board that legitimately emptied
+       -- would count no absences and close no postings, silently. An empty array
+       -- makes every live posting absent, which is the correct reading — the
+       -- adapter's ErrSuspiciousEmpty guard is what decides whether an empty
+       -- board is believable, and by this point it has.
+       AND NOT (external_id = ANY(COALESCE($2::text[], '{}')))
+    RETURNING status
 )
-UPDATE job_postings p
-   SET status = 'closed', closed_at = now()
-  FROM bumped b
- WHERE p.id = b.id AND b.missing_count >= 2`
+SELECT count(*) FILTER (WHERE status = 'closed') FROM touched`
 
-	tag, err := tx.Exec(ctx, q, sourceID, seenExternalIDs)
-	if err != nil {
+	if err := tx.QueryRow(ctx, q, sourceID, seenExternalIDs, absenceLimit).Scan(&closed); err != nil {
 		return 0, fmt.Errorf("reconcile absent postings: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return closed, nil
 }
 
 // EnsureSkills inserts any canonical skills that do not exist yet.

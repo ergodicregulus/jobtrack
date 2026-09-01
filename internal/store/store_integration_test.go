@@ -119,3 +119,90 @@ func seedPosting(t *testing.T, pool *pgxpool.Pool, title string) int64 {
 	}
 	return postingID
 }
+
+// A posting absent from its board must actually close.
+//
+// This test exists because its absence let a no-op ship for the whole life of
+// ReconcileAbsent. The old statement bumped the counter in a data-modifying CTE
+// and then updated the same rows again in the outer statement; PostgreSQL
+// applies only one modification per row per command, so status='closed' never
+// took effect. The function reported closures from the command tag and performed
+// none, and 2,020 postings sat absent from their boards — one for 29 consecutive
+// polls — still reading as live.
+//
+// The assertions are deliberately on the ROWS, not on the returned count. The
+// returned count is what lied.
+func TestReconcileAbsent_ClosesAPostingThatStaysGone(t *testing.T) {
+	pool := newTestDB(t)
+	ctx := context.Background()
+
+	postingID := seedPosting(t, pool, "Backend Engineer")
+	var sourceID int64
+	if err := pool.QueryRow(ctx,
+		`SELECT source_id FROM job_postings WHERE id = $1`, postingID).Scan(&sourceID); err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+
+	read := func() (status string, missing int, closedAt *time.Time) {
+		t.Helper()
+		if err := pool.QueryRow(ctx,
+			`SELECT status::text, missing_count, closed_at FROM job_postings WHERE id = $1`,
+			postingID).Scan(&status, &missing, &closedAt); err != nil {
+			t.Fatalf("read posting: %v", err)
+		}
+		return status, missing, closedAt
+	}
+
+	reconcile := func(seen []string) int64 {
+		t.Helper()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		n, err := ReconcileAbsent(ctx, tx, sourceID, seen)
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+		return n
+	}
+
+	// Still listed: nothing moves, however many times we poll.
+	reconcile([]string{"ext-Backend Engineer"})
+	if status, missing, _ := read(); status != "live" || missing != 0 {
+		t.Fatalf("a listed posting changed: status=%s missing=%d", status, missing)
+	}
+
+	// Gone once. Counted, but a single absence must not close it — boards
+	// reorder under pagination and a posting can flicker.
+	if n := reconcile(nil); n != 0 {
+		t.Errorf("closed %d postings after one absence, want 0", n)
+	}
+	if status, missing, closedAt := read(); status != "live" || missing != 1 || closedAt != nil {
+		t.Fatalf("after one absence: status=%s missing=%d closed_at=%v", status, missing, closedAt)
+	}
+
+	// Gone twice: closed, with the timestamp set.
+	if n := reconcile(nil); n != 1 {
+		t.Errorf("closed %d postings after two absences, want 1", n)
+	}
+	status, missing, closedAt := read()
+	if status != "closed" {
+		t.Errorf("status = %s, want closed", status)
+	}
+	if closedAt == nil {
+		t.Error("closed_at is nil on a closed posting — the freshness signal and " +
+			"the source_daily rollup both read it")
+	}
+	if missing != 2 {
+		t.Errorf("missing_count = %d, want 2", missing)
+	}
+
+	// A closed posting is not counted again: the WHERE clause is status='live'.
+	if n := reconcile(nil); n != 0 {
+		t.Errorf("closed %d already-closed postings, want 0", n)
+	}
+}

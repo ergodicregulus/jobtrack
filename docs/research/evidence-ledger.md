@@ -476,6 +476,32 @@ live postings" from `/v1/market`: same page, same word, two numbers 38% apart. T
 filtered `status = 'live'`, so no reader could ever browse the roles the chart was counting. Both
 figures now read 14,036.
 
+<a id="a-36"></a>**A-36 — 40% of live postings are over 60 days old, and that is real, not a defect.**
+Measured 2026-09-01 after closing every posting its board had stopped listing: 4,442 of 10,998 live
+postings (40.4%) were posted more than 60 days ago, and 1,535 (14.0%) more than 180. Grade A — our
+rows, one query.
+
+The interesting part is what did NOT change. Before the repair, 42% were over 60 days old and the
+obvious explanation was that dead postings were never being removed — which was independently true,
+and which the repair fixed by closing 1,920 of them. The share moved to 40.4%. **The staleness is
+therefore a property of these employers, not an artefact of our ingestion**: large boards genuinely
+carry roles for months, and Bosch in particular keeps requisitions open far longer than a startup
+does. A product that treats age as a ghost-job signal has to say which of the two it is measuring,
+because on this corpus it is mostly the former.
+
+*Caveat.* `posted_at` is the employer's own stated date and 42 postings carry an estimate flag. A
+requisition that is edited and re-published may reset it, which would make this an undercount; one
+that is never touched keeps its original date whether or not anyone is still hiring, which would make
+it an overcount. The two errors run in opposite directions and we have not measured either.
+
+**The related repair, worth its own line.** `ReconcileAbsent` bumped `missing_count` in a
+data-modifying CTE and then updated the same rows again in the outer statement. PostgreSQL applies
+one modification per row per command, so `status='closed'` never took effect, while the function
+returned a closure count read from the command tag — which matched. It reported work it had not done
+for its entire life, and no posting had EVER been closed: 1,920 were absent from their boards, one
+for 29 consecutive polls, every one still served, scored and shown as applicable. Live postings fell
+from 12,918 to 10,998 when the backfill ran.
+
 ## B — Directionally trustworthy, numerically soft
 
 ### Screening and channels

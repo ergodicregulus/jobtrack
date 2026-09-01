@@ -12,7 +12,7 @@ SELECT count(*) FILTER (WHERE title ~* '(engineer|developer|programmer|architect
         |sre|devops|data scien|machine learning|software)') AS engineering,
        count(*) AS live
   FROM job_postings WHERE status='live';
---  4,650 of 14,258  (32.6%)
+--  3,805 of 10,998  (34.6%)   measured 2026-09-01, after the freshness repair
 ```
 
 ```sql
@@ -20,11 +20,16 @@ SELECT c.name, count(*), round(100.0*count(*)/sum(count(*)) OVER (),1) AS pct
   FROM job_postings p JOIN sources s ON s.id=p.source_id
   JOIN companies c ON c.id=s.company_id
  WHERE p.status='live' GROUP BY 1 ORDER BY 2 DESC LIMIT 3;
---  Bosch 5,234 (36.7%) | OpenAI 793 (5.6%) | Anthropic 533 (3.7%)
+--  Bosch 3,456 (31.4%) | OpenAI 676 (6.1%) | Anthropic 468 (4.3%)
 ```
 
-**Two-thirds of the corpus is not engineering work**, and one employer is 37% of
-it. These are the same fact: Bosch is a conglomerate whose board carries HVAC
+**Two-thirds of the corpus is not engineering work**, and one employer is 31% of
+it.
+
+These figures are post-repair. Closing 1,920 postings their boards had dropped
+moved engineering from 32.6% to 34.6% and Bosch from 36.7% to 31.4% — real, and
+nowhere near enough to dissolve the problem. It was worth doing first so this
+decision is taken on a corpus that exists, but the answer did not change. These are the same fact: Bosch is a conglomerate whose board carries HVAC
 sales in Bogotá and factory roles in Stuttgart alongside its software openings.
 A user searching this product is mostly searching someone else's job board.
 
