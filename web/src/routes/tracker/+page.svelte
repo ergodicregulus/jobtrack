@@ -266,6 +266,31 @@
     gap: var(--s-3);
     overflow-x: auto;
     padding-bottom: var(--s-3);
+
+    /* A scrolling region has to look like one.
+       
+       Six 264px columns overflow 1440, which is a deliberate trade — a readable
+       card you scroll to beats an unreadable one you do not — but the last
+       column was simply cut mid-word at the viewport edge with nothing to say
+       there was more. The reader sees a broken layout, not a scrollable one.
+       
+       Pure CSS, no listener: the two gradients are pinned to the content
+       (background-attachment: local) and the two shadows to the container
+       (scroll), so each shadow is only visible while there is content past that
+       edge. It costs nothing and it disappears on its own at the ends.
+       
+       Mixed from --fg rather than black: a black shadow on the dark theme's
+       near-black ground is invisible, which is exactly how the first version
+       shipped looking identical to no affordance at all. */
+    background:
+      linear-gradient(to right, var(--bg), transparent) left center / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--bg), transparent) right center / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%,
+        color-mix(in oklab, var(--fg) 20%, transparent), transparent)
+        left center / 16px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%,
+        color-mix(in oklab, var(--fg) 20%, transparent), transparent)
+        right center / 16px 100% no-repeat scroll;
   }
 
   .column { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
@@ -278,6 +303,12 @@
      this view is a board rather than a list. */
   .cards {
     display: flex; flex-direction: column; gap: var(--s-2);
+    /* A board with two applications was a 130px strip above 600px of nothing,
+       which reads as a page that failed to load rather than a pipeline that is
+       mostly empty. The minimum gives the six stages enough height to be
+       legible AS a pipeline; the maximum is what keeps them all on one screen
+       when they fill up. */
+    min-height: clamp(280px, 38vh, 440px);
     max-height: calc(100vh - 15rem);
     overflow-y: auto;
     /* Room for the focus ring on the last card, which a flush overflow clips. */

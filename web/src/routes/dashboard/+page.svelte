@@ -206,7 +206,16 @@
       below six rows of it. The void is now filled by the activity grid, which
       is full width because twelve weeks needs the room.
     -->
-    <div data-dash-two>
+    <!--
+      Two columns only when there IS a second column.
+
+      The rail holds "Sharpen your matches", which hides itself at 100% — good
+      reasoning with a bad consequence: the 2fr/1fr grid kept the empty 1fr, so
+      a complete profile got a half-width matches panel beside a void, directly
+      under two full-width rows. That ragged right edge is most of why the page
+      read as unfinished.
+    -->
+    <div data-dash-two={d.strength.percent < 100 ? 'pair' : 'single'}>
       <!-- Top matches: the reason someone opens this page. -->
       <section class="panel matches-panel" aria-labelledby="tm">
         <div class="panel-head">

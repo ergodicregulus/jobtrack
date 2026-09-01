@@ -360,10 +360,22 @@
   [data-feed-grid] { grid-template-columns: 272px minmax(0, 1fr); gap: var(--s-6); align-items: start; }
 }
 
-[data-wide-only] { display: none; }
-@media (min-width: 1040px) { [data-wide-only] { display: block; } }
-[data-narrow-only] { display: block; }
-@media (min-width: 1040px) { [data-narrow-only] { display: none; } }
+/* Doubled attribute, and it is not a flourish.
+   
+   Svelte scopes a component's styles by appending a hash class, so a rule like
+   `.stages { display: flex }` inside a component has specificity (0,2,0) and
+   silently beat this utility at (0,1,0). The tracker's stage chips are marked
+   narrow-only and were visible at every width, duplicating the column headers
+   exactly — the utility looked applied and did nothing.
+   
+   Repeating the selector raises it to (0,2,0) without !important, so a
+   component's own layout rules and this can no longer disagree quietly. The
+   alternative was for every component to re-declare the media query, which is
+   the duplication these utilities exist to remove. */
+[data-wide-only][data-wide-only] { display: none; }
+@media (min-width: 1040px) { [data-wide-only][data-wide-only] { display: block; } }
+[data-narrow-only][data-narrow-only] { display: block; }
+@media (min-width: 1040px) { [data-narrow-only][data-narrow-only] { display: none; } }
 
 /* Global search appears once the header has room for it without crowding the
    nav. Below that it lives on the feed, where search belongs anyway.
@@ -382,7 +394,9 @@
 /* Dashboard: matches beside the pipeline. Two thirds / one third, because the
    match list is the reason the page exists and the pipeline is a glance. */
 [data-dash-two] { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4h); align-items: start; }
-@media (min-width: 900px) { [data-dash-two] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+@media (min-width: 900px) {
+  [data-dash-two='pair'] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
 
 /* Job detail: the score breakdown sticks beside the description on a wide
    screen and leads on a narrow one — the breakdown is the signature moment, so
