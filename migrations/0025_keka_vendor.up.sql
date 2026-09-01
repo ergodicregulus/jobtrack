@@ -1,0 +1,15 @@
+-- +migrate no-transaction
+--
+-- Adds `keka` to source_vendor.
+--
+-- ALTER TYPE ... ADD VALUE cannot run inside a transaction, which is why this
+-- migration is marked no-transaction — the same reason migration 0019 carries
+-- the marker for `workday`. IF NOT EXISTS makes it safe to re-run, which matters
+-- because a no-transaction migration that fails halfway cannot be rolled back.
+--
+-- Keka is an India-first ATS, and India was 7.1% of a corpus for a product that
+-- names India as its primary market. Verified unauthenticated on three tenants
+-- (spyneai, awfis, softprodigy) on 2026-09-01: 28 live postings, full
+-- descriptions, structured locations with ISO country codes, and a real
+-- publication timestamp. See source-catalog.
+ALTER TYPE source_vendor ADD VALUE IF NOT EXISTS 'keka';

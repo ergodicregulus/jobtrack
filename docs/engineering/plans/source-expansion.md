@@ -1,12 +1,12 @@
 # Source expansion
 
-**Status:** not started. **Done when:** India is a share of the corpus that
+**Status:** Keka built and ingesting (28 postings, 3 boards). BambooHR verified and not built. JSON-LD tier not started. **Done when:** India is a share of the corpus that
 matches the product's stated focus, and the Tier 2 career-page route is either
 built or rejected in an ADR.
 
 ## The problem, measured
 
-India is **1,052 of 14,258 live postings — 7.4%** — in a product whose
+India is **815 of 11,131 live postings — 7.3%** — in a product whose
 [phase-5 §7.4](../phase-5-production-readiness.md) names India as the primary
 market. Every vendor added so far has been Western: Greenhouse, Ashby and
 SmartRecruiters are US-first, and Personio, Recruitee and Workable are European.

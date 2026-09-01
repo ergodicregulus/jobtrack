@@ -251,5 +251,21 @@ func Boards() []Board {
 			Vendor: source.VendorPersonio, Token: "orderbird", Openings: 5},
 		{Slug: "personio", Name: "Personio", Domain: "personio.com", Country: "DE",
 			Vendor: source.VendorPersonio, Token: "personio", Openings: 1},
+		// --- Keka ---
+		// India-first, and the reason it was built ahead of the other verified
+		// candidate: India was 7.1% of the corpus for a product that names it as
+		// the primary market. The token is tenant:portal/orgID — the org
+		// identifier is a per-tenant GUID read once from the careers page, and a
+		// guessed one returns an empty array rather than a 404, which is
+		// indistinguishable from a company that stopped hiring.
+		{Slug: "spyneai", Name: "Spyne", Domain: "spyne.ai", Country: "IN",
+			Vendor: source.VendorKeka,
+			Token:  "spyneai:default/49556835-6902-4481-b4e9-11910edf9cb1", Openings: 16},
+		{Slug: "awfis", Name: "Awfis", Domain: "awfis.com", Country: "IN",
+			Vendor: source.VendorKeka,
+			Token:  "awfis:default/0d7c8703-f6ae-46fc-8058-8e4874ed3070", Openings: 11},
+		{Slug: "softprodigy", Name: "SoftProdigy", Domain: "softprodigy.com", Country: "IN",
+			Vendor: source.VendorKeka,
+			Token:  "softprodigy:default/c6dbd897-0831-47b1-b411-0e5c4bf13354", Openings: 1},
 	}
 }

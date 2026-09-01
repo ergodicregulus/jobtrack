@@ -362,10 +362,23 @@ Four vendors probed live. Findings, not plans.
 
 | Vendor | Endpoint | Result | Verdict |
 |---|---|---|---|
-| **Keka** | `{tenant}.keka.com/careers/api/embedjobs/{portal}/active/{orgId}` | 200 JSON on 3 tenants (spyneai, softprodigy, awfis) | ✅ **Public feed** |
+| **Keka** | `{tenant}.keka.com/careers/api/embedjobs/{portal}/active/{orgId}` | 200 JSON on 3 tenants (spyneai, softprodigy, awfis) | ✅ **Built 2026-09-01** |
 | **BambooHR** | `{company}.bamboohr.com/careers/list` | 200 JSON on 3 tenants (flyio, posthog, palantir) | ✅ **Public feed** |
 | **Darwinbox** | `{tenant}.darwinbox.in/ms/candidateapi/job` | 403 Cloudflare bot challenge on 3/3 tenants | ❌ Out of scope |
 | **iCIMS** | `{tenant}.icims.com/jobs` | 405 AWS WAF CAPTCHA on 3/3; documented feed is OAuth2 partner-gated | ❌ Out of scope |
+
+**Two integer enums are NOT decoded, and the adapter refuses to guess them.**
+`jobType` was 2 for all 16 postings on the sampled board — an intern, a product
+manager, an analyst and an engineer alike — so it does not mean employment type
+on this evidence. `salaryRange.salaryPeriod` took the values 0 and 4 over figures
+of the SAME magnitude (1,800,000 INR at 0, 900,000 INR at 4), so it cannot be
+read as year/month either. **Keka therefore emits no structured compensation**,
+despite having the richest salary object of any vendor: publishing a monthly
+figure as annual is the Ashby interval bug that put "$30 – $45 per year" in front
+of users for an hourly contract. The description still goes through text
+extraction, which has the plausibility guard. Both enums are recorded here so the
+next person decodes them from a wider sample rather than rediscovering the
+ambiguity.
 
 **Keka matters most.** It is India-first, and India is 7.1% of a corpus for a
 product that names India as its primary market. Its payload is unusually rich —
