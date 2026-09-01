@@ -405,34 +405,27 @@ trying harder.**
 
 ## Tier 2 — JSON-LD career pages
 
-```
-GET https://<company>/careers        → parse <script type="application/ld+json">
-```
-
-Filter to `@type: JobPosting`. Normalise per `schema.org/JobPosting` semantics — which is the
-vocabulary our canonical schema is modelled on, deliberately.
-
-| Field | Coverage | Notes |
-|---|---|---|
-| `title` | ~99% `[A-12]` | |
-| `datePosted` | ~99% `[A-12]` | |
-| `hiringOrganization` | high | |
-| `employmentType` | ~80% `[A-12]` | Fixed vocabulary: `FULL_TIME`, `PART_TIME`, `CONTRACTOR`, `TEMPORARY`, `INTERN`, `VOLUNTEER`, `PER_DIEM`, `OTHER`. **May be an array** |
-| `baseSalary` | ~80% `[A-12]` | `MonetaryAmount` with `value` as `QuantitativeValue` |
-| `jobLocation` | high | May be an array |
-| `validThrough` | medium | Useful as a closure hint, but absence means nothing |
-| `jobLocationType` | low | `TELECOMMUTE` for remote |
-
-**Quirks:**
-- ⚠️ Quality varies enormously between publishers. Confidence scoring is per-source, not global.
-- ⚠️ **No stable vendor ID.** We derive `sha256(canonical_url || normalised_title || company_id)`.
-- Some pages embed multiple `JobPosting` objects; some embed one per page.
-- `robots.txt` **is honoured here**, including `Crawl-delay`. These are ordinary web pages, not
-  documented API surfaces.
-- Frequently duplicates a Tier-1 source for the same company — this is the primary work of the dedup
-  pipeline, and the ATS source wins canonical selection because its apply URL is more certainly live.
-
----
+> ⚠️ **Measured 2026-09-01: not viable as designed. Do not build this without
+> re-testing first.**
+>
+> Fifteen URLs across eleven hosts were fetched and searched for
+> `<script type="application/ld+json">` blocks containing a schema.org
+> `JobPosting`. **Every one returned zero.** That included individual posting
+> pages on job-boards.greenhouse.io (vercel, gitlab, anthropic), a company's own
+> careers site (hellofresh), self-hosted pages (atlassian, google), and the
+> aggregators (wellfound, weworkremotely, remoteok).
+>
+> The cause is that career pages are now client-rendered. Where JSON-LD exists at
+> all it is injected after hydration, so an HTTP client sees a shell. Rendering
+> the page to recover it is a materially different activity from reading a feed
+> an employer published — it is executing someone's application to extract data
+> their server chose not to send — and that is not what
+> [ADR-0004](../architecture/adr/0004-source-acquisition-policy.md) permits.
+>
+> The tier is not rejected on principle; the principle is fine, and a static
+> career page with JSON-LD would be squarely in scope. It is that we could not
+> find one. **Re-test before building: this is a fact about the web in 2026, and
+> it is the kind of fact that changes.**
 
 ## Tier 4 — Prohibited, and why
 

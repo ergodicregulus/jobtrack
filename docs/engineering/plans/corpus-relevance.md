@@ -84,3 +84,26 @@ from one that removed a role before they existed.
   "Backend, Payments".
 - Dropping Bosch removes 37% of the corpus in one commit. Whatever the homepage
   says about corpus size that day has to be true the day after.
+
+## Why the classifier stops here
+
+Measured 2026-09-01 on the 5,703 postings it labels `unknown`:
+
+| Skills extracted | Postings |
+|---|---|
+| 0 | 3,600 |
+| 1–2 | 1,338 |
+| 3–5 | 765 |
+| 6+ | 0 — those are already `software` |
+
+**There is no cheap recall win left.** 63% of the unknown bucket has no
+recognised skill at all, because the posting has no readable body or is not in
+English. The remaining 765 sit at three to five skills, and that is precisely the
+band measured as unreliable: at three skills the population is only 17%
+software-titled, and a finance director qualifies because the description named
+three tools.
+
+Lowering the threshold would trade the 93.5% precision recorded in
+[A-38](../../research/evidence-ledger.md#a-38) for a handful of recovered
+postings. The honest next lever is not the classifier — it is either board
+curation, or descriptions for the postings that have none.

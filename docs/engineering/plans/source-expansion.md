@@ -28,11 +28,13 @@ They were the right adapters to build and they do not move this number.
 3. **[opus]** Build whichever pass. The `source.Do` helper means a new
    single-request adapter is now about 120 lines, and `/new-source` carries the
    pagination-cap trap that truncated a board for a week.
-4. **[opus]** Tier 2, JSON-LD career pages (§7.3). Designed, not built. It is the
-   only route that scales past whatever ATS list we assemble, and it is also the
-   one closest to the edge of ADR-0004 — a `JobPosting` schema block an employer
-   published for search engines is public and first-party, but the reasoning
-   needs writing down before code, not after.
+4. **[opus]** ~~Tier 2, JSON-LD career pages~~ — **measured and not viable**, 2026-09-01.
+   Fifteen URLs across eleven hosts, zero `JobPosting` blocks in server-rendered
+   HTML: career pages are client-rendered and any JSON-LD is injected after
+   hydration. Recovering it would mean executing someone's application to get
+   data their server declined to send, which ADR-0004 does not permit. The
+   reasoning is sound and the web has moved; see source-catalog for the evidence
+   and re-test before reviving it.
 5. **[sonnet]** Golden fixtures for whatever ships, captured from real tenants,
    trimmed to the branches the adapter takes.
 
