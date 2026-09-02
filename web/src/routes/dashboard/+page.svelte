@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import StatCard from '$lib/components/StatCard.svelte';
   import ActivityHeatmap from '$lib/components/ActivityHeatmap.svelte';
   import { relativeDay, compactNumber } from '$lib/format';
@@ -59,20 +60,16 @@
       </div>
     {/if}
 
-    <header class="page-head">
-      <div>
-        <h1>{timeGreeting}{d.greeting ? `, ${d.greeting.split(' ')[0]}` : ''}</h1>
-        <p class="t-muted">
-          {#if d.matches.new_today > 0}
-            {d.matches.new_today} new posting{d.matches.new_today === 1 ? '' : 's'} matched you
-            in the last day.
-          {:else}
-            Nothing new in the last day — here's where things stand.
-          {/if}
-        </p>
-      </div>
-      <a class="btn btn-primary" href="/jobs">Find roles</a>
-    </header>
+    <PageHeader
+      title={`${timeGreeting}${d.greeting ? `, ${d.greeting.split(' ')[0]}` : ''}`}
+      sub={d.matches.new_today > 0
+        ? `${d.matches.new_today} new posting${d.matches.new_today === 1 ? '' : 's'} matched you in the last day.`
+        : "Nothing new in the last day — here's where things stand."}
+    >
+      {#snippet action()}
+        <a class="btn btn-primary" href="/jobs">Find roles</a>
+      {/snippet}
+    </PageHeader>
 
     <!-- Row 1: the numbers worth acting on. -->
     <section class="stats" aria-label="Your matches">
@@ -335,9 +332,6 @@
 <style>
   .page { display: flex; flex-direction: column; gap: var(--s-5); padding-top: var(--s-6); }
 
-  .page-head { display: flex; align-items: flex-end; gap: var(--s-4); flex-wrap: wrap; }
-  .page-head h1 { font-size: var(--t-2xl); letter-spacing: var(--tr-2xl); }
-  .page-head > div { flex: 1; min-width: 240px; }
 
   .welcome {
     display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap;

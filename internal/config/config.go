@@ -38,6 +38,7 @@ type Config struct {
 	Telemetry
 	Security
 	Ingest
+	Email
 }
 
 type Database struct {
@@ -92,6 +93,31 @@ type Security struct {
 	// (429)", which looks like a broken feed rather than a working limiter.
 	RateLimitPerMinute int
 	RateLimitBurst     int
+}
+
+// Email is how digests leave the system.
+//
+// SMTP rather than a provider SDK, which is ADR-0019: it keeps the dependency
+// count at zero — net/smtp is standard library — and makes changing provider a
+// config change rather than a rewrite. Anything that speaks SMTP works,
+// including something the operator already runs.
+//
+// Disabled by default. A deployment that has not configured a host sends
+// nothing and says so at startup, rather than failing per-message later.
+type Email struct {
+	Enabled  bool
+	Host     string
+	Port     int
+	Username string
+	Password string
+	// From is the envelope and header sender.
+	From string
+	// BaseURL is where an unsubscribe link points. Wrong here means a dead link
+	// in every digest, so it is required once email is enabled.
+	BaseURL string
+	// UnsubscribeSecret signs the unsubscribe token. Without it a link is
+	// guessable and anyone can unsubscribe anyone.
+	UnsubscribeSecret string
 }
 
 type Ingest struct {
@@ -262,6 +288,16 @@ func Load(service string) (*Config, error) {
 			RateLimitBurst:     l.intVal("RATE_LIMIT_BURST", 60),
 		},
 
+		Email: Email{
+			Enabled:           l.boolVal("EMAIL_ENABLED", false),
+			Host:              l.str("EMAIL_SMTP_HOST", "", false),
+			Port:              l.intVal("EMAIL_SMTP_PORT", 587),
+			Username:          l.str("EMAIL_SMTP_USERNAME", "", false),
+			Password:          l.str("EMAIL_SMTP_PASSWORD", "", false),
+			From:              l.str("EMAIL_FROM", "", false),
+			BaseURL:           l.str("EMAIL_BASE_URL", "", false),
+			UnsubscribeSecret: l.str("EMAIL_UNSUBSCRIBE_SECRET", "", false),
+		},
 		Ingest: Ingest{
 			Enabled:       l.boolVal("INGEST_ENABLED", true),
 			Mode:          l.oneOf("INGEST_MODE", "fixture", "fixture", "recorded", "live"),

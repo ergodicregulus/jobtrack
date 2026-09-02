@@ -1,12 +1,12 @@
 # Source expansion
 
-**Status:** Keka built and ingesting (28 postings, 3 boards). BambooHR verified and not built. JSON-LD tier not started. **Done when:** India is a share of the corpus that
+**Status:** Keka and BambooHR built. JSON-LD measured and rejected. 18 engineering boards added. What remains is the India ceiling, which is not an engineering problem. **Done when:** India is a share of the corpus that
 matches the product's stated focus, and the Tier 2 career-page route is either
 built or rejected in an ADR.
 
 ## The problem, measured
 
-India is **815 of 11,131 live postings — 7.3%** — in a product whose
+India is **1,006 of 13,484 live postings — 7.5%** — in a product whose
 [phase-5 §7.4](../phase-5-production-readiness.md) names India as the primary
 market. Every vendor added so far has been Western: Greenhouse, Ashby and
 SmartRecruiters are US-first, and Personio, Recruitee and Workable are European.
@@ -14,8 +14,10 @@ They were the right adapters to build and they do not move this number.
 
 ## Steps
 
-1. **[sonnet]** Verify the four unverified vendors from §7.2 by calling them:
-   Darwinbox, Keka, iCIMS, BambooHR. Record status, auth requirement, response
+1. **[sonnet]** ~~Verify the four unverified vendors from §7.2~~ — done 2026-09-01.
+   Keka and BambooHR are open and now BUILT; Darwinbox is behind a Cloudflare
+   challenge and iCIMS behind an AWS WAF CAPTCHA, both excluded under ADR-0004.
+   Original brief: Darwinbox, Keka, iCIMS, BambooHR. Record status, auth requirement, response
    shape and one real tenant per vendor in
    [source-catalog](../../research/source-catalog.md). Findings only — no adapter,
    no judgement about whether to build.
@@ -49,3 +51,18 @@ They were the right adapters to build and they do not move this number.
   direction those boards lean. Coordinate with
   [corpus-relevance](corpus-relevance.md) rather than measuring both at once and
   attributing the change to the wrong cause.
+
+## The India ceiling, measured
+
+Four of the eighteen boards added on 2026-09-02 were chosen for India presence
+and the share moved 7.3% → 7.5%. That is within noise, and the reason is not
+effort: **roughly 140 candidate tokens for India-native companies were tried
+against Greenhouse and Ashby and every one 404'd.** Hasura, Freshworks,
+Chargebee, BrowserStack, Whatfix, Zoho, Meesho, CRED and Zepto are not on public
+boards for either vendor.
+
+So this route has a ceiling, and it is low. The vendors that would move it are
+the India-first ATSs, and of the two verified only Keka is reachable — Darwinbox
+is bot-walled. **The honest next step is more Keka tenants**, which is a
+discovery problem (each needs its org GUID read from a careers page) rather than
+an adapter one, and that is bounded, mechanical work.

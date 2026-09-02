@@ -4,6 +4,7 @@
   import FilterRail from '$lib/components/FilterRail.svelte';
   import SavedSearches from '$lib/components/SavedSearches.svelte';
   import HiddenPostings from '$lib/components/HiddenPostings.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import FilterSearch from '$lib/components/FilterSearch.svelte';
   import { attachFeedKeys } from '$lib/keyboard.svelte';
   import type { PageData } from './$types';
@@ -126,15 +127,25 @@
 
 <div class="shell page">
   <!--
-    The page's real heading, announced but not drawn.
+    The page's heading, now drawn as well as announced.
 
-    "25 roles" reads as a heading visually but is a result COUNT, and it sat at
-    h1 while the filter rail's "Filters" h2 came before it in the DOM — so the
-    document opened at h2, jumped back to h1, then skipped to h3 at the first
-    job card. A screen-reader user navigating by heading got no page title at
-    all and a broken outline underneath it.
+    It was sr-only, which fixed a real problem the wrong way round: "25 roles"
+    reads as a heading visually but is a result COUNT, and it sat at h1 while the
+    filter rail's "Filters" h2 came before it in the DOM — so the document opened
+    at h2, jumped back to h1, then skipped to h3. A hidden h1 repaired the
+    outline for screen readers and left sighted readers with no page title, on
+    the only one of the three signed-in pages that had none.
+
+    A visible header fixes both, and it is the same component the dashboard and
+    the tracker use — which is the point: they were three headers, two of them
+    identical and one absent.
   -->
-  <h1 class="sr-only">Jobs</h1>
+  <PageHeader
+    title="Jobs"
+    sub={data.facets?.total
+      ? `${data.facets.total.toLocaleString()} live roles, read from employers' own hiring systems every few hours.`
+      : "Read from employers' own hiring systems every few hours."}
+  />
 
   <FilterSearch {params} />
 
@@ -353,6 +364,14 @@
   .active-chip .x { font-size: 14px; line-height: 1; opacity: 0.75; }
   .clear { margin-left: var(--s-1); }
   .page { padding-top: var(--s-5); }
+
+  /* The header needs its own gap here, unlike the dashboard and the tracker.
+     Those stack panels with a flow gap; this page's next element is a grid whose
+     first cell is the filter rail, so without this the rail's "Filters" heading
+     sits directly under the sub-line and the two read as one block. The feed's
+     own search bar is hidden above 900px, where the header search takes over, so
+     there is nothing between them at exactly the width most people use. */
+  .page :global(.page-head) { margin-bottom: var(--s-5); }
 
   .results-head {
     display: flex; align-items: baseline; justify-content: space-between;

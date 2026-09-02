@@ -1,6 +1,6 @@
 # Corpus relevance
 
-**Status:** decided (ADR-0018) and built to the API. The feed filters; the UI chip and the vocabulary's long tail remain. **Done when:** the share of live
+**Status:** decided (ADR-0018), built, and exposed. Three chips ship. Curation was tried and measured as the weaker lever — see below. **Done when:** the share of live
 postings that are software-engineering roles is stated on the homepage and is
 high enough that the claim "a job-search instrument for software engineers" is
 true without qualification.
@@ -107,3 +107,23 @@ Lowering the threshold would trade the 93.5% precision recorded in
 [A-38](../../research/evidence-ledger.md#a-38) for a handful of recovered
 postings. The honest next lever is not the classifier — it is either board
 curation, or descriptions for the postings that have none.
+
+## Curation was tried, and it is the weaker lever
+
+Measured 2026-09-02 ([A-39](../../research/evidence-ledger.md#a-39)). Eighteen
+verified engineering-dense boards were added, contributing 1,182 postings with
+zero errors. Corpus-level engineering share moved **34.3% → 35.4%**.
+
+Over the same period the conglomerate board grew to **34.8% of the corpus**. It
+posts faster than eighteen curated boards can dilute it.
+
+ADR-0018 kept curation as the live alternative if classification underdelivered.
+It is now measured, and it underdelivers harder: **the classifier's `software`
+view grew 2,596 → 3,188 postings at 94.0% precision over the same change**, which
+is the number a reader actually experiences.
+
+**What is genuinely left is one decision, and it is not an engineering one.** The
+conglomerate board is a third of the corpus and mostly not software. Dropping it
+loses its real software roles along with the rest; keeping it means the
+unfiltered corpus stays roughly a third irrelevant and the Software chip is the
+answer for engineers. Both are defensible. Neither is a bug to fix.

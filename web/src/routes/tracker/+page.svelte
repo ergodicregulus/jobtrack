@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import { invalidateAll } from '$app/navigation';
   import { mutate, type MutationFailure } from '$lib/mutate.svelte';
   import { relativeDay } from '$lib/format';
@@ -82,16 +83,15 @@
 </script>
 
 <div class="shell page">
-  <header class="page-head">
-    <div>
-      <h1>Tracker</h1>
-      <p class="t-muted">
-        {data.items.length} application{data.items.length === 1 ? '' : 's'}.
-        Long silences are noted; nothing is closed on your behalf.
-      </p>
-    </div>
-    <a class="btn btn-primary" href="/jobs">Add from jobs</a>
-  </header>
+  <PageHeader
+    title="Tracker"
+    sub={`${data.items.length} application${data.items.length === 1 ? '' : 's'}. ` +
+      'Long silences are noted; nothing is closed on your behalf.'}
+  >
+    {#snippet action()}
+      <a class="btn btn-primary" href="/jobs">Add from jobs</a>
+    {/snippet}
+  </PageHeader>
 
   {#if data.error}
     <p class="banner" role="alert">{data.error}</p>
@@ -229,9 +229,6 @@
 <style>
   .page { display: flex; flex-direction: column; gap: var(--s-4); padding-top: var(--s-6); }
 
-  .page-head { display: flex; align-items: flex-end; gap: var(--s-4); flex-wrap: wrap; }
-  .page-head h1 { font-size: var(--t-2xl); letter-spacing: var(--tr-2xl); }
-  .page-head > div { flex: 1; min-width: 240px; }
 
   /* Horizontal scroll is contained here, never on the page body. */
   .stages {
