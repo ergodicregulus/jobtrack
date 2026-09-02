@@ -3,6 +3,13 @@
 Work that is specified but not yet done. One file per coherent unit, each with a
 falsifiable done-condition.
 
+**A plan is deleted when it is done — or when it is decided against.**
+`compliance-and-hardening` was deleted on 2026-09-02 for the second reason: the
+CERT-In and VAPT work was scoped out. The deferred `user_job_scores` contract
+migration it also carried was completed separately. A plan nobody intends to
+execute is exactly the stale document this index exists to prevent, and leaving
+it would have made every future reading of this table one item less true.
+
 **A plan is deleted when it is done.** Not marked complete, not archived —
 deleted, because git remembers and a finished plan left lying about is exactly
 the stale document this repository keeps having to clean up. If a plan produced
@@ -18,8 +25,7 @@ thing well.
 | [corpus-relevance](corpus-relevance.md) | 67% of live postings are not engineering roles; one employer is 37% of the corpus | **Yes** — product scope |
 | [corpus-completeness](corpus-completeness.md) | 39% have no country; skills read for 52%; the description fix is unverified on three vendors | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
-| [digest-email](digest-email.md) | The last Block C item, and the only one needing new infrastructure | **Yes** — provider |
-| [compliance-and-hardening](compliance-and-hardening.md) | CERT-In §12.2 gaps, VAPT, one deferred contract migration | No |
+| [digest-email](digest-email.md) | Built (ADR-0019) and off by default; not done until a real email is received | No |
 
 ## How these get executed
 

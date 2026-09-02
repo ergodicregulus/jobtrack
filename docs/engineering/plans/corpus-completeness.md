@@ -1,7 +1,7 @@
 # Corpus completeness
 
-**Status:** partly done — the description fix shipped on 2026-09-01 and is still
-sweeping. **Done when:** description coverage is stable above 90%, the same class
+**Status:** description coverage 86.0%, country 88.9%. One board (5,200 postings)
+is still completing its first full detail sweep; everything else is done. **Done when:** description coverage is stable above 90%, the same class
 of bug is ruled out on every two-phase vendor, and the country gap is either
 closed or explained.
 
@@ -11,11 +11,11 @@ Measured 2026-09-01, mid-sweep:
 
 | Fact | Known | Was |
 |---|---|---|
-| Description ≥ 200 chars | 66.9% | 64.1% and falling |
+| Description ≥ 200 chars | **86.0%** | 64.1% and falling |
 | Skills — at least one read | 52.2% | — |
 | Work mode | 55.9% | — |
 | Experience range | 54.5% | — |
-| Country | **90.8%** | 61.1% before the parser fix |
+| Country | **88.9%** | 61.1% before the parser fix |
 | Pay | 15.0% | — |
 
 The description figure is moving because the sweeps are running. Everything else
