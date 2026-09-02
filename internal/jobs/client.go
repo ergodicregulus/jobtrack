@@ -88,6 +88,7 @@ func registerWorkers(d *Deps) *river.Workers {
 	river.AddWorker(workers, &PruneSessionsWorker{Deps: d})
 	river.AddWorker(workers, &RetentionSweepWorker{Deps: d})
 	river.AddWorker(workers, &RollupSourceDailyWorker{Deps: d})
+	river.AddWorker(workers, &SendDigestsWorker{Deps: d})
 	return workers
 }
 
@@ -162,6 +163,16 @@ func periodicJobs() []*river.PeriodicJob {
 			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return RetentionSweepArgs{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		// Weekly, and NOT RunOnStart. A deploy loop would otherwise email every
+		// reader on every restart, which is the one failure here that cannot be
+		// taken back.
+		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return SendDigestsArgs{Interval: 7 * 24 * time.Hour}, nil
+			},
+			nil,
 		),
 		// Hourly, not daily: today's row is incomplete until the day ends, and a
 		// chart that only updates at midnight looks broken to anyone who checks

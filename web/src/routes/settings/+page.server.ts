@@ -3,15 +3,57 @@ import type { Actions, PageServerLoad } from './$types';
 import { patchJSON, problemMessage } from '$lib/server/api';
 import type { Theme } from '$lib/types';
 
-export const load: PageServerLoad = async ({ parent }) => {
+export const load: PageServerLoad = async ({ parent, fetch }) => {
   const { signedIn, theme } = await parent();
   if (!signedIn) redirect(303, '/login?next=/settings');
-  return { theme };
+
+  // Whether the digest is on is a CONSENT, not a preference, so it is read from
+  // the consent log rather than the settings blob. One account of what this
+  // person agreed to, in the place the DPDP export reads from.
+  let digest = false;
+  try {
+    const res = await fetch('/v1/me/consents');
+    if (res.ok) {
+      const body = await res.json();
+      digest = (body.items ?? []).some(
+        (c: { purpose: string; withdrawn_at: string | null }) =>
+          c.purpose === 'digest_email' && !c.withdrawn_at
+      );
+    }
+  } catch {
+    // Settings must render regardless; an unread consent shows as off, which is
+    // the safe direction — it never claims someone opted in when we do not know.
+  }
+
+  return { theme, digest };
 };
 
 const VALID_THEMES = new Set(['system', 'light', 'dark']);
 
 export const actions: Actions = {
+  /**
+   * Turns the weekly digest on or off.
+   *
+   * POST grants, DELETE withdraws — the API deliberately has no "set" verb,
+   * because a consent log records ACTS, and "granted then withdrawn then granted
+   * again" is a true history rather than a duplicate to be collapsed.
+   *
+   * A plain form action, so it works with JavaScript off like every other
+   * control here; use:enhance only removes the navigation.
+   */
+  digest: async ({ request, fetch }) => {
+    const on = String((await request.formData()).get('on')) === 'true';
+    const res = await fetch('/v1/me/consents?purpose=digest_email', {
+      method: on ? 'POST' : 'DELETE'
+    });
+    if (!res.ok) {
+      return fail(res.status, {
+        error: await problemMessage(res, 'Could not change your email setting.')
+      });
+    }
+    return { ok: true };
+  },
+
   /**
    * Saves the theme to the account AND mirrors it into a cookie.
    *

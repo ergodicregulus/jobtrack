@@ -29,6 +29,7 @@ the other half of.
 | [0016](0016-scores-are-computed-not-materialised.md) | **Scores are computed at read time, not materialised per user** | DECIDED |
 | [0017](0017-widget-data-comes-from-rollups.md) | Per-user widgets query directly; global widgets read daily rollups | DECIDED |
 | [0018](0018-classify-and-expose-not-filter-at-ingest.md) | Postings are classified and labelled, never discarded at ingest; the feed hides `other` by default | DECIDED |
+| [0019](0019-email-over-smtp-not-a-provider-sdk.md) | Digest email goes over SMTP with the provider in config; zero new dependencies | DECIDED |
 
 <!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
      was ever written and nothing references it. Declared here so a reader who

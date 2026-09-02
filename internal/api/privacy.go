@@ -59,6 +59,36 @@ func (a *API) handleWithdrawConsent(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
+// handleGrantConsent records an opt-in.
+//
+// ONLY digest_email. The other three purposes are granted by the act they
+// describe — an account at registration, resume_parsing when a CV is applied,
+// matching when a profile is scored — and each is written in the same
+// transaction as the thing it permits. A general "grant any purpose" endpoint
+// would let a consent record exist without the act that justifies it, which is
+// the opposite of what the record is for.
+//
+// Recording the same consent twice is fine: user_consents is append-only, and
+// two grants with one withdrawal between them is an accurate history rather
+// than a duplicate.
+func (a *API) handleGrantConsent(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+
+	if p := r.URL.Query().Get("purpose"); p != "digest_email" {
+		return httpx.ErrBadRequest(
+			"only digest_email can be granted here; the others are recorded with the act they permit",
+			httpx.FieldError{Field: "purpose", Code: "invalid", Message: "digest_email"})
+	}
+
+	if err := store.GrantConsent(ctx, a.pool, httpx.UserIDFromContext(ctx), "digest_email",
+		hashClientIP(r, a.cfg.Security.TrustedProxies), r.UserAgent()); err != nil {
+		return httpx.ErrInternal(err)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 // handleExport returns everything held about the caller.
 //
 // Streamed as a download with a dated filename, because the point of

@@ -131,6 +131,24 @@ type Ingest struct {
 	UserAgent     string
 }
 
+// loadEmail reads the outbound-mail settings.
+//
+// Lifted out of Load, which crossed the 80-line limit when it was added. Its own
+// function rather than a baseline entry: the block is self-contained and Load is
+// a list of blocks, so this is the seam that was already there.
+func loadEmail(l *loader) Email {
+	return Email{
+		Enabled:           l.boolVal("EMAIL_ENABLED", false),
+		Host:              l.str("EMAIL_SMTP_HOST", "", false),
+		Port:              l.intVal("EMAIL_SMTP_PORT", 587),
+		Username:          l.str("EMAIL_SMTP_USERNAME", "", false),
+		Password:          l.str("EMAIL_SMTP_PASSWORD", "", false),
+		From:              l.str("EMAIL_FROM", "", false),
+		BaseURL:           l.str("EMAIL_BASE_URL", "", false),
+		UnsubscribeSecret: l.str("EMAIL_UNSUBSCRIBE_SECRET", "", false),
+	}
+}
+
 // loader accumulates problems so Load can report all of them together.
 type loader struct {
 	problems []string
@@ -288,16 +306,7 @@ func Load(service string) (*Config, error) {
 			RateLimitBurst:     l.intVal("RATE_LIMIT_BURST", 60),
 		},
 
-		Email: Email{
-			Enabled:           l.boolVal("EMAIL_ENABLED", false),
-			Host:              l.str("EMAIL_SMTP_HOST", "", false),
-			Port:              l.intVal("EMAIL_SMTP_PORT", 587),
-			Username:          l.str("EMAIL_SMTP_USERNAME", "", false),
-			Password:          l.str("EMAIL_SMTP_PASSWORD", "", false),
-			From:              l.str("EMAIL_FROM", "", false),
-			BaseURL:           l.str("EMAIL_BASE_URL", "", false),
-			UnsubscribeSecret: l.str("EMAIL_UNSUBSCRIBE_SECRET", "", false),
-		},
+		Email: loadEmail(l),
 		Ingest: Ingest{
 			Enabled:       l.boolVal("INGEST_ENABLED", true),
 			Mode:          l.oneOf("INGEST_MODE", "fixture", "fixture", "recorded", "live"),

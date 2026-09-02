@@ -143,6 +143,11 @@ services:
     command: air -c deploy/dev/air.api.toml
     environment:
       <<: *go-env
+      # Dev only. EMAIL_ENABLED is deliberately absent, so no digest is ever
+      # sent from a developer machine; this secret exists so the unsubscribe
+      # link can be exercised end to end without turning sending on.
+      EMAIL_UNSUBSCRIBE_SECRET: dev-unsub-secret
+      EMAIL_BASE_URL: http://localhost:5173
       HTTP_ADDR: ":8080"
       # Far above production. Every browser in the E2E suite shares this
       # container's address, so a limit tuned for one person throttles the whole

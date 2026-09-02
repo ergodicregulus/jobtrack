@@ -106,6 +106,40 @@
     </form>
   </section>
 
+  <!--
+    Email is a consent, and it is presented as one.
+
+    Off by default and never pre-ticked: a pre-ticked box is not consent, and on
+    the one product whose argument is that it does not overclaim, it would be the
+    cheapest possible thing to get wrong. The copy says what will actually
+    arrive, so the decision is made on the real thing rather than on "updates".
+  -->
+  <section class="panel">
+    <div class="panel-head"><h2 class="t-heading">Email</h2></div>
+    <dl class="rows">
+      <div>
+        <dt>Weekly digest</dt>
+        <dd>
+          <form method="POST" action="?/digest" use:enhance>
+            <input type="hidden" name="on" value={data.digest ? 'false' : 'true'} />
+            <button class="btn btn-sm" type="submit">
+              {data.digest ? 'Turn off' : 'Turn on'}
+            </button>
+            <p class="t-small hint">
+              {#if data.digest}
+                On. One email per saved search per week, listing only what arrived
+                since you last looked. Nothing is sent in a week with nothing new.
+              {:else}
+                Off. When on, you get one email per saved search per week listing
+                what arrived since you last looked — and none at all in a quiet week.
+              {/if}
+            </p>
+          </form>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
   <section class="panel">
     <div class="panel-head"><h2 class="t-heading">Account</h2></div>
     <dl class="rows">

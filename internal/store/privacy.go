@@ -63,6 +63,32 @@ func RecordConsent(
 	return nil
 }
 
+// GrantConsent records an opt-in that has no other act to ride along with.
+//
+// The other three purposes are written inside the transaction that performs the
+// thing they permit — an account at registration, resume_parsing when a CV is
+// applied — so they need no function of their own. The digest has no such act:
+// the opt-in IS the act, and it still has to be a transaction so a consent
+// record cannot half-exist.
+//
+// Here rather than in the handler because ADR-0015 puts SQL and transactions in
+// the store; check_db_access is what noticed when it was not.
+func GrantConsent(
+	ctx context.Context, pool *pgxpool.Pool, userID int64,
+	purpose string, ipHash []byte, userAgent string,
+) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("grant consent: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := RecordConsent(ctx, tx, userID, purpose, ipHash, userAgent); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // WithdrawConsent stamps the most recent live grant for a purpose.
 func WithdrawConsent(ctx context.Context, pool *pgxpool.Pool, userID int64, purpose string) error {
 	_, err := pool.Exec(ctx, `

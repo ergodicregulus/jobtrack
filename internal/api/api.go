@@ -109,6 +109,11 @@ func (a *API) Routes() http.Handler {
 	mux.Handle("GET /v1/market", httpx.Wrap(a.log, a.handleMarket))
 	mux.Handle("GET /v1/market/ingest", httpx.Wrap(a.log, a.handleIngestSeries))
 	mux.Handle("GET /v1/market/coverage", httpx.Wrap(a.log, a.handleCoverage))
+	// Public and session-free: a reader unsubscribing from an email is usually
+	// signed out, and the signed token is the authorisation. POST is registered
+	// as well because List-Unsubscribe-Post sends an empty one.
+	mux.Handle("GET /unsubscribe", httpx.Wrap(a.log, a.handleUnsubscribe))
+	mux.Handle("POST /unsubscribe", httpx.Wrap(a.log, a.handleUnsubscribe))
 	mux.Handle("GET /v1/skills/common", httpx.Wrap(a.log, a.handleCommonSkills))
 	// One posting in full, including its score breakdown. Optional auth for the
 	// same reason as the feed: reading a posting needs no account, scoring does.
@@ -148,6 +153,7 @@ func (a *API) Routes() http.Handler {
 	// policy document: access and portability are one export, erasure is a
 	// request with a grace window, and correction is the profile PATCH above.
 	mux.Handle("GET /v1/me/consents", authed(httpx.Wrap(a.log, a.handleListConsents)))
+	mux.Handle("POST /v1/me/consents", authed(httpx.Wrap(a.log, a.handleGrantConsent)))
 	mux.Handle("DELETE /v1/me/consents", authed(httpx.Wrap(a.log, a.handleWithdrawConsent)))
 	mux.Handle("GET /v1/me/export", authed(httpx.Wrap(a.log, a.handleExport)))
 	mux.Handle("POST /v1/me/erasure", authed(httpx.Wrap(a.log, a.handleRequestErasure)))

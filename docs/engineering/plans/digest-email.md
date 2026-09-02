@@ -1,6 +1,6 @@
 # Digest email
 
-**Status:** blocked on a provider decision. **Done when:** a user with a saved
+**Status:** built 2026-09-02 (ADR-0019). Disabled by default; needs SMTP settings and an opt-in UI control before a single email is sent. **Done when:** a user with a saved
 search receives one email containing only roles they have not seen, and can stop
 it from the email itself in one click.
 
