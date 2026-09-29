@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 )
 
 // TestLoadDashboardEmpty is the cheapest possible guard against the failure

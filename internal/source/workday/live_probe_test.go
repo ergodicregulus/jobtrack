@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // A live probe, behind a build tag so it never runs in CI.
@@ -21,7 +21,7 @@ import (
 //	go test -tags=liveprobe -run TestLiveNvidia -v ./internal/source/workday/
 func TestLiveNvidia(t *testing.T) {
 	a := New(&http.Client{Timeout: 90 * time.Second},
-		"JobTrackBot/1.0 (+https://jobtrack.dev/bot)")
+		"JobTrackBot/1.0 (+https://github.com/ergodicregulus/jobtrack)")
 
 	res, err := a.Fetch(context.Background(), source.Source{
 		BoardToken: "wd5/nvidia/nvidiaexternalcareersite",

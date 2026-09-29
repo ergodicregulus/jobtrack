@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/jobtrack/jobtrack/internal/telemetry"
+	"github.com/ergodicregulus/jobtrack/internal/telemetry"
 )
 
 // Problem is an RFC 9457 problem detail.

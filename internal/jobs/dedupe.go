@@ -5,7 +5,7 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // DedupeCompanyWorker collapses duplicate postings within one company.

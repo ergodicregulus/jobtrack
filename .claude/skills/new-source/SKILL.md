@@ -31,7 +31,7 @@ Blog posts about ATS endpoints are grade-C evidence. Call the endpoint and recor
 what actually came back, with today's date:
 
 ```bash
-curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' '<url>' | head -c 2000
+curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://github.com/ergodicregulus/jobtrack)' '<url>' | head -c 2000
 ```
 
 Note the response shape, whether `ETag`/`Last-Modified` are served, whether

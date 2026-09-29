@@ -22,7 +22,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _gosrc  # noqa: E402
 import _ratchet  # noqa: E402
 
-MOD = "github.com/jobtrack/jobtrack"
+# Read rather than hardcoded. Every layering rule below is a string prefix
+# built from this, so a module path this file disagreed with would not fail —
+# it would silently match nothing and pass everything.
+MOD = next(
+    ln.split(None, 1)[1].strip()
+    for ln in Path("go.mod").read_text().splitlines()
+    if ln.startswith("module ")
+)
 
 # (package prefix, forbidden import prefixes, exempt prefixes, why)
 RULES: list[tuple[str, tuple[str, ...], tuple[str, ...], str]] = [

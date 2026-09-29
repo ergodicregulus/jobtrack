@@ -279,7 +279,7 @@ jobs:
       - name: Dependency budget
         run: |
           count=$(go list -m -f '{{if not .Indirect}}{{.Path}}{{end}}' all \
-                    | grep -v '^github.com/jobtrack/jobtrack$' \
+                    | grep -v '^github.com/ergodicregulus/jobtrack$' \
                     | grep -v '^golang.org/x/' \
                     | grep -v '^go.opentelemetry.io/' \
                     | grep -c . || true)

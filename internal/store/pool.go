@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/config"
+	"github.com/ergodicregulus/jobtrack/internal/config"
 )
 
 // Open creates and verifies a connection pool.

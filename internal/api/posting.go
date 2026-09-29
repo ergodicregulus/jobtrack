@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/matching"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // Posting is one job in full.

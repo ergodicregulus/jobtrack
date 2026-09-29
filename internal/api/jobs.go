@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // handleJobs serves the feed.

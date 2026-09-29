@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 // ReparseLocations re-runs the location parser over stored postings.

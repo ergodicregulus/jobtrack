@@ -67,9 +67,9 @@ FROM build AS build-api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
       -o /out/app ./cmd/api
 FROM runtime-base AS api
 COPY --from=build-api /out/app /app
@@ -83,9 +83,9 @@ FROM build AS build-ingestor
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
       -o /out/app ./cmd/ingestor
 FROM runtime-base AS ingestor
 COPY --from=build-ingestor /out/app /app
@@ -95,9 +95,9 @@ FROM build AS build-scheduler
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
       -o /out/app ./cmd/scheduler
 FROM runtime-base AS scheduler
 COPY --from=build-scheduler /out/app /app
@@ -135,9 +135,9 @@ FROM build AS build-resume-parser
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
       -o /out/app ./cmd/resume-parser
 FROM gcr.io/distroless/base-debian12:nonroot AS resume-parser
 COPY --from=poppler /poppler/pdftotext /usr/bin/pdftotext
@@ -152,9 +152,9 @@ FROM build AS build-migrate
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w \
-        -X github.com/jobtrack/jobtrack/internal/version.Version=${VERSION} \
-        -X github.com/jobtrack/jobtrack/internal/version.Commit=${COMMIT} \
-        -X github.com/jobtrack/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Version=${VERSION} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.Commit=${COMMIT} \
+        -X github.com/ergodicregulus/jobtrack/internal/version.BuildTime=${BUILD_TIME}" \
       -o /out/app ./cmd/migrate
 FROM runtime-base AS migrate
 COPY --from=build-migrate /out/app /app

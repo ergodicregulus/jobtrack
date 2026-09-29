@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/domain/user"
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/domain/user"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // Dashboard is what a user sees on login.

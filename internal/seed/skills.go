@@ -1,6 +1,6 @@
 package seed
 
-import "github.com/jobtrack/jobtrack/internal/normalise"
+import "github.com/ergodicregulus/jobtrack/internal/normalise"
 
 // SkillCategories maps every canonical skill onto a storage category.
 //

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Captured from the public skroutz account on 2026-08-25 with details=true.

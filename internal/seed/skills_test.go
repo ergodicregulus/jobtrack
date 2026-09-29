@@ -3,7 +3,7 @@ package seed
 import (
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 // TestSkillCategories_CoversTheWholeVocabulary is a regression test for a

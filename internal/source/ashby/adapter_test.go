@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Golden fixtures are captured real responses from public Ashby boards

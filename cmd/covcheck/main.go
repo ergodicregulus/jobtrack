@@ -29,7 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 // sampleSize is a compromise. The whole corpus would be more accurate and takes

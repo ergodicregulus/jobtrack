@@ -315,7 +315,7 @@ func Load(service string) (*Config, error) {
 			TierBInterval: l.dur("INGEST_TIER_B_INTERVAL", 6*time.Hour),
 			TierCInterval: l.dur("INGEST_TIER_C_INTERVAL", 24*time.Hour),
 			MaxHosts:      l.intVal("INGEST_MAX_HOSTS", 10),
-			UserAgent:     l.str("INGEST_USER_AGENT", "JobTrackBot/1.0 (+https://jobtrack.dev/bot)", false),
+			UserAgent:     l.str("INGEST_USER_AGENT", "JobTrackBot/1.0 (+https://github.com/ergodicregulus/jobtrack)", false),
 		},
 	}
 

@@ -287,10 +287,10 @@ capture-source: ## Capture a live ATS response as a fixture: make capture-source
 	@name=$$(echo "$(BOARD)" | tr '/' '-'); \
 	  if [ -n '$(CAPTURE_POST)' ]; then \
 	    curl -sS -X POST -H 'content-type: application/json' \
-	      -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' \
+	      -H 'User-Agent: JobTrackBot/1.0 (+https://github.com/ergodicregulus/jobtrack)' \
 	      -d '$(CAPTURE_POST)' "$(CAPTURE_URL)"; \
 	  else \
-	    curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://jobtrack.dev/bot)' "$(CAPTURE_URL)"; \
+	    curl -sS -H 'User-Agent: JobTrackBot/1.0 (+https://github.com/ergodicregulus/jobtrack)' "$(CAPTURE_URL)"; \
 	  fi | python3 -m json.tool > "internal/source/$(VENDOR)/testdata/$$name.json"; \
 	  echo "wrote internal/source/$(VENDOR)/testdata/$$name.json"
 	@echo ""

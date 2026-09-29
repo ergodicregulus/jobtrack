@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 )
 
 // PostingDetail is one posting in full, with the viewer's score if there is one.

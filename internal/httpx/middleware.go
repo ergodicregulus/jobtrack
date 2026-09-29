@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/telemetry"
+	"github.com/ergodicregulus/jobtrack/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"

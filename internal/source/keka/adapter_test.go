@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Captured from the public spyneai board on 2026-09-01, trimmed to one job per

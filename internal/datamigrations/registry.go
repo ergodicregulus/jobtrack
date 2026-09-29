@@ -15,7 +15,7 @@
 package datamigrations
 
 import (
-	"github.com/jobtrack/jobtrack/internal/migrate"
+	"github.com/ergodicregulus/jobtrack/internal/migrate"
 )
 
 // All returns every registered data migration, in version order.

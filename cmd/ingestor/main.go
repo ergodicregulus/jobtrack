@@ -8,14 +8,14 @@ package main
 import (
 	"context"
 
-	"github.com/jobtrack/jobtrack/internal/app"
-	"github.com/jobtrack/jobtrack/internal/jobs"
-	"github.com/jobtrack/jobtrack/internal/migrate"
-	"github.com/jobtrack/jobtrack/internal/normalise"
-	"github.com/jobtrack/jobtrack/internal/seed"
-	"github.com/jobtrack/jobtrack/internal/store"
-	"github.com/jobtrack/jobtrack/internal/version"
-	"github.com/jobtrack/jobtrack/migrations"
+	"github.com/ergodicregulus/jobtrack/internal/app"
+	"github.com/ergodicregulus/jobtrack/internal/jobs"
+	"github.com/ergodicregulus/jobtrack/internal/migrate"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/seed"
+	"github.com/ergodicregulus/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/version"
+	"github.com/ergodicregulus/jobtrack/migrations"
 )
 
 func main() {

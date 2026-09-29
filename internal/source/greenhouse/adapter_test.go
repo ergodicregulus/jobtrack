@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Golden-file testing is what makes a seven-vendor ingestion layer maintainable.

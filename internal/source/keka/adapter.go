@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 const (

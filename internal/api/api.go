@@ -11,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	"github.com/jobtrack/jobtrack/internal/auth"
-	"github.com/jobtrack/jobtrack/internal/config"
-	"github.com/jobtrack/jobtrack/internal/crypt"
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/auth"
+	"github.com/ergodicregulus/jobtrack/internal/config"
+	"github.com/ergodicregulus/jobtrack/internal/crypt"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 )
 
 // API holds the dependencies every handler needs.

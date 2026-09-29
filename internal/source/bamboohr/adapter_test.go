@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Captured from the public flyio board on 2026-09-01: the list, plus the detail

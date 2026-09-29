@@ -17,10 +17,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/jobtrack/jobtrack/internal/app"
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/normalise"
-	"github.com/jobtrack/jobtrack/internal/resume"
+	"github.com/ergodicregulus/jobtrack/internal/app"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/resume"
 )
 
 func main() {

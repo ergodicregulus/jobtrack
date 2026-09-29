@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/version"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/version"
 )
 
 // The three probes answer three different questions, and conflating them is the

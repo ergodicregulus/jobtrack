@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 // ClassifyPostingField labels every stored posting with the kind of work it is.

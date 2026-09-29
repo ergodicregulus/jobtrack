@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/domain/user"
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/domain/user"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // ThemeCookieName carries the resolved theme for server-side rendering.

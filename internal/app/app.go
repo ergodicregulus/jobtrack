@@ -18,10 +18,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/config"
-	"github.com/jobtrack/jobtrack/internal/store"
-	"github.com/jobtrack/jobtrack/internal/telemetry"
-	"github.com/jobtrack/jobtrack/internal/version"
+	"github.com/ergodicregulus/jobtrack/internal/config"
+	"github.com/ergodicregulus/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/telemetry"
+	"github.com/ergodicregulus/jobtrack/internal/version"
 )
 
 // App is the common runtime context for a service.

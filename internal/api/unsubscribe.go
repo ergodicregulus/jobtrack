@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/jobtrack/jobtrack/internal/mail"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/mail"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // handleUnsubscribe honours an unsubscribe link without a login.

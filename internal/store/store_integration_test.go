@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/migrate"
-	"github.com/jobtrack/jobtrack/migrations"
+	"github.com/ergodicregulus/jobtrack/internal/migrate"
+	"github.com/ergodicregulus/jobtrack/migrations"
 )
 
 // The store is tested against a real Postgres because there is nothing else to

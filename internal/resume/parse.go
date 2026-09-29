@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 // ParserVersion is stamped on every parse.

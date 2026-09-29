@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 )
 
 // FeedFilter is the set of constraints from the query string.

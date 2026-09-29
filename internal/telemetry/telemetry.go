@@ -28,7 +28,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/jobtrack/jobtrack/internal/version"
+	"github.com/ergodicregulus/jobtrack/internal/version"
 )
 
 // Provider bundles everything that needs shutting down.
@@ -188,7 +188,7 @@ func (h *traceHandler) WithGroup(name string) slog.Handler {
 
 // Tracer returns the named tracer for this codebase.
 func Tracer(name string) trace.Tracer {
-	return otel.Tracer("github.com/jobtrack/jobtrack/" + name)
+	return otel.Tracer("github.com/ergodicregulus/jobtrack/" + name)
 }
 
 // TraceIDFromContext returns the current trace ID, or "" if untraced.

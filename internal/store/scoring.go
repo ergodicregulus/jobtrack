@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/matching"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 )
 
 // The scoring queries live here rather than in internal/jobs for the reason

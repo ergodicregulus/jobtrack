@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Posting is a normalised job posting ready to be written.

@@ -18,7 +18,7 @@
 // `make verify-boards` for the live re-check.
 package seed
 
-import "github.com/jobtrack/jobtrack/internal/source"
+import "github.com/ergodicregulus/jobtrack/internal/source"
 
 // Board is one company's feed.
 type Board struct {

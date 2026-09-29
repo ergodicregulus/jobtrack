@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
 )
 
 func vocab() *normalise.Vocabulary { return normalise.DefaultVocabulary() }

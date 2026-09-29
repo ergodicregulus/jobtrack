@@ -1,4 +1,4 @@
-module github.com/jobtrack/jobtrack
+module github.com/ergodicregulus/jobtrack
 
 go 1.25.0
 

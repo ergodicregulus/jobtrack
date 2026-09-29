@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/source/smartrecruiters"
+	"github.com/ergodicregulus/jobtrack/internal/source/smartrecruiters"
 )
 
 // BackfillSmartRecruitersURLs gives stored SmartRecruiters postings the public

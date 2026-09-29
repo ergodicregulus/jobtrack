@@ -9,8 +9,8 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/jobtrack/jobtrack/internal/mail"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/mail"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // SendDigestsArgs runs one pass over the saved searches that are due.

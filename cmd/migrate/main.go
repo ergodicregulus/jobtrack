@@ -24,11 +24,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/app"
-	"github.com/jobtrack/jobtrack/internal/datamigrations"
-	"github.com/jobtrack/jobtrack/internal/migrate"
-	"github.com/jobtrack/jobtrack/internal/version"
-	"github.com/jobtrack/jobtrack/migrations"
+	"github.com/ergodicregulus/jobtrack/internal/app"
+	"github.com/ergodicregulus/jobtrack/internal/datamigrations"
+	"github.com/ergodicregulus/jobtrack/internal/migrate"
+	"github.com/ergodicregulus/jobtrack/internal/version"
+	"github.com/ergodicregulus/jobtrack/migrations"
 )
 
 func main() {

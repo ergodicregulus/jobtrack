@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/httpx"
-	"github.com/jobtrack/jobtrack/internal/resume"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
+	"github.com/ergodicregulus/jobtrack/internal/resume"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 // maxResumeBytes matches the limit documented in ADR-0007.

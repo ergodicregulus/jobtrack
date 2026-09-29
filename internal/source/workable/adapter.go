@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 const maxBodyBytes = 32 << 20

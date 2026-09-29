@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jobtrack/jobtrack/internal/source"
+	"github.com/ergodicregulus/jobtrack/internal/source"
 )
 
 // Captured from the public orderbird feed on 2026-08-25. Never a live call in a

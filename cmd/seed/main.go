@@ -21,12 +21,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/jobtrack/jobtrack/internal/app"
-	"github.com/jobtrack/jobtrack/internal/auth"
-	"github.com/jobtrack/jobtrack/internal/jobs"
-	"github.com/jobtrack/jobtrack/internal/normalise"
-	"github.com/jobtrack/jobtrack/internal/seed"
-	"github.com/jobtrack/jobtrack/internal/store"
+	"github.com/ergodicregulus/jobtrack/internal/app"
+	"github.com/ergodicregulus/jobtrack/internal/auth"
+	"github.com/ergodicregulus/jobtrack/internal/jobs"
+	"github.com/ergodicregulus/jobtrack/internal/normalise"
+	"github.com/ergodicregulus/jobtrack/internal/seed"
+	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
 func main() {

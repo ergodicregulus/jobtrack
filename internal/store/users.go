@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/jobtrack/jobtrack/internal/domain/user"
+	"github.com/ergodicregulus/jobtrack/internal/domain/user"
 )
 
 // LoadProfile reads the queryable half of a user record, plus their skills.
