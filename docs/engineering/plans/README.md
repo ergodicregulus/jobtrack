@@ -68,6 +68,6 @@ cheap and the guess is not.
   Both bugs found on 2026-09-01 passed every existing test while corrupting the
   corpus daily.
 - New rule, new check. If a plan adds an invariant, it adds it to `scripts/arch/`
-  or it will drift — see [ADR-0014](../../architecture/adr/0014-invariants-are-enforced-by-scripts.md).
+  or it will drift — see [ADR-0014](../../architecture/adr/0014-rules-are-enforced-by-scripts.md).
 - Never fabricate a number. If a plan needs a figure it does not have, it
   measures it or says it does not know.

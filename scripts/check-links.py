@@ -76,7 +76,14 @@ def main(argv: list[str]) -> int:
             if os.path.isdir(resolved):
                 continue
             if resolved not in all_md:
-                problems.append(f"{path}: missing file -> {match.group(0)[:80]}")
+                # Not Markdown. A link to source, a licence or a fixture is a
+                # normal thing for a README to have, and until this branch
+                # existed every one of them was reported as broken — which is
+                # the failure mode that teaches people to ignore the checker.
+                # Existence is all that can be verified; a non-Markdown file
+                # has no headings, so #fragments on it are not checked.
+                if not os.path.isfile(resolved):
+                    problems.append(f"{path}: missing file -> {match.group(0)[:80]}")
                 continue
             if not frag:
                 continue

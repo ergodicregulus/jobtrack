@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -10,19 +11,53 @@ import (
 // everything is worse than none: it converts a clear boot failure into a 3 a.m.
 // page.
 
+// namespaces is every environment prefix this package reads.
+//
+// The test process inherits the environment, and `make test` runs inside the
+// compose `tools` container, which sets DATABASE_URL, RESUME_ENCRYPTION_KEY
+// and the rest from the same anchor the services use. A test whose subject is
+// *which variables are required* must therefore not read any of them from the
+// ambient environment: doing so passed in the container and failed on a clean
+// host for eight months, which is the worst possible direction for a config
+// test to be wrong in.
+var namespaces = []string{
+	"APP_", "COOKIE_", "DATABASE_", "DB_", "EMAIL_", "HTTP_", "INGEST_",
+	"LOG_", "OBJECT_", "OTEL_", "RATE_", "RESUME_", "SESSION_", "SHUTDOWN_",
+	"TRUSTED_",
+}
+
+// setEnv installs kv as the ENTIRE JobTrack environment for this test.
+//
+// Blanking rather than unsetting: every loader accessor treats an empty value
+// as absent (see loader.str), and t.Setenv restores on cleanup while
+// os.Unsetenv would need its own. The file already relied on this — one test
+// asks for DATABASE_URL="" and expects "is required".
 func setEnv(t *testing.T, kv map[string]string) {
 	t.Helper()
+	for _, entry := range os.Environ() {
+		k, _, _ := strings.Cut(entry, "=")
+		for _, ns := range namespaces {
+			if strings.HasPrefix(k, ns) {
+				t.Setenv(k, "")
+				break
+			}
+		}
+	}
 	for k, v := range kv {
 		t.Setenv(k, v)
 	}
 }
 
-// The minimum that must be present for a service to load at all.
+// The minimum that must be present for a service to load at all. The two
+// RESUME_ values are required for the api service specifically; the other
+// services ignore them, so one fixture still serves every case.
 func validEnv() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":          "postgres://u:p@localhost:5432/db?sslmode=disable",
 		"SESSION_SECRET":        "0123456789abcdef0123456789abcdef",
 		"OBJECT_STORE_ENDPOINT": "http://localhost:9000",
+		"RESUME_PARSER_URL":     "http://localhost:9090",
+		"RESUME_ENCRYPTION_KEY": "fedcba9876543210fedcba9876543210",
 	}
 }
 
@@ -142,6 +177,8 @@ func TestLoad_ProductionGuards(t *testing.T) {
 			"OBJECT_STORE_ENDPOINT":       "https://s3.example.com",
 			"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
 			"COOKIE_SECURE":               "true",
+			"RESUME_PARSER_URL":           "http://resume-parser:9090",
+			"RESUME_ENCRYPTION_KEY":       "fedcba9876543210fedcba9876543210",
 		}
 	}
 
@@ -157,6 +194,8 @@ func TestLoad_ProductionGuards(t *testing.T) {
 		"no telemetry endpoint":  {"OTEL_EXPORTER_OTLP_ENDPOINT", "", "OTEL_EXPORTER_OTLP_ENDPOINT"},
 		"sslmode=disable":        {"DATABASE_URL", "postgres://u:p@db:5432/j?sslmode=disable", "sslmode=disable"},
 		"dev placeholder secret": {"SESSION_SECRET", "dev-only-not-a-real-secret-min-32", "placeholder"},
+		"dev placeholder resume key": {
+			"RESUME_ENCRYPTION_KEY", "dev-only-resume-key-also-min-32-chars", "RESUME_ENCRYPTION_KEY"},
 	}
 
 	for name, tc := range cases {

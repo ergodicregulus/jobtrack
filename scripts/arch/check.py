@@ -31,6 +31,7 @@ ORDER = [
     "check_citations.py",
     "check_docs.py",
     "check_plans.py",
+    "check_env_example.py",
     "check_migrations.py",
     "check_schema_usage.py",
     "check_workflows.py",

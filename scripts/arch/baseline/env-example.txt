@@ -1,0 +1,3 @@
+# Variables the loader reads that .env.example does not document, and vice versa.
+#
+# Empty. The rule holds with no exceptions.

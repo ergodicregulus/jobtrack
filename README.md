@@ -14,6 +14,38 @@ JobTrack does three things that existing tools do badly or not at all:
 
 ---
 
+## Run it
+
+Docker, git and `python3` are the only host prerequisites. Everything else runs in containers.
+
+```bash
+make dev      # postgres, minio, jaeger and every service, with live reload
+make check    # everything CI runs — this repository's definition of done
+```
+
+Ingestion starts in `fixture` mode and replays captured responses, so the feed has data before the
+process has made a single network request. Live ingestion **refuses to start** without an explicit
+per-source allowlist; that is a startup check, not a convention
+([config.go](internal/config/config.go)).
+
+## What is actually built
+
+| | | |
+|---|---|---|
+| **Nine ATS adapters** | Greenhouse, Ashby, Workday, SmartRecruiters, Personio, Recruitee, Workable, Keka, BambooHR | each with golden-file tests against captured real responses |
+| **13,484 postings** | 35.4% engineering-titled across the whole corpus | [`A-39`](docs/research/evidence-ledger.md#a-39) |
+| **90.8% know their country** | up from 64.5%, from widening one lookup table | [`A-37`](docs/research/evidence-ledger.md#a-37) |
+| **56–65 min** | median ingest → visible, tier A. Budget 90 | [`A-31`](docs/research/evidence-ledger.md#a-31) |
+| **72 ms** | INP p75 at 4× CPU throttle, measured from the browser's own Event Timing. Budget 200 | [`A-32`](docs/research/evidence-ledger.md#a-32) |
+| **93.5% / 44.4%** | field classifier precision / recall — precise and deliberately low-recall | [`A-38`](docs/research/evidence-ledger.md#a-38) |
+| **13 invariants** | layering, SQL location, function length, dead code, citations, migrations, plans, config | `make arch-check`, under a second, no toolchain |
+
+Every number above is a link to how it was measured, including the ones that are worse than we
+hoped. `A-38` is the clearest example: the classifier is right 93.5% of the time and finds under
+half of what it should, and the page that shows it says so.
+
+---
+
 ## Why this exists
 
 The 2020–2026 software hiring market did not just contract; it **rotated**. Indexed to a February
@@ -66,19 +98,17 @@ Documented in full in [docs/product/principles.md](docs/product/principles.md#an
 
 ```mermaid
 flowchart LR
-    subgraph sources["Sources (public, first-party)"]
-        GH["Greenhouse\nboards-api"]
-        LV["Lever\napi.lever.co"]
-        AB["Ashby\nposting-api"]
-        SR["SmartRecruiters"]
-        LD["Career pages\nJSON-LD JobPosting"]
+    subgraph sources["Sources — nine ATS vendors, public first-party feeds"]
+        GH["Greenhouse · Ashby\nWorkday · SmartRecruiters"]
+        EU["Personio · Recruitee\nWorkable"]
+        IN["Keka · BambooHR"]
     end
 
     subgraph ingest["ingestor (Go)"]
         SCHED["Adaptive scheduler\ntier A/B/C"]
         FETCH["Conditional fetch\nETag / If-Modified-Since"]
         NORM["Normaliser\n→ canonical JobPosting"]
-        DEDUP["3-stage dedup\nblock → string → embed"]
+        DEDUP["2-stage dedup\nrequisition → trigram"]
     end
 
     subgraph core["Postgres 17 + pgvector"]
@@ -86,8 +116,7 @@ flowchart LR
     end
 
     subgraph svc["Go deployment units"]
-        API["api\nREST + SSE\nHPA on latency"]
-        MATCH["matcher\nscoring · embeddings\nKEDA 0..30"]
+        API["api\nREST + SSE\nscoring on the read path"]
         SCHEDULER["scheduler\nsingleton"]
         PARSE["resume-parser\nisolated · no egress"]
     end
@@ -98,16 +127,22 @@ flowchart LR
     sources --> SCHED --> FETCH --> NORM --> DEDUP --> DB
     SCHEDULER --> SCHED
     DB <--> API
-    DB <--> MATCH
-    API -->|gRPC| PARSE
+    API -->|HTTP| PARSE
     GW --> WEB --> API
     GW --> API
 
     style PARSE fill:#7c5c14,stroke:#d99a1c,color:#fff
 ```
 
-The `ingestor` box is one of six deployment units; the others are shown to its right. Workers
+The `ingestor` box is one of five deployment units; the others are shown to its right. Workers
 coordinate through Postgres rather than over RPC, which is why there are no arrows between them.
+
+Two things in this diagram were true of the design and are not true of the build, so they are drawn
+as built rather than as planned. There is **no `matcher` service**: scoring became a pure function
+run on the read path, which deleted a deployment unit and a staleness class at once
+([ADR-0016](docs/architecture/adr/0016-scores-are-computed-not-materialised.md)). And dedup has
+**two stages, not three** — the embedding stage is deliberately absent, because a stage that does
+not exist must not silently pass everything through.
 
 Full detail: **[system-architecture.md](docs/architecture/system-architecture.md)** (overview) and
 **[service-topology.md](docs/architecture/service-topology.md)** (gateway, scaling, contracts).
@@ -168,18 +203,35 @@ Start at **[docs/README.md](docs/README.md)** for the full map and suggested rea
 
 ## Status
 
-**Phase: design complete, implementation not started.** This repository currently contains
-documentation only. Every document is written to be executable — a scaffold generated from
-[engineering/repository-structure.md](docs/engineering/repository-structure.md) plus
-[architecture/data-model.md](docs/architecture/data-model.md) should compile and run.
+**Built and running against a live corpus.** Nine ATS adapters ingest on a tiered schedule, the
+`/jobs` feed searches and filters 13k postings, resumes parse and score, applications track, and a
+weekly digest mails saved searches over SMTP. Eighteen [ADRs](docs/architecture/adr/) record how it
+got here, including the ones that overturned an earlier decision once a measurement disagreed with
+it: [ADR-0015](docs/architecture/adr/0015-hand-written-sql-in-a-store-layer.md) superseded ADR-0001's
+`sqlc` clause after it sat unadopted for months, and
+[ADR-0016](docs/architecture/adr/0016-scores-are-computed-not-materialised.md) deleted a 1,952 MB
+table — 78.4% of the database — once scoring measured three orders of magnitude cheaper than the
+design assumed.
 
-All architectural decisions are settled — see the eight
-[ADRs](docs/architecture/adr/). The last open one, the frontend framework, resolved to **SvelteKit 2**
-on 2026-08-15 ([ADR-0002](docs/architecture/adr/0002-frontend-framework.md)).
+What is **not** finished, stated here rather than left for a reader to discover:
 
-Next step is the scaffold: repository skeleton, schema migrations, one working ATS adapter end to end,
-and the `/jobs` feed against seeded data.
+| | |
+|---|---|
+| `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 3 packages. `internal/store` has integration tests; the workers do not |
+| The digest has never delivered a real email | The code path is verified end to end against a local relay; no SMTP host has been configured |
+| One employer's board is 34.8% of the corpus | Mostly not software. Curation measured as the *weaker* lever ([`A-39`](docs/research/evidence-ledger.md#a-39)), so the answer is the Software filter rather than a blocklist — but it is a live product question |
+| Two functions exceed the 80-line limit | Recorded in `scripts/arch/baseline/func-length.txt`, which is only allowed to shrink |
+
+The same list lives in [CLAUDE.md](CLAUDE.md#known-gaps--real-recorded-being-paid-down) with live
+counts, because a document that describes an aspiration as a fact is the failure this project spends
+most of its tooling preventing.
 
 ## Licence
 
-TBD before first public commit.
+[MIT](LICENSE).
+
+The adapters read **public, first-party feeds only** — no accounts, no authenticated endpoints, no
+anti-bot circumvention, one host at a time with a polite delay. That is a binding constraint rather
+than a default: [ADR-0004](docs/architecture/adr/0004-source-acquisition-policy.md) is the gate every
+new source passes, and it has already rejected two vendors (Darwinbox, iCIMS) for sitting behind
+bot challenges.

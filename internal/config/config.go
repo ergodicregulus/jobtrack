@@ -357,8 +357,17 @@ func (c *Config) validate(l *loader) {
 		if strings.Contains(c.Database.URL, "sslmode=disable") {
 			l.problems = append(l.problems, "DATABASE_URL must not use sslmode=disable when APP_ENV=prod")
 		}
-		if strings.HasPrefix(c.Security.SessionSecret, "dev-") {
-			l.problems = append(l.problems, "SESSION_SECRET is still the development placeholder")
+		// Both keys, not just the session one. docker-compose.yml ships a
+		// "dev-only-..." value for each, and the resume key is the worse of
+		// the two to leak: it decrypts every uploaded CV, where the session
+		// secret only forges a login.
+		for _, ph := range []struct{ key, value string }{
+			{"SESSION_SECRET", c.Security.SessionSecret},
+			{"RESUME_ENCRYPTION_KEY", c.Security.ResumeKey},
+		} {
+			if strings.HasPrefix(ph.value, "dev-") {
+				l.problems = append(l.problems, ph.key+" is still the development placeholder")
+			}
 		}
 	}
 }
