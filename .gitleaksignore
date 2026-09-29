@@ -1,0 +1,12 @@
+# Accepted findings, one fingerprint per line, each with a reason.
+#
+# gitleaks scans the full history, so a value corrected in a later commit is
+# still found in the commit that introduced it. Rewriting a pushed public
+# branch to erase a test fixture would be worse than this file.
+
+# A 32-hex RESUME_ENCRYPTION_KEY fixture in a config test, replaced in the very
+# next commit with "test-only-resume-key-not-a-secret" precisely because it
+# looked like a credential. It never was one: the value exists to satisfy a
+# length check in internal/config, and the key it stands in for is generated
+# per deployment.
+36ff2b0db2c949c32712308b88353f8ffe97283a:internal/config/config_test.go:generic-api-key:60

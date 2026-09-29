@@ -56,7 +56,7 @@ func validEnv() map[string]string {
 		"DATABASE_URL":          "postgres://u:p@localhost:5432/db?sslmode=disable",
 		"SESSION_SECRET":        "0123456789abcdef0123456789abcdef",
 		"RESUME_PARSER_URL":     "http://localhost:9090",
-		"RESUME_ENCRYPTION_KEY": "fedcba9876543210fedcba9876543210",
+		"RESUME_ENCRYPTION_KEY": "test-only-resume-key-not-a-secret",
 	}
 }
 
@@ -176,7 +176,7 @@ func TestLoad_ProductionGuards(t *testing.T) {
 			"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
 			"COOKIE_SECURE":               "true",
 			"RESUME_PARSER_URL":           "http://resume-parser:9090",
-			"RESUME_ENCRYPTION_KEY":       "fedcba9876543210fedcba9876543210",
+			"RESUME_ENCRYPTION_KEY":       "test-only-resume-key-not-a-secret",
 		}
 	}
 

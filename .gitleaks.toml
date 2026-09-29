@@ -1,0 +1,27 @@
+# Secret scanning, with exactly two exceptions and no more.
+#
+# gitleaks' generic-api-key rule is entropy-based, so it fires on any long
+# opaque-looking string — including a key that says "test" in it. One of ours
+# trips it: the AES key in internal/crypt/crypt_test.go. (The config fixture
+# that also tripped it was renamed rather than allowlisted; a value that reads
+# as a credential should not be in the tree in the first place.)
+#
+# The allowlist is narrow in TWO dimensions at once, joined by AND: the finding
+# must be in a _test.go file AND the value must literally say it is test
+# material. A blanket "ignore tests" rule is how a leaked key hides for a year
+# in the one directory nobody audits.
+#
+# Both halves are load-bearing, and that was checked rather than assumed: the
+# same high-entropy "a-test-key-..." value fires in prod.go and is allowed in
+# c_test.go, while a bare hex value in a _test.go file still fires.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [rules.allowlist]
+  condition = "AND"
+  paths = ['''_test\.go$''']
+  regexes = ['''(?i)(^|["'= ])(a-)?test[-_](only|key)''']
