@@ -395,8 +395,10 @@ jobs:
           docker compose run --rm tools "go run ./cmd/seed"
           # Warm the build cache for THIS binary before air has to compile it
           # inside the api container, where the only signal is a healthcheck
-          # timing out.
-          docker compose run --rm --no-deps tools "go build -o /dev/null ./cmd/api"
+          # timing out. -buildvcs=false because git inside the container refuses
+          # the bind-mounted repo as dubiously owned, and `go build` turns that
+          # into "error obtaining VCS status: exit status 128" and fails.
+          docker compose run --rm --no-deps tools "go build -buildvcs=false -o /dev/null ./cmd/api"
           docker compose up -d --wait api
 
       # Without this, a container that crashed and a container that was merely
@@ -427,7 +429,7 @@ jobs:
           docker compose up -d --wait postgres
           docker compose run --rm migrate
           docker compose run --rm tools "go run ./cmd/seed"
-          docker compose run --rm --no-deps tools "go build -o /dev/null ./cmd/api"
+          docker compose run --rm --no-deps tools "go build -buildvcs=false -o /dev/null ./cmd/api"
           docker compose up -d --wait api web
 
       - name: Container logs
