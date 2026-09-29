@@ -393,7 +393,19 @@ jobs:
           docker compose up -d --wait postgres
           docker compose run --rm migrate
           docker compose run --rm tools "go run ./cmd/seed"
+          # Warm the build cache for THIS binary before air has to compile it
+          # inside the api container, where the only signal is a healthcheck
+          # timing out.
+          docker compose run --rm --no-deps tools "go build -o /dev/null ./cmd/api"
           docker compose up -d --wait api
+
+      # Without this, a container that crashed and a container that was merely
+      # slow produce the same message: "is unhealthy".
+      - name: Container logs
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=200 api || true
 
       # k6 fails the step itself: the pass criteria are thresholds inside the
       # script, so this cannot pass by the output format changing.
@@ -415,7 +427,14 @@ jobs:
           docker compose up -d --wait postgres
           docker compose run --rm migrate
           docker compose run --rm tools "go run ./cmd/seed"
+          docker compose run --rm --no-deps tools "go build -o /dev/null ./cmd/api"
           docker compose up -d --wait api web
+
+      - name: Container logs
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=200 api web || true
 
       - name: ui-audit
         run: make ui-audit
