@@ -26,6 +26,7 @@ thing well.
 | [corpus-completeness](corpus-completeness.md) | 39% have no country; skills read for 52%; the description fix is unverified on three vendors | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
 | [digest-email](digest-email.md) | Built (ADR-0019) and off by default; not done until a real email is received | No |
+| [ci-green-and-fixture-mode](ci-green-and-fixture-mode.md) | CI green, and `INGEST_MODE=fixture` made real | IN PROGRESS |
 
 ## How these get executed
 
