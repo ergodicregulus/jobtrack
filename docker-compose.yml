@@ -122,6 +122,18 @@ services:
       RATE_LIMIT_BURST: "2000"
     ports:
       - "8080:8080"
+    # `air` compiles the binary AFTER the container starts, so without a
+    # healthcheck `up -d --wait api` returns while nothing is listening yet.
+    # On a warm machine the gap is a second and nobody notices; on a cold CI
+    # runner it is a minute, and the next step fails with a connection error
+    # that reads like a broken API. start_period covers the first compile and
+    # does not count toward retries.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 180s
     develop:
       watch:
         # sync+restart for compiled Go: the file is synced, then air rebuilds
@@ -175,6 +187,12 @@ services:
       DATABASE_URL: ""
     ports:
       - "9090:9090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9090/readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 180s
 
   web:
     image: node:22-alpine
@@ -194,9 +212,17 @@ services:
       - ./api:/spec:ro
     ports:
       - "5173:5173"
+    # `npm install` then a Vite cold start, both after the container is
+    # running. busybox wget rather than curl: node:22-alpine has no curl.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:5173/"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 240s
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     develop:
       watch:
         # sync only: Vite's HMR handles the reload itself. sync+restart here

@@ -322,15 +322,28 @@ test-golden: ## Source adapter golden-file tests (add UPDATE=1 to regenerate)
 	  $(TOOLS) "go test ./internal/source/... -count=1"; \
 	fi
 
+# The audit and the screenshots run in the Playwright image, which mounts the
+# HOST's web/ — and node_modules lives in a named volume for the `web` service,
+# so the host copy can be empty. It is populated on a developer's machine by
+# accident and on a fresh clone or a CI runner not at all, which is a failure
+# that only ever appears somewhere other than where you are.
+.PHONY: web-deps
+web-deps: ## Install web/node_modules on the HOST, for tools that mount it
+	@if [ ! -d web/node_modules/@playwright/test ]; then \
+	  echo "installing web/node_modules on the host for the playwright tools"; \
+	  docker run --rm -v "$(PWD)/web":/app -w /app node:22-alpine \
+	    sh -c "npm ci --no-audit --no-fund || npm install --no-audit --no-fund"; \
+	fi
+
 .PHONY: ui-audit
-ui-audit: ## Measurable rendering checks on every page at every width
+ui-audit: web-deps ## Measurable rendering checks on every page at every width
 	docker run --rm --network jobtrack_default \
 	  -v "$(PWD)/web":/app -w /app \
 	  -e E2E_BASE_URL=http://web:5173 \
 	  mcr.microsoft.com/playwright:v1.62.1-noble node tools/ui-audit.mjs
 
 .PHONY: screenshots
-screenshots: ## Screenshot every page in both themes into web/.screenshots/
+screenshots: web-deps ## Screenshot every page in both themes into web/.screenshots/
 	@mkdir -p web/.screenshots
 	docker run --rm --network jobtrack_default \
 	  -v "$(PWD)/web":/app -w /app \
