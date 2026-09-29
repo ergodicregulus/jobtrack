@@ -34,8 +34,10 @@ justification in the PR description: what does this replace, and what breaks if 
 standard library is the default. `net/http`'s `ServeMux` (Go 1.22+) routes fine; we do not need a
 router framework.
 
-**Postgres is the only datastore** — plus S3-compatible object storage for blobs, which is not a
-database. No Redis, no Elasticsearch, no separate vector DB, no broker. Full-text via `tsvector`,
+**Postgres is the only datastore.** No object storage, no Redis, no Elasticsearch, no separate
+vector DB, no broker. The object-storage carve-out was removed by
+[ADR-0020](docs/architecture/adr/0020-no-object-storage-until-something-stores-an-object.md) once it
+turned out nothing had ever called it. Full-text via `tsvector`,
 similarity via `pgvector`, queues via River, pub/sub via `LISTEN/NOTIFY`, cache via in-process LRU.
 
 This is not dogma: every alternative has a **numeric trigger** in
@@ -80,8 +82,8 @@ stays usable before the stack has ever been started. The only host prerequisites
 python3.
 
 ```bash
-make dev          # full stack with compose watch: postgres, minio, jaeger, all services
-make check        # everything CI runs. THE definition of done
+make dev          # full stack with compose watch: postgres, jaeger, all services
+make check        # every CI gate that needs no database and no network. Definition of done
 make arch-check   # architecture invariants. Under a second, no toolchain
 make test         # Go tests
 make test-golden  # source adapters — run after touching ANY adapter, then READ THE DIFF
@@ -98,6 +100,13 @@ Details and troubleshooting: [docs/engineering/dev-environment.md](docs/engineer
 
 `make check` is the definition of done — not "it compiles", not "my test passes".
 
+**It is not all of CI, and the gap is named on purpose.** `make check` runs every gate that needs
+neither a database nor the network. CI additionally runs `make vuln` (govulncheck), the integration
+and e2e suites, the migration-compatibility job, CodeQL and the image builds. Those four words —
+"everything CI runs" — were in this file while `go mod tidy`, the link checker and the make-target
+checker were in no local target at all, and the first CI run this repository ever had failed on two
+of the three.
+
 | Before you… | Do this | Enforced by |
 |---|---|---|
 | Change package boundaries or move SQL | `make arch-check` | `scripts/arch/check_layering.py`, `check_sql_location.py` |
@@ -108,6 +117,7 @@ Details and troubleshooting: [docs/engineering/dev-environment.md](docs/engineer
 | Read a new environment variable | Document it in `.env.example` | `scripts/arch/check_env_example.py` |
 | Change River job args | Read [deployment-zdt §4](docs/operations/deployment-zdt.md#4-queue-compatibility) | review |
 | Add a dependency | Say what it replaces and what breaks if abandoned | CI dependency budget |
+| Change `go.mod` | `make vuln` — it is not in `make check` | CI `govulncheck` |
 | Touch a source adapter | `make test-golden`, then **read the diff** | `make test-golden` |
 | Propose new infrastructure | Cite the metric that fired | [caching-and-storage](docs/architecture/caching-and-storage.md) |
 

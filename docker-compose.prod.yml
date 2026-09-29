@@ -63,7 +63,7 @@ services:
   # service_completed_successfully, which compose enforces properly.
   migrate:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/migrate:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/migrate:${VERSION:?set VERSION}
     restart: "no"
     environment: *env
     depends_on:
@@ -73,7 +73,7 @@ services:
 
   api:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/api:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/api:${VERSION:?set VERSION}
     environment:
       <<: *env
       HTTP_ADDR: ":8080"
@@ -98,7 +98,7 @@ services:
 
   ingestor:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/ingestor:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/ingestor:${VERSION:?set VERSION}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -108,7 +108,7 @@ services:
 
   scheduler:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/scheduler:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/scheduler:${VERSION:?set VERSION}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -116,7 +116,7 @@ services:
 
   resume-parser:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/resume-parser:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/resume-parser:${VERSION:?set VERSION}
     environment:
       ENV: production
       LOG_LEVEL: info
@@ -145,7 +145,7 @@ services:
 
   web:
     <<: *service
-    image: ${REGISTRY:-ghcr.io/jobtrack}/web:${VERSION:?set VERSION}
+    image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/web:${VERSION:?set VERSION}
     environment:
       API_BASE_URL: http://api:8080
       PORT: "3000"

@@ -60,9 +60,24 @@ psql: ## Open psql against the dev database
 ##@ Quality gates
 
 .PHONY: check
-check: arch-check fmt-check vet lint test build-all web-test web-check bench-budget ## Everything CI runs. THE definition of done
+check: arch-check docs-check tidy fmt-check vet lint test build-all web-test web-check bench-budget ## Every CI gate that runs without a database or the network. THE definition of done
 	@echo ""
 	@echo "  ✓ check passed"
+
+# Split from arch-check because these two run in CI as their own steps and were
+# in no local target at all — which is how a broken ADR link sat in the plans
+# index until the first CI run this repository ever had.
+.PHONY: docs-check
+docs-check: ## Documentation links resolve and every documented make target exists
+	@python3 scripts/check-links.py
+	@python3 scripts/check-make-targets.py
+
+# Deliberately NOT in `check`: it downloads a newer toolchain and hits the
+# vulnerability database, so it needs the network and a minute. CI runs it on
+# every push; run it locally before touching go.mod.
+.PHONY: vuln
+vuln: ## Known vulnerabilities in dependencies, by call path
+	$(TOOLS) "GOTOOLCHAIN=auto go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
 
 .PHONY: arch-check
 arch-check: ## Architecture invariants: layering, SQL location, function length, ADR index, citations, plans

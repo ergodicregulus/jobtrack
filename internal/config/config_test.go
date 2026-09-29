@@ -22,7 +22,7 @@ import (
 // test to be wrong in.
 var namespaces = []string{
 	"APP_", "COOKIE_", "DATABASE_", "DB_", "EMAIL_", "HTTP_", "INGEST_",
-	"LOG_", "OBJECT_", "OTEL_", "RATE_", "RESUME_", "SESSION_", "SHUTDOWN_",
+	"LOG_", "OTEL_", "RATE_", "RESUME_", "SESSION_", "SHUTDOWN_",
 	"TRUSTED_",
 }
 
@@ -55,7 +55,6 @@ func validEnv() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":          "postgres://u:p@localhost:5432/db?sslmode=disable",
 		"SESSION_SECRET":        "0123456789abcdef0123456789abcdef",
-		"OBJECT_STORE_ENDPOINT": "http://localhost:9000",
 		"RESUME_PARSER_URL":     "http://localhost:9090",
 		"RESUME_ENCRYPTION_KEY": "fedcba9876543210fedcba9876543210",
 	}
@@ -174,7 +173,6 @@ func TestLoad_ProductionGuards(t *testing.T) {
 			"APP_ENV":                     "prod",
 			"DATABASE_URL":                "postgres://u:p@db:5432/jobtrack?sslmode=require",
 			"SESSION_SECRET":              "0123456789abcdef0123456789abcdef",
-			"OBJECT_STORE_ENDPOINT":       "https://s3.example.com",
 			"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
 			"COOKIE_SECURE":               "true",
 			"RESUME_PARSER_URL":           "http://resume-parser:9090",

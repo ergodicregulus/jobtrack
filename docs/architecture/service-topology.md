@@ -52,7 +52,6 @@ flowchart TB
 
     subgraph data["Data tier"]
         PG[("PostgreSQL 17<br/>+ pgvector · pg_trgm<br/>River queue · LISTEN/NOTIFY")]
-        OBJ["Object storage<br/>S3-compatible API<br/>MinIO / any provider"]
     end
 
     OTEL["OTel Collector<br/>→ any OTLP backend"]
@@ -64,13 +63,11 @@ flowchart TB
     WEB --> API
 
     API --> PG
-    API --> OBJ
     API -->|"gRPC, mTLS"| RP
 
     SCHED --> PG
     ING --> PG
     MAT --> PG
-    RP --> OBJ
 
     ING -->|"conditional GET"| SRC["Public ATS feeds"]
 
@@ -377,7 +374,6 @@ Every dependency is an open standard or has ≥ 2 interchangeable implementation
 | Gateway impl | Envoy Gateway | CNCF; Istio/Cilium/Kong/Traefik implement the same API | Hours |
 | Database | PostgreSQL 17 | Portable across every managed provider and self-hosted | Dump/restore |
 | Queue | River (Postgres tables) | **Travels with the database** | None |
-| Object storage | **S3-compatible API** | MinIO, Ceph, and every cloud provider implement it | Endpoint config |
 | Secrets | Kubernetes Secrets + External Secrets Operator | Provider-agnostic interface over any backend | Provider config |
 | Telemetry | **OpenTelemetry / OTLP** | Vendor-neutral by design; any OTLP backend | Collector exporter config |
 | CI | Container-based, no proprietary steps | Runs on GitHub Actions, GitLab CI, Woodpecker, Jenkins | Pipeline rewrite only |
@@ -389,7 +385,7 @@ managed function runtime, any proprietary API gateway, any provider-specific dat
 any observability SDK that is not OTLP.
 
 **How this is tested rather than asserted:** CI runs the full integration suite against
-`docker compose` — Postgres, MinIO, and the app — with no cloud credentials present. A dependency
+`docker compose` — Postgres and the app — with no cloud credentials present. A dependency
 that cannot run in that environment cannot merge. Portability that is not exercised is portability
 that has already been lost.
 

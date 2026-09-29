@@ -210,7 +210,7 @@ Provider-neutral, in generic units. Actual prices vary; the **ratios** are the p
 | `scheduler` + `resume-parser` | 1 + 0–2 pods | $15 |
 | Gateway | 2 pods | $20 |
 | **Postgres** | **4 vCPU / 16 GB / 200 GB + standby** | **$180** |
-| Object storage | 50 GB + egress | $10 |
+
 | Telemetry | self-hosted or small hosted tier | $40 |
 | **Total** | | **≈ $350/mo** |
 
@@ -226,7 +226,7 @@ with its own operational overhead.
 | Application tier (all units) | $250 |
 | **Postgres** — 8 vCPU / 32 GB / 1 TB + standby | **$600** |
 | PgBouncer | $20 |
-| Object storage | $60 |
+
 | Telemetry | $150 |
 | **Total** | **≈ $1,080/mo** |
 

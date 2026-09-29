@@ -48,7 +48,6 @@ flowchart TB
 
     subgraph data["Data tier"]
         PG[("PostgreSQL 17\npgvector · tsvector\nRiver queue tables\nLISTEN/NOTIFY")]
-        OBJ["Object storage\nS3-compatible API\nencrypted blobs"]
     end
 
     subgraph obs["Observability"]
@@ -62,9 +61,7 @@ flowchart TB
     GW --> API
     CDN -.-> WEB
     API --> PG
-    API --> OBJ
     API -->|"gRPC · mTLS"| RP
-    RP --> OBJ
     SCH --> PG
     ING --> PG
     MAT --> PG
@@ -201,7 +198,6 @@ The question that matters in review is *what still works when this breaks*.
 | `resume-parser` | **Resume upload only** | Everything else works, including scoring against already-parsed resumes | Restart; the pod holds no state and no credentials |
 | One source adapter | That vendor's postings go stale | Per-source circuit breaker opens; other vendors unaffected; source health surfaced in the UI | [runbooks §source-adapter-failing](../operations/runbooks.md#r1--a-source-adapter-is-failing) |
 | Postgres primary | Total outage | — | Managed failover to standby; RPO ≤ 1 min, RTO ≤ 5 min |
-| Object storage | Resume upload/download fails | Everything else works; existing parsed profiles are in Postgres | Retry with backoff |
 
 **The deliberate property:** `ingestor` and `matcher` can be down for hours without breaking the
 product, and their failures degrade visibly rather than silently. A stale feed that *says* it is stale
@@ -322,7 +318,7 @@ Layout and rationale: [repository-structure.md](../engineering/repository-struct
 | Observability | OpenTelemetry; `log/slog` + `otelslog` bridge | [observability.md](../engineering/observability.md) |
 | Migrations | Numbered SQL, forward-only, expand/contract | [deployment-zdt.md](../operations/deployment-zdt.md) |
 | Caching | In-process LRU; Redis has a numeric trigger, not yet met | [caching-and-storage.md](caching-and-storage.md) |
-| Blob storage | S3-compatible object storage from day one | [caching-and-storage §4](caching-and-storage.md#4-object-storage--needed-from-day-one-and-this-one-is-not-close) |
+| Blob storage | None. The original upload is parsed in memory and dropped | [ADR-0020](adr/0020-no-object-storage-until-something-stores-an-object.md) |
 | Backend concurrency | Precompute → coalesce/batch → fan out → optimise | [backend-performance.md](backend-performance.md) |
 | Consistency gates | Lefthook prechecks, Atlas drift detection, generated-code freshness | [consistency-and-drift.md](../engineering/consistency-and-drift.md) |
 | Container images | distroless static, non-root, read-only rootfs | [dev-environment §3](../engineering/dev-environment.md#3-what-make-dev-starts) |

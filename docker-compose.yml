@@ -23,10 +23,6 @@ x-go-service: &go-service
     LOG_LEVEL: debug
     LOG_JSON: "false"
     DATABASE_URL: postgres://jobtrack:dev@postgres:5432/jobtrack?sslmode=disable
-    OBJECT_STORE_ENDPOINT: http://minio:9000
-    OBJECT_STORE_BUCKET: jobtrack-dev
-    OBJECT_STORE_ACCESS_KEY: minioadmin
-    OBJECT_STORE_SECRET_KEY: minioadmin
     OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     OTEL_SAMPLE_RATIO: "1.0"
     SESSION_SECRET: dev-only-not-a-real-secret-min-32-chars
@@ -80,37 +76,6 @@ services:
       - max_connections=200
       - -c
       - log_min_duration_statement=200ms
-
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  # Creates the bucket once, then exits. A one-shot init container rather than
-  # bucket-creation logic inside the app.
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/jobtrack-dev &&
-      echo 'bucket ready'"
-    restart: "no"
 
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -208,9 +173,6 @@ services:
       # No database URL: this service must not be able to reach Postgres even
       # in development, so the isolation is exercised rather than assumed.
       DATABASE_URL: ""
-    depends_on:
-      minio:
-        condition: service_healthy
     ports:
       - "9090:9090"
 
@@ -264,7 +226,6 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
   go-mod:
   go-build:
   web-node-modules:

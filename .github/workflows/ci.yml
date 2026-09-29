@@ -117,7 +117,6 @@ jobs:
         env:
           DATABASE_URL: postgres://jobtrack:test@localhost:5432/jobtrack?sslmode=disable
           SESSION_SECRET: ci-only-secret-that-is-at-least-32-chars
-          OBJECT_STORE_ENDPOINT: http://localhost:9000
         run: |
           go run ./cmd/migrate up
           go run ./cmd/migrate up
@@ -216,7 +215,6 @@ jobs:
     env:
       DATABASE_URL: postgres://jobtrack:test@localhost:5432/jobtrack?sslmode=disable
       SESSION_SECRET: ci-only-secret-that-is-at-least-32-chars
-      OBJECT_STORE_ENDPOINT: http://localhost:9000
       COOKIE_SECURE: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -380,7 +378,7 @@ jobs:
       - name: Bring the stack up
         run: |
           cp .env.example .env
-          docker compose up -d --wait postgres minio
+          docker compose up -d --wait postgres
           docker compose run --rm migrate
           docker compose run --rm tools "go run ./cmd/seed"
           docker compose up -d --wait api
@@ -402,7 +400,7 @@ jobs:
       - name: Bring the stack up
         run: |
           cp .env.example .env
-          docker compose up -d --wait postgres minio
+          docker compose up -d --wait postgres
           docker compose run --rm migrate
           docker compose run --rm tools "go run ./cmd/seed"
           docker compose up -d --wait api web

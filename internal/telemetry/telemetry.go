@@ -25,7 +25,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	// Must match the semconv the SDK's own resource.Default() uses, or
+	// resource.Merge fails with "conflicting Schema URL" and the process
+	// refuses to start. Bump this in lockstep with go.opentelemetry.io/otel/sdk.
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ergodicregulus/jobtrack/internal/version"
@@ -75,7 +78,9 @@ func Init(ctx context.Context, cfg Config) (*Provider, error) {
 		semconv.SchemaURL,
 		semconv.ServiceName("jobtrack-"+cfg.Service),
 		semconv.ServiceVersion(info.Version),
-		semconv.DeploymentEnvironment(cfg.Env),
+		// semconv 1.43 renamed deployment.environment to
+		// deployment.environment.name and dropped the constructor.
+		semconv.DeploymentEnvironmentNameKey.String(cfg.Env),
 	))
 	if err != nil {
 		return nil, fmt.Errorf("build otel resource: %w", err)

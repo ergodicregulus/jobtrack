@@ -34,7 +34,6 @@ type Config struct {
 	ShutdownTimeout time.Duration
 
 	Database Database
-	Object   ObjectStore
 	Telemetry
 	Security
 	Ingest
@@ -50,14 +49,6 @@ type Database struct {
 	// StatementTimeout bounds every query. Set per-service because the API's
 	// tolerance (fast or fail) differs from a worker's (slow is fine).
 	StatementTimeout time.Duration
-}
-
-type ObjectStore struct {
-	Endpoint  string
-	Bucket    string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool
 }
 
 type Telemetry struct {
@@ -279,14 +270,6 @@ func Load(service string) (*Config, error) {
 			MaxConnLifetime:  l.dur("DB_MAX_CONN_LIFETIME", time.Hour),
 			MaxConnIdleTime:  l.dur("DB_MAX_CONN_IDLE", 30*time.Minute),
 			StatementTimeout: l.dur("DB_STATEMENT_TIMEOUT", defaultStatementTimeout(service)),
-		},
-
-		Object: ObjectStore{
-			Endpoint:  l.str("OBJECT_STORE_ENDPOINT", "", service == "api" || service == "resume-parser"),
-			Bucket:    l.str("OBJECT_STORE_BUCKET", "jobtrack", false),
-			AccessKey: l.str("OBJECT_STORE_ACCESS_KEY", "", false),
-			SecretKey: l.str("OBJECT_STORE_SECRET_KEY", "", false),
-			UseSSL:    l.boolVal("OBJECT_STORE_USE_SSL", false),
 		},
 
 		Telemetry: Telemetry{

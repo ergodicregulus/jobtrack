@@ -334,7 +334,8 @@ CREATE TABLE resumes (
     label         text   NOT NULL,              -- user-facing version name
     is_default    boolean NOT NULL DEFAULT false,
 
-    blob_key      text   NOT NULL,              -- object storage, encrypted
+    blob_key      text   NOT NULL,              -- always '' since ADR-0020; kept for the day
+                                                -- the original file is retained
     mime_type     text   NOT NULL,
     byte_size     int    NOT NULL,
 

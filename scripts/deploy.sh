@@ -29,7 +29,7 @@ set -Eeuo pipefail
 
 VERSION="${1:?usage: deploy.sh <version> [namespace]}"
 NAMESPACE="${2:-jobtrack}"
-REGISTRY="${REGISTRY:-ghcr.io/jobtrack}"
+REGISTRY="${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}"
 TIMEOUT="${TIMEOUT:-600s}"
 
 # Job names must be unique per deploy: a completed Job is immutable, so reusing

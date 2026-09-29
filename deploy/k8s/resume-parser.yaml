@@ -55,11 +55,6 @@ spec:
             # by the code rather than by remembering to leave a variable out.
             - name: DATABASE_URL
               value: ""
-            - name: OBJECT_STORE_ENDPOINT
-              valueFrom:
-                configMapKeyRef:
-                  name: jobtrack-config
-                  key: object_store_endpoint
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               valueFrom:
                 configMapKeyRef:

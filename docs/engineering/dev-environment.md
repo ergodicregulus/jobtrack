@@ -63,24 +63,21 @@ installed on a host, ever. If a command needs a tool, it runs in a container.
 flowchart TB
     subgraph deps["Stateful — containers"]
         PG[("postgres:17 + pgvector\n:5432")]
-        MINIO["minio — S3-compatible\n:9000 · console :9001"]
         JAEGER["jaeger — traces\n:16686"]
     end
     subgraph app["Application — containers, compose watch"]
         API["api :8080"]
         ING["ingestor"]
-        MAT["matcher"]
         SCH["scheduler"]
         RP["resume-parser :9090"]
         WEB["web :5173"]
     end
     TOOLS["tools container\ngo · sqlc · buf · lefthook\nmigrate · golangci-lint"]
 
-    WEB --> API --> PG & MINIO
+    WEB --> API --> PG
     API --> RP
-    ING & MAT & SCH --> PG
-    RP --> MINIO
-    API & ING & MAT & RP --> JAEGER
+    ING & SCH --> PG
+    API & ING & RP --> JAEGER
     TOOLS -.->|make targets exec here| PG
 
     style TOOLS fill:#0f4c5c,stroke:#22a3c3,color:#fff
@@ -202,7 +199,7 @@ per vendor by design.
 | Sources | 61 | 34 Greenhouse · 27 Ashby |
 | Job postings | **~6,700** | **Fetched live from the vendors' own APIs** |
 | Users | 3 | Junior IN · senior IN/GB · new-grad US/GB |
-| Scores | ~25,000 | Computed by the matcher |
+| Scores | — | Computed on the read path, never stored (ADR-0016) |
 
 ### The seed does not fabricate postings
 
@@ -246,13 +243,12 @@ missing value is a service that pages someone at 3 a.m.
 
 ```bash
 DATABASE_URL=postgres://jobtrack:dev@postgres:5432/jobtrack?sslmode=disable
-OBJECT_STORE_ENDPOINT=http://minio:9000        # S3-compatible; MinIO locally
-OBJECT_STORE_BUCKET=jobtrack-dev
-SESSION_SECRET=dev-only-not-a-real-secret
+SESSION_SECRET=dev-only-not-a-real-secret-min-32-chars
+RESUME_ENCRYPTION_KEY=dev-only-resume-key-also-min-32-chars
+RESUME_PARSER_URL=http://resume-parser:9090
 OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
-SCORING_PROFILE=config/scoring/default.yaml
 LOG_LEVEL=debug
-LOG_FORMAT=text                                 # json in production
+LOG_JSON=false                                  # true in production
 
 INGEST_MODE=fixture                             # see §7
 INGEST_TIER_A_INTERVAL=2h
@@ -304,8 +300,6 @@ SELECT * FROM river_job WHERE state = 'discarded' ORDER BY finalized_at DESC LIM
 
 **Scoring** — `make explain-score USER=1 POSTING=42` prints the component breakdown the UI shows.
 
-**Object storage** — MinIO console at http://localhost:9001 (`minioadmin`/`minioadmin`).
-
 ---
 
 ## 9. Common problems
@@ -320,7 +314,7 @@ SELECT * FROM river_job WHERE state = 'discarded' ORDER BY finalized_at DESC LIM
 | Golden tests fail after adapter change | Expected — the tests working | Review the diff, then `make test-golden UPDATE=1` |
 | Slow on macOS | Bind-mount I/O | Enable VirtioFS; Compose Watch avoids most of this already |
 | Scores all zero | No default resume, or scoring profile failed to load | `make explain-score` says which |
-| `connection refused` to `localhost` | Using `localhost` instead of a service name | Use `postgres`, `minio`, `api` |
+| `connection refused` to `localhost` | Using `localhost` instead of a service name | Use `postgres`, `api`, `resume-parser` |
 
 ---
 

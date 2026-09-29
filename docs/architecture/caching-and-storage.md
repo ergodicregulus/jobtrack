@@ -26,15 +26,15 @@ operational cost**. Below, that point is a number.
 | Feed results | **Not cached** | Never — freshness is the product | — |
 | Session lookup | **Postgres** | Session reads > 15% of DB CPU | Redis |
 | Rate limiting | **Gateway (in-memory) + Postgres** | Multi-region deployment | Redis |
-| Resume blobs | **S3-compatible object storage from day one** | — | (already) |
+| Resume blobs | **Not stored at all** — parsed in memory, bytes dropped | The original upload must be retained | S3-compatible object storage |
 | Job description HTML | **Postgres `text`** | p95 row fetch > 20 ms from TOAST | Move to object storage |
 | Embeddings | **Postgres `vector(384)`** | > 20M vectors | Dedicated vector store |
 | Static assets | **CDN from day one** | — | (already) |
 | API responses at edge | **Never cached** | — | — |
 
-**Two things are in from day one** (object storage for blobs, CDN for static assets) because they are
-not optimisations — they are the correct place for that data at any scale. **Everything else waits**,
-and the reasoning per row follows.
+**One thing is in from day one** (a CDN for static assets) because it is not an optimisation — it is
+the correct place for that data at any scale. **Everything else waits**, and the reasoning per row
+follows.
 
 ---
 
@@ -125,9 +125,17 @@ results.** Caching would be treating a symptom we do not have.
 
 ---
 
-## 4. Object storage — needed from day one, and this one is not close
+## 4. Object storage — not needed, because nothing is stored
 
-Resume files are PDFs and DOCX at up to 5 MB. The threshold guidance is unambiguous:
+**We do not keep the uploaded file.** A resume is parsed in memory, the parse result is encrypted
+with the user's DEK into `parsed_text_enc` and `parsed_json_enc`, and the original bytes are dropped.
+`resumes.blob_key` is written as the empty string on every insert. There is no object-storage client
+in the tree and no S3 library in `go.mod`
+([ADR-0020](adr/0020-no-object-storage-until-something-stores-an-object.md)).
+
+The analysis below is kept because it is the right answer the moment that changes — it is the reason
+the answer will not be `bytea`. Resume files are PDFs and DOCX at up to 5 MB, and the threshold
+guidance is unambiguous:
 
 - `bytea` values over **~2 KB** are compressed and moved to TOAST, and query performance degrades
   **2–10×** for values past that point `[B-28]`.
@@ -148,14 +156,16 @@ The operational consequences are what actually decide it:
 backup, restore and failover twenty times slower — to store bytes that are never queried, only
 fetched by key.
 
-**Decision: S3-compatible object storage from day one.** Not a cloud vendor's SDK — the *API*, which
-MinIO, Ceph and every provider implement, so it stays portable
-([service-topology §8](service-topology.md#8-vendor-neutrality--the-portability-contract)). MinIO runs
-in the local container stack, so development and production use identical code paths.
+**Decision: nothing, until something needs storing.** If the original file is ever retained, the
+answer is an S3-compatible *API* rather than a cloud vendor's SDK, so it stays portable
+([service-topology §8](service-topology.md#8-vendor-neutrality--the-portability-contract)) — and the
+vendor gets chosen then, against a real requirement. MinIO was in the dev stack for a year serving
+zero callers, and MinIO's images were deleted from Docker Hub on 2026-09-11, which is how we found
+out.
 
-What stays in Postgres: `blob_key`, `mime_type`, `byte_size`, and the **encrypted parsed text and
-structured profile** — those are small, queried, and must be transactionally consistent with the
-user row.
+What is in Postgres today: `mime_type`, `byte_size`, and the **encrypted parsed text and structured
+profile** — small, queried, and transactionally consistent with the user row. `blob_key` is there too,
+empty, waiting for the day this section stops being hypothetical.
 
 ### Job description HTML — the genuinely marginal case
 

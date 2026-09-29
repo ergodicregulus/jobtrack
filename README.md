@@ -19,7 +19,7 @@ JobTrack does three things that existing tools do badly or not at all:
 Docker, git and `python3` are the only host prerequisites. Everything else runs in containers.
 
 ```bash
-make dev      # postgres, minio, jaeger and every service, with live reload
+make dev      # postgres, jaeger and every service, with live reload
 make check    # everything CI runs — this repository's definition of done
 ```
 
@@ -177,7 +177,7 @@ movement `[A-14]`, Uber's two-year DOMA effort to tame ~2,200 services `[B-13]`,
 of the largest Rails codebases as a Packwerk-enforced modular monolith at Black Friday scale
 `[B-14]`, and the finding that microservices benefits appear only above ~10–15 developers `[B-12]`.
 
-**Vendor-agnostic throughout** — Kubernetes, Postgres, S3-compatible storage, OTLP, OpenTofu, KEDA.
+**Vendor-agnostic throughout** — Kubernetes, Postgres, OTLP, OpenTofu, KEDA.
 No managed queue, no proprietary gateway, no cloud-specific service on the critical path. The claim
 is tested, not asserted: CI runs the full suite with no cloud credentials present
 ([portability contract](docs/architecture/service-topology.md#8-vendor-neutrality--the-portability-contract)).
