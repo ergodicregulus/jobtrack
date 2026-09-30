@@ -56,11 +56,18 @@ spec:
             - name: http
               containerPort: 3000
           env:
-            # Server-side only. The browser never talks to the api directly:
-            # every request is proxied through this server so the session cookie
-            # stays first-party and no CORS surface exists.
-            - name: API_BASE_URL
-              value: http://jobtrack-api.default.svc.cluster.local
+            # Where server-side rendering reaches the api: hooks.server.ts sends
+            # /v1 here directly instead of back out through the ingress. The
+            # browser reaches the api through the ingress on the same origin, so
+            # the session cookie stays first-party. This was API_BASE_URL, which
+            # nothing read, naming a namespace deploy.sh does not use.
+            - name: API_URL
+              value: http://jobtrack-api
+            # adapter-node behind a TLS-terminating proxy cannot work out its own
+            # origin, and SvelteKit's CSRF check rejects every form POST whose
+            # Origin does not match — sign-in included.
+            - name: ORIGIN
+              value: "https://{{HOST}}"
             - name: PORT
               value: "3000"
           # The landing page renders without the api — it degrades to no live

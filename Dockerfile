@@ -159,3 +159,29 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM runtime-base AS migrate
 COPY --from=build-migrate /out/app /app
 ENTRYPOINT ["/app"]
+
+# ---------------------------------------------------------------------------
+# web — the SvelteKit server
+# ---------------------------------------------------------------------------
+# It had no image. docker-compose.prod.yml and deploy/k8s/web.yaml both run
+# `web:${VERSION}`, and nothing in the build or release pipeline produced one,
+# so neither deployment could serve a single page.
+FROM node:22-alpine AS build-web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+# package.json has no runtime dependencies — adapter-node bundles the app — so
+# the image carries the build output and nothing from node_modules. Distroless,
+# like the Go images: no shell, no package manager.
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS web
+WORKDIR /app
+COPY --from=build-web /web/build ./build
+COPY --from=build-web /web/package.json ./package.json
+ENV NODE_ENV=production PORT=3000
+USER 65532:65532
+EXPOSE 3000
+# The distroless entrypoint is node, so this runs `node build`.
+CMD ["build"]

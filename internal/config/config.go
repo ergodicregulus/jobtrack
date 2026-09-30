@@ -52,6 +52,9 @@ type Database struct {
 }
 
 type Telemetry struct {
+	// Exporter is OTEL_TRACES_EXPORTER: "otlp" (the OpenTelemetry default) or
+	// "none", the spec's explicit "no automatically configured exporter".
+	Exporter     string
 	OTLPEndpoint string
 	SampleRatio  float64
 }
@@ -127,6 +130,25 @@ type Ingest struct {
 // Lifted out of Load, which crossed the 80-line limit when it was added. Its own
 // function rather than a baseline entry: the block is self-contained and Load is
 // a list of blocks, so this is the seam that was already there.
+// loadTelemetry reads the tracing settings.
+//
+// OTEL_TRACES_EXPORTER=none is the OpenTelemetry-standard way to say "no
+// exporter", and it is what lets a production deployment with no collector —
+// the single-host compose file — satisfy the prod guard honestly. The guard
+// exists to catch a FORGOTTEN endpoint; an explicit "none" is not forgotten.
+// An empty endpoint is what telemetry.Init already treats as off.
+func loadTelemetry(l *loader) Telemetry {
+	t := Telemetry{
+		Exporter:     l.oneOf("OTEL_TRACES_EXPORTER", "otlp", "otlp", "none"),
+		OTLPEndpoint: l.str("OTEL_EXPORTER_OTLP_ENDPOINT", "", false),
+		SampleRatio:  l.floatVal("OTEL_SAMPLE_RATIO", 0.1),
+	}
+	if t.Exporter == "none" {
+		t.OTLPEndpoint = ""
+	}
+	return t
+}
+
 func loadEmail(l *loader) Email {
 	return Email{
 		Enabled:           l.boolVal("EMAIL_ENABLED", false),
@@ -272,10 +294,7 @@ func Load(service string) (*Config, error) {
 			StatementTimeout: l.dur("DB_STATEMENT_TIMEOUT", defaultStatementTimeout(service)),
 		},
 
-		Telemetry: Telemetry{
-			OTLPEndpoint: l.str("OTEL_EXPORTER_OTLP_ENDPOINT", "", false),
-			SampleRatio:  l.floatVal("OTEL_SAMPLE_RATIO", 0.1),
-		},
+		Telemetry: loadTelemetry(l),
 
 		Security: Security{
 			// 32 bytes minimum: this key derives session identifiers.
@@ -340,8 +359,9 @@ func (c *Config) validate(l *loader) {
 		if !c.Security.CookieSecure {
 			l.problems = append(l.problems, "COOKIE_SECURE must be true when APP_ENV=prod")
 		}
-		if c.Telemetry.OTLPEndpoint == "" {
-			l.problems = append(l.problems, "OTEL_EXPORTER_OTLP_ENDPOINT is required when APP_ENV=prod")
+		if c.Telemetry.Exporter != "none" && c.Telemetry.OTLPEndpoint == "" {
+			l.problems = append(l.problems, "OTEL_EXPORTER_OTLP_ENDPOINT is required when APP_ENV=prod, "+
+				"unless tracing is explicitly off with OTEL_TRACES_EXPORTER=none")
 		}
 		if strings.Contains(c.Database.URL, "sslmode=disable") {
 			l.problems = append(l.problems, "DATABASE_URL must not use sslmode=disable when APP_ENV=prod")

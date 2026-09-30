@@ -25,14 +25,37 @@ x-service: &service
       max-size: "10m"
       max-file: "5"
   environment: &env
-    ENV: production
+    # APP_ENV, not ENV. This file said ENV: production, which nothing reads, so
+    # every service fell back to APP_ENV=dev: every production guard skipped —
+    # a "dev-" placeholder secret accepted — and the 5s drain cut to 250ms.
+    APP_ENV: prod
     LOG_LEVEL: info
-    DATABASE_URL: postgres://jobtrack:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/jobtrack?sslmode=disable
+    LOG_JSON: "true"
+    # sslmode=require: Postgres below serves TLS, and the prod guard refuses a
+    # plaintext connection. It used to say sslmode=disable, which with APP_ENV
+    # finally set would have stopped every service at boot.
+    DATABASE_URL: postgres://jobtrack:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/jobtrack?sslmode=require
     SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
     RESUME_ENCRYPTION_KEY: ${RESUME_ENCRYPTION_KEY:?set RESUME_ENCRYPTION_KEY}
     RESUME_PARSER_URL: http://resume-parser:9090
-    DRAIN_DELAY: 5s
     SHUTDOWN_TIMEOUT: 40s
+    # A single host has no trace collector; logs are the diagnostic. Said
+    # explicitly with the OpenTelemetry-standard switch, which the prod guard
+    # accepts, rather than by leaving the endpoint empty, which it refuses.
+    OTEL_TRACES_EXPORTER: none
+    # Caddy and the web server forward the client address. Only containers on
+    # this host's compose networks can reach the api, and Docker allocates those
+    # from the private ranges — trusting anything wider would let a client pick
+    # its own rate-limit bucket.
+    TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+    # Live, over every curated board. The default is fixture — replay, no network
+    # — which is right for a laptop and wrong here, and this file never said
+    # otherwise: a real deployment would have served replayed test fixtures.
+    # Overridable so CI can boot this exact file without contacting 98 third
+    # parties (it sets INGEST_ENABLED=false).
+    INGEST_ENABLED: ${INGEST_ENABLED:-true}
+    INGEST_MODE: ${INGEST_MODE:-live}
+    INGEST_LIVE_ALLOWLIST: ${INGEST_LIVE_ALLOWLIST:-*}
 
 services:
   postgres:
@@ -41,8 +64,30 @@ services:
     #
     # Pinned by digest. A tag is a mutable pointer, and "it worked yesterday" is
     # not a property you want your database image to lack.
-    image: pgvector/pgvector:pg17@sha256:9a8b7dfdb0a3ac0e4a2b1de2e6a0a2b0f16e1a5f0e1d7c8b4a9f3e2d1c0b9a87
+    #
+    # The digest that stood here, sha256:9a8b7dfd…c0b9a87, did not exist in any
+    # registry: this file could never pull its database, so it had never run. The
+    # one below is the pg17 multi-arch index (amd64, arm64), checked with
+    # `docker buildx imagetools inspect`, 2026-09-30.
+    image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
     restart: unless-stopped
+    # TLS, so DATABASE_URL can require it. A self-signed certificate made at
+    # start with the image's own openssl: sslmode=require encrypts without
+    # verifying, which is the right trade on one host — the goal is no plaintext
+    # on the wire, and there is no CA to verify against. Outside PGDATA, because
+    # initdb refuses a non-empty data directory on first boot.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mkdir -p /var/lib/postgresql/tls && cd /var/lib/postgresql/tls
+        [ -f server.key ] || openssl req -new -x509 -days 3650 -noenc \
+          -subj /CN=postgres -keyout server.key -out server.crt 2>/dev/null
+        chown postgres:postgres server.key server.crt && chmod 600 server.key
+        exec docker-entrypoint.sh postgres -c ssl=on \
+          -c ssl_cert_file=/var/lib/postgresql/tls/server.crt \
+          -c ssl_key_file=/var/lib/postgresql/tls/server.key
     environment:
       POSTGRES_USER: jobtrack
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -105,6 +150,14 @@ services:
     # Longer than the default: an in-flight board fetch plus its detail sweep
     # legitimately outlasts a request.
     stop_grace_period: 90s
+    # The binary probes its own /readyz (app.RunWorker). There was no check here
+    # before, so a worker that exited left nothing to notice.
+    healthcheck:
+      test: ["CMD", "/app", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
 
   scheduler:
     <<: *service
@@ -113,13 +166,21 @@ services:
       migrate:
         condition: service_completed_successfully
     stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "/app", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
 
   resume-parser:
     <<: *service
     image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/resume-parser:${VERSION:?set VERSION}
     environment:
-      ENV: production
+      APP_ENV: prod
       LOG_LEVEL: info
+      LOG_JSON: "true"
+      OTEL_TRACES_EXPORTER: none
       HTTP_ADDR: ":9090"
       # Deliberately absent: no DATABASE_URL, no SESSION_SECRET, no encryption
       # key. This service processes untrusted binary input and holds nothing
@@ -147,12 +208,26 @@ services:
     <<: *service
     image: ${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}/web:${VERSION:?set VERSION}
     environment:
-      API_BASE_URL: http://api:8080
+      # Where server-side rendering reaches the api (hooks.server.ts). This was
+      # API_BASE_URL, which nothing read.
+      API_URL: http://api:8080
+      # adapter-node behind Caddy's TLS cannot work out its own origin, and
+      # SvelteKit's CSRF check rejects any form POST whose Origin does not match
+      # — sign-in included.
+      ORIGIN: https://${JOBTRACK_HOST:?set JOBTRACK_HOST}
       PORT: "3000"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     expose: ["3000"]
+    # No curl in distroless; node itself makes the request. `/` renders without
+    # the api, so this answers "is the web server up" and nothing more.
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # TLS and the only published ports. Caddy over Traefik for one reason: it
   # obtains and renews certificates with no configuration, which is the whole
@@ -169,7 +244,7 @@ services:
       JOBTRACK_HOST: ${JOBTRACK_HOST:?set JOBTRACK_HOST}
     depends_on:
       web:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   pgdata:

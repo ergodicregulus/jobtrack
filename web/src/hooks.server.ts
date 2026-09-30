@@ -1,3 +1,4 @@
+import { env } from '$env/dynamic/private';
 import type { Handle, HandleFetch } from '@sveltejs/kit';
 
 /**
@@ -60,8 +61,24 @@ export const handle: Handle = async ({ event, resolve }) => {
  * the header itself.
  */
 export const handleFetch: HandleFetch = async ({ event, request, fetch }) => {
-  const isInternalAPI = new URL(request.url).pathname.startsWith('/v1');
-  if (!isInternalAPI) return fetch(request);
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/v1')) return fetch(request);
+
+  // Straight to the API over the internal network, never back out through the
+  // public entry. adapter-node has no /v1 route, so an unrewritten server-side
+  // fetch would leave the process, reach the proxy at the public hostname, and
+  // come back in — or, with no route for it there either, 404. In development
+  // Vite's proxy hid this: it answered /v1 itself.
+  //
+  // A different origin means SvelteKit stops forwarding the session cookie, so
+  // it is copied across explicitly (the documented handleFetch pattern). The
+  // response's Set-Cookie is unaffected: lib/server/api.ts already forwards it
+  // by hand, without relying on same-origin behaviour.
+  if (env.API_URL) {
+    request = new Request(new URL(url.pathname + url.search, env.API_URL), request);
+    const cookie = event.request.headers.get('cookie');
+    if (cookie) request.headers.set('cookie', cookie);
+  }
 
   const clientAddress = clientAddressOf(event);
   if (clientAddress) {

@@ -19,8 +19,14 @@ export default defineConfig({
     // compose service name. Proxying rather than calling the API directly from
     // the browser keeps everything same-origin, so the session cookie works
     // without CORS and without SameSite=None.
+    // /unsubscribe as well as /v1: it is an API route, and the digest's links are
+    // built on THIS origin. Proxying only /v1 made every unsubscribe link 404.
     proxy: {
       '/v1': {
+        target: process.env.API_URL ?? 'http://api:8080',
+        changeOrigin: true
+      },
+      '/unsubscribe': {
         target: process.env.API_URL ?? 'http://api:8080',
         changeOrigin: true
       }

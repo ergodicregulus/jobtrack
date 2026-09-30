@@ -285,3 +285,39 @@ func TestLoad_LiveAllowlistEntriesMustBeIDsOrStar(t *testing.T) {
 		}
 	}
 }
+
+// A production deployment with no collector says so explicitly, with the
+// OpenTelemetry-standard OTEL_TRACES_EXPORTER=none, and passes the guard. One
+// that merely forgets the endpoint still fails it.
+func TestLoad_ProductionTracingIsExplicitlyOnOrOff(t *testing.T) {
+	prod := func() map[string]string {
+		env := validEnv()
+		env["APP_ENV"] = "prod"
+		env["DATABASE_URL"] = "postgres://u:p@db:5432/j?sslmode=require"
+		env["COOKIE_SECURE"] = "true"
+		return env
+	}
+
+	env := prod()
+	env["OTEL_TRACES_EXPORTER"] = "none"
+	setEnv(t, env)
+	cfg, err := Load("api")
+	if err != nil {
+		t.Fatalf("explicit OTEL_TRACES_EXPORTER=none rejected in prod: %v", err)
+	}
+	if cfg.Telemetry.OTLPEndpoint != "" {
+		t.Error("tracing is off, so no endpoint may be used")
+	}
+
+	setEnv(t, prod())
+	if _, err := Load("api"); err == nil || !strings.Contains(err.Error(), "OTEL_TRACES_EXPORTER=none") {
+		t.Errorf("a forgotten endpoint must fail and name the explicit way out, got: %v", err)
+	}
+
+	env = prod()
+	env["OTEL_TRACES_EXPORTER"] = "jaeger"
+	setEnv(t, env)
+	if _, err := Load("api"); err == nil || !strings.Contains(err.Error(), "OTEL_TRACES_EXPORTER") {
+		t.Errorf("an unsupported exporter must be rejected, got: %v", err)
+	}
+}

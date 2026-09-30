@@ -2,7 +2,7 @@
 #
 # Deploy JobTrack. Handles both fresh installs and upgrades.
 #
-#   scripts/deploy.sh <version> [namespace]
+#   HOST=jobs.example.com POD_CIDR=10.244.0.0/16 scripts/deploy.sh <version> [namespace]
 #
 # The two cases are deliberately NOT separate code paths. The migrator derives
 # pending work from a ledger in the database, so:
@@ -17,9 +17,17 @@
 # Sequence — and the order is the whole point:
 #
 #   1. preflight     fail fast on anything that would abort halfway
-#   2. migrate Job   schema migrations run to COMPLETION before any pod starts
-#   3. rollout       services updated; each pod re-verifies the schema at boot
-#   4. verify        watch the rollout and the SLIs before declaring success
+#   2. configure     the ConfigMap and network policies, which the migrate Job
+#                    and every pod read at start
+#   3. migrate Job   schema migrations run to COMPLETION before any pod starts
+#   4. rollout       services updated; each pod re-verifies the schema at boot
+#   5. verify        watch the rollout and the SLIs before declaring success
+#
+# This script had never run, and could not have: it applied
+# deploy/k8s/{ingestor,matcher,scheduler}.yaml, none of which exist (the
+# workers are in workers.yaml; matcher was deleted by ADR-0016), required a
+# matcher image nothing builds, and never applied the web, the ingress or the
+# ConfigMap at all.
 #
 # Background data migrations are NOT part of this sequence. They are registered
 # by step 2 and drained by the scheduler afterwards, precisely so a multi-hour
@@ -31,6 +39,14 @@ VERSION="${1:?usage: deploy.sh <version> [namespace]}"
 NAMESPACE="${2:-jobtrack}"
 REGISTRY="${REGISTRY:-ghcr.io/ergodicregulus/jobtrack}"
 TIMEOUT="${TIMEOUT:-600s}"
+# The public hostname, for the ingress and the web server's ORIGIN; and the pod
+# CIDR, from which the api trusts X-Forwarded-For. Both are per cluster.
+HOST="${HOST:?set HOST to the public hostname}"
+POD_CIDR="${POD_CIDR:?set POD_CIDR to the cluster pod CIDR, e.g. 10.244.0.0/16}"
+
+# The images that make a release, and the Deployments they become.
+IMAGES=(migrate api ingestor scheduler resume-parser web)
+DEPLOYMENTS=(jobtrack-api jobtrack-ingestor jobtrack-scheduler resume-parser jobtrack-web)
 
 # Job names must be unique per deploy: a completed Job is immutable, so reusing
 # the name makes the second deploy fail with "field is immutable" rather than
@@ -45,6 +61,14 @@ trap 'die "deploy failed at line $LINENO — the cluster is unchanged past that 
 
 kc() { kubectl --namespace "$NAMESPACE" "$@"; }
 
+# render fills a manifest's placeholders. One function, so a new placeholder is
+# added in one place rather than in every sed that copied the last one.
+render() {
+  sed -e "s|{{JOB_NAME}}|$JOB_NAME|g" -e "s|{{VERSION}}|$VERSION|g" \
+      -e "s|{{REGISTRY}}|$REGISTRY|g" -e "s|{{HOST}}|$HOST|g" \
+      -e "s|{{POD_CIDR}}|$POD_CIDR|g" "$1"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Preflight
 # ---------------------------------------------------------------------------
@@ -57,7 +81,7 @@ preflight() {
 
   # Every image must exist before anything is applied. Discovering a missing
   # image after the migration has run means rolling back a schema change.
-  for svc in migrate api ingestor matcher scheduler resume-parser; do
+  for svc in "${IMAGES[@]}"; do
     local image="$REGISTRY/$svc:$VERSION"
     if ! docker manifest inspect "$image" >/dev/null 2>&1; then
       die "image not found: $image (build and push before deploying)"
@@ -80,7 +104,19 @@ preflight() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Migrations — must complete before any application pod starts
+# 2. Configure — before the migrate Job, which reads the ConfigMap
+# ---------------------------------------------------------------------------
+# The Secret is not applied: its values come from external-secrets or SOPS, and
+# applying secrets.example.yaml would replace them with empty strings.
+configure() {
+  log "applying configuration and network policies"
+  for f in config network-policy; do
+    render "deploy/k8s/$f.yaml" | kc apply -f -
+  done
+}
+
+# ---------------------------------------------------------------------------
+# 3. Migrations — must complete before any application pod starts
 # ---------------------------------------------------------------------------
 migrate() {
   log "running schema migrations (job: $JOB_NAME)"
@@ -93,10 +129,7 @@ migrate() {
       --overrides="$(overrides)" \
       --command -- /app status 2>/dev/null || warn "could not print migration status"
 
-  sed -e "s|{{JOB_NAME}}|$JOB_NAME|g" \
-      -e "s|{{VERSION}}|$VERSION|g" \
-      -e "s|{{REGISTRY}}|$REGISTRY|g" \
-      deploy/k8s/migrate-job.yaml | kc apply -f -
+  render deploy/k8s/migrate-job.yaml | kc apply -f -
 
   log "waiting for migrations to complete (timeout $TIMEOUT)"
   if ! kc wait --for=condition=complete --timeout="$TIMEOUT" "job/$JOB_NAME"; then
@@ -110,31 +143,30 @@ migrate() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Rollout
+# 4. Rollout
 # ---------------------------------------------------------------------------
 rollout() {
   log "rolling out services"
 
-  for svc in api ingestor matcher scheduler resume-parser; do
-    sed -e "s|{{VERSION}}|$VERSION|g" -e "s|{{REGISTRY}}|$REGISTRY|g" \
-        "deploy/k8s/$svc.yaml" | kc apply -f -
+  for f in api workers resume-parser web ingress; do
+    render "deploy/k8s/$f.yaml" | kc apply -f -
   done
 
   # api first: if it fails, stop before touching the workers. Workers can lag a
   # release safely; a broken api is user-visible immediately.
-  for svc in api ingestor matcher scheduler resume-parser; do
-    log "waiting for $svc"
-    if ! kc rollout status "deployment/jobtrack-$svc" --timeout="$TIMEOUT"; then
-      warn "$svc rollout failed — rolling back"
-      kc rollout undo "deployment/jobtrack-$svc"
-      die "rollout of $svc failed and was reverted.
+  for dep in "${DEPLOYMENTS[@]}"; do
+    log "waiting for $dep"
+    if ! kc rollout status "deployment/$dep" --timeout="$TIMEOUT"; then
+      warn "$dep rollout failed — rolling back"
+      kc rollout undo "deployment/$dep"
+      die "rollout of $dep failed and was reverted.
 The schema is expand-only, so the previous release still runs against it."
     fi
   done
 }
 
 # ---------------------------------------------------------------------------
-# 4. Verify
+# 5. Verify
 # ---------------------------------------------------------------------------
 verify() {
   log "verifying"
@@ -170,6 +202,7 @@ JSON
 
 main() {
   preflight
+  configure
   migrate
   rollout
   verify

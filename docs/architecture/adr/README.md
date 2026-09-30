@@ -33,6 +33,7 @@ the other half of.
 | [0020](0020-no-object-storage-until-something-stores-an-object.md) | **No object storage until something stores an object** — MinIO removed; nothing ever called it | DECIDED |
 | [0021](0021-fixture-replay-at-the-http-boundary.md) | **`INGEST_MODE=fixture` replays golden files at the HTTP boundary** — the mode was documented and unimplemented | DECIDED |
 | [0022](0022-retrieval-is-lexical.md) | **Retrieval is lexical**; posting features are computed at ingest, scores at read | DECIDED |
+| [0023](0023-the-production-path-assembled-and-proven.md) | **The production path, assembled and proven on every push** — it had never run | DECIDED |
 
 <!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
      was ever written and nothing references it. Declared here so a reader who

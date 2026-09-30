@@ -1,30 +1,32 @@
-# Configuration and the shape of the secret.
+# Configuration: only values that are safe in a git history. deploy.sh applies it.
 #
-# The ConfigMap holds only values that are safe in a git history. Everything
-# else lives in a Secret this file does NOT contain: the manifest below declares
-# the KEYS so a deployment fails loudly on a missing one, and the values come
-# from external-secrets or SOPS. A secret committed here would be a secret
-# published, and rotating it would not un-publish it.
+# Everything else lives in the Secret jobtrack-secrets, whose shape is in
+# secrets.example.yaml and whose values come from external-secrets or SOPS. A
+# secret committed here would be a secret published, and rotating it would not
+# un-publish it.
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: jobtrack-config
 data:
-  ENV: production
+  APP_ENV: prod
   LOG_LEVEL: info
   HTTP_ADDR: ":8080"
 
-  # Drain sequence. Must stay under the pods' terminationGracePeriodSeconds,
-  # or Kubernetes SIGKILLs mid-drain and the sequence is decorative.
-  DRAIN_DELAY: 5s
+  # Must stay under the pods' terminationGracePeriodSeconds, or Kubernetes
+  # SIGKILLs mid-drain and the sequence is decorative. The drain delay itself is
+  # 5s in code; a DRAIN_DELAY key sat here for months, read by nothing.
   SHUTDOWN_TIMEOUT: 40s
 
-  RESUME_PARSER_URL: http://jobtrack-resume-parser.default.svc.cluster.local
+  # The Service's own name, resolved in whatever namespace this is applied to.
+  # The old value named a Service that does not exist, in a namespace deploy.sh
+  # does not use.
+  RESUME_PARSER_URL: http://resume-parser:9090
 
   # Per-service connection budgets. The sum must stay under Postgres
   # max_connections with headroom for migrations and a human with psql — a
-  # matcher scale-out must never starve the api.
+  # worker scale-out must never starve the api.
   DB_MAX_CONNS: "10"
   DB_MIN_CONNS: "2"
   DB_STATEMENT_TIMEOUT: 10s
@@ -32,25 +34,14 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger-collector.observability.svc.cluster.local:4318
   OTEL_SAMPLE_RATIO: "0.1"
 
----
-# NOT a source of secrets. This declares the keys the services require so that a
-# missing one fails at rollout rather than at the first request that needs it.
-# Populate with external-secrets, SOPS, or `kubectl create secret` — never by
-# committing values.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: jobtrack-secrets
-  annotations:
-    jobtrack.dev/managed-by: >-
-      external-secrets or SOPS. If you are reading a real value here, it has
-      leaked and needs rotating, not editing.
-type: Opaque
-stringData:
-  DATABASE_URL: ""
-  SESSION_SECRET: ""
-  # AES-256-GCM key for resume text at rest. Separate from SESSION_SECRET on
-  # purpose: a leaked session secret must not also decrypt CVs.
-  RESUME_ENCRYPTION_KEY: ""
-  S3_ACCESS_KEY_ID: ""
-  S3_SECRET_ACCESS_KEY: ""
+  # The ingress controller and the web pods forward the client's address. The
+  # api honours X-Forwarded-For only from these ranges; with none set, every
+  # visitor shares the proxy's rate-limit bucket and one busy page 429s the
+  # site. The pod CIDR is per cluster, so deploy.sh fills it in.
+  TRUSTED_PROXIES: "{{POD_CIDR}}"
+
+  # Live, over every curated board (registered at ingestor start, see
+  # store.EnsureBoards). Without these the default is fixture replay — right for
+  # a laptop, and it would have served test fixtures in production.
+  INGEST_MODE: live
+  INGEST_LIVE_ALLOWLIST: "*"

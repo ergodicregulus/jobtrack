@@ -88,7 +88,7 @@ db-restore: ## Restore a dump: make db-restore FILE=backups/<file>.dump
 ##@ Quality gates
 
 .PHONY: check
-check: arch-check docs-check hooks-check tidy fmt-check vet lint test build-all web-test web-check bench-budget ## Every CI gate that runs without a database or the network. THE definition of done
+check: arch-check docs-check hooks-check manifests-check tidy fmt-check vet lint test build-all web-test web-check bench-budget ## Every CI gate that runs without a database or the network. THE definition of done
 	@echo ""
 	@echo "  ✓ check passed"
 
@@ -109,6 +109,16 @@ vuln: ## Known vulnerabilities in dependencies, by call path
 
 # The guard that stops an agent deleting the database volume. It is only worth
 # anything if it still blocks what it claims to, so its cases run with the rest.
+# Not in `check`: it builds every release image and boots the production stack,
+# which takes minutes. CI runs it on every push.
+.PHONY: prod-smoke
+prod-smoke: ## Boot docker-compose.prod.yml from the release images and use it over HTTPS
+	@scripts/prod-smoke.sh
+
+.PHONY: manifests-check
+manifests-check: ## Render the Kubernetes manifests and validate them against the schemas
+	@scripts/check-manifests.sh
+
 .PHONY: hooks-check
 hooks-check: ## Self-test the destructive-command guard in .claude/hooks
 	@python3 .claude/hooks/guard-destructive.py --self-test

@@ -136,6 +136,11 @@ type ScheduleSourcesWorker struct {
 }
 
 func (w *ScheduleSourcesWorker) Work(ctx context.Context, job *river.Job[ScheduleSourcesArgs]) error {
+	// With ingestion off, enqueuing fetches only fills river_job with work no
+	// worker will take.
+	if !w.Deps.Cfg.Ingest.Enabled {
+		return nil
+	}
 	limit := job.Args.Limit
 	if limit <= 0 {
 		limit = 200

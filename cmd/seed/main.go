@@ -79,11 +79,7 @@ func run(ctx context.Context, a *app.App, reset, ingest, withUsers bool) error {
 		a.Log.Info("existing postings removed")
 	}
 
-	registered, err := registerBoards(ctx, a)
-	if err != nil {
-		return err
-	}
-	pruned, err := pruneBoards(ctx, a)
+	registered, pruned, err := store.EnsureBoards(ctx, a.Pool, seed.Boards())
 	if err != nil {
 		return err
 	}
@@ -100,72 +96,6 @@ func run(ctx context.Context, a *app.App, reset, ingest, withUsers bool) error {
 		return nil
 	}
 	return fetchAll(ctx, a, vocab)
-}
-
-func registerBoards(ctx context.Context, a *app.App) (int, error) {
-	var n int
-	for _, b := range seed.Boards() {
-		var companyID int64
-		err := a.Pool.QueryRow(ctx, `
-			INSERT INTO companies (slug, name, website, primary_domain, hq_country)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
-			RETURNING id`,
-			b.Slug, b.Name, "https://"+b.Domain, b.Domain, b.Country).Scan(&companyID)
-		if err != nil {
-			return n, fmt.Errorf("upsert company %s: %w", b.Slug, err)
-		}
-
-		// Tier A so a fresh install fetches everything promptly. The retier job
-		// moves quiet boards down within the hour.
-		if _, err := a.Pool.Exec(ctx, `
-			INSERT INTO sources (company_id, vendor, board_token, tier, next_poll_at)
-			VALUES ($1, $2::source_vendor, $3, 'a', now())
-			ON CONFLICT (vendor, board_token) DO UPDATE
-			   SET company_id = EXCLUDED.company_id, updated_at = now()`,
-			companyID, string(b.Vendor), b.Token); err != nil {
-			return n, fmt.Errorf("upsert source %s/%s: %w", b.Vendor, b.Token, err)
-		}
-		n++
-	}
-	return n, nil
-}
-
-// pruneBoards removes sources that are no longer in the curated list.
-//
-// This exists because of a real bug: an earlier revision registered board
-// tokens guessed from company names, most of which did not exist. Those rows
-// stayed behind after the list was corrected, and a source row that resolves to
-// nothing is not harmless — the fetcher keeps polling it, the circuit breaker
-// keeps tripping, and the error rate looks like a vendor outage rather than
-// stale configuration.
-//
-// Postings are removed with them: a posting whose board no longer exists cannot
-// be applied to, and showing it is worse than showing nothing.
-func pruneBoards(ctx context.Context, a *app.App) (int64, error) {
-	tokens := make([]string, 0, len(seed.Boards()))
-	for _, b := range seed.Boards() {
-		tokens = append(tokens, string(b.Vendor)+":"+b.Token)
-	}
-
-	tag, err := a.Pool.Exec(ctx, `
-		WITH doomed AS (
-			SELECT id FROM sources WHERE vendor::text || ':' || board_token <> ALL($1)
-		), _p AS (
-			DELETE FROM job_postings WHERE source_id IN (SELECT id FROM doomed)
-		)
-		DELETE FROM sources WHERE id IN (SELECT id FROM doomed)`, tokens)
-	if err != nil {
-		return 0, fmt.Errorf("prune sources: %w", err)
-	}
-
-	// Companies left with no sources are dead weight too.
-	if _, err := a.Pool.Exec(ctx, `
-		DELETE FROM companies c
-		 WHERE NOT EXISTS (SELECT 1 FROM sources s WHERE s.company_id = c.id)`); err != nil {
-		return 0, fmt.Errorf("prune companies: %w", err)
-	}
-	return tag.RowsAffected(), nil
 }
 
 // fetchAll runs ingestion synchronously.

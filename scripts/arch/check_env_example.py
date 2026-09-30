@@ -25,6 +25,13 @@ Commented lines count as documented: most of these variables SHOULD be shown
 commented out, since compose already supplies a development default and an
 uncommented value in .env would override it.
 
+It also checks the two deployment configurations, in one direction: every key
+the Kubernetes ConfigMap or the production compose file's shared environment sets
+must be read by the loader. Both said ENV: production — read by nothing — so
+APP_ENV fell back to dev and every production guard was off in production. Both
+also set DRAIN_DELAY, read by nothing. Nobody noticed, because an unread variable
+fails silently in exactly the way this check makes loud.
+
 What this cannot check: whether the description next to the variable is true.
 """
 
@@ -41,6 +48,8 @@ import _ratchet  # noqa: E402
 CONFIG = Path("internal/config")
 ENV_EXAMPLE = Path(".env.example")
 SHELL_READERS = [Path("docker-compose.yml"), Path("docker-compose.prod.yml"), Path("Makefile")]
+K8S_CONFIG = Path("deploy/k8s/config.yaml")
+PROD_COMPOSE = Path("docker-compose.prod.yml")
 
 # l.str("KEY", ...), l.boolVal("KEY", ...), os.Getenv("KEY") — every accessor
 # takes the variable name as its first literal argument.
@@ -49,6 +58,36 @@ READ = re.compile(r'(?:l\.(?:str|minLen|intVal|floatVal|boolVal|dur|list|oneOf)|
 INTERPOLATED = re.compile(r"\$\{([A-Z][A-Z0-9_]*)[:}-]")
 # KEY=value, with or without a leading comment marker.
 DOCUMENTED = re.compile(r"^#?\s*([A-Z][A-Z0-9_]*)=", re.MULTILINE)
+
+
+def _block_keys(text: str, start: str, indent: int) -> set[str]:
+    """Keys of the YAML mapping that begins on the line matching `start`, read
+    by indentation. Deliberately narrow: stdlib only, like every check here."""
+    keys: set[str] = set()
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() != start:
+            continue
+        for body in lines[i + 1:]:
+            if not body.strip() or body.lstrip().startswith("#"):
+                continue
+            if len(body) - len(body.lstrip()) < indent:
+                break
+            m = re.match(rf"^ {{{indent}}}([A-Z][A-Z0-9_]*):", body)
+            if m:
+                keys.add(m.group(1))
+        break
+    return keys
+
+
+def deployment_keys() -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    if K8S_CONFIG.exists():
+        out[str(K8S_CONFIG)] = _block_keys(K8S_CONFIG.read_text(errors="replace"), "data:", 2)
+    if PROD_COMPOSE.exists():
+        out[f"{PROD_COMPOSE} (&env)"] = _block_keys(
+            PROD_COMPOSE.read_text(errors="replace"), "environment: &env", 4)
+    return out
 
 
 def main() -> int:
@@ -81,6 +120,14 @@ def main() -> int:
             f"internal/config, not compose, not the Makefile. Delete the line: "
             f"an instruction that does nothing is worse than no instruction."
         )
+
+    for where, keys in deployment_keys().items():
+        for key in sorted(keys - loader):
+            violations[f"deploy-unread:{where}:{key}"] = (
+                f"{where} sets {key}, which internal/config does not read. It does "
+                f"nothing — and if it was meant to be APP_ENV, production is "
+                f"running in dev mode."
+            )
 
     return _ratchet.run(
         "env-example",

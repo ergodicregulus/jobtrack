@@ -67,6 +67,9 @@ jobs:
       - name: Destructive-command guard still blocks what it claims to
         run: python3 .claude/hooks/guard-destructive.py --self-test
 
+      - name: Kubernetes manifests render and validate
+        run: scripts/check-manifests.sh
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -133,7 +136,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, ingestor, scheduler, resume-parser, migrate]
+        service: [api, ingestor, scheduler, resume-parser, migrate, web]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -167,6 +170,19 @@ jobs:
                jobtrack/${{ matrix.service }}:ci -c 'echo shell present' 2>/dev/null; then
             echo "::error::image contains a shell"; exit 1
           fi
+
+  # The production path, booted and used. Every other job here passed while it
+  # could not have run at all: a Postgres digest that did not exist, APP_ENV
+  # spelled ENV, no web image, and a proxy with no route to the api.
+  prod-smoke:
+    name: Production stack boots and serves
+    runs-on: ubuntu-latest
+    needs: [static]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Boot docker-compose.prod.yml and use it over HTTPS
+        run: scripts/prod-smoke.sh
 
   frontend:
     name: Frontend

@@ -27,5 +27,18 @@
 		max_size 6MB
 	}
 
-	reverse_proxy web:3000
+	# The API's routes go to the API; everything else to the web server. One
+	# origin either way, so the session cookie stays first-party with no CORS.
+	# Sending everything to web — as this did — meant no /v1 call from a browser
+	# could succeed: adapter-node has no /v1 route and nothing forwarded it.
+	# /unsubscribe is an API route too, and the digest builds its links here.
+	handle /v1/* {
+		reverse_proxy api:8080
+	}
+	handle /unsubscribe {
+		reverse_proxy api:8080
+	}
+	handle {
+		reverse_proxy web:3000
+	}
 }

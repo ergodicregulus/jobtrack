@@ -46,7 +46,10 @@ func RunHealthcheckIfAsked(defaultAddr string) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// 200-399, which is what a Kubernetes httpGet probe counts as success. It
+	// demanded exactly 200, so a worker whose /readyz answers 204 No Content was
+	// reported unhealthy by Docker while healthy to Kubernetes.
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		fmt.Fprintf(os.Stderr, "healthcheck: %s returned %d\n", url, resp.StatusCode)
 		os.Exit(1)
 	}

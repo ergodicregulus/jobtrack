@@ -1,10 +1,15 @@
-# Public entry. Everything reaches the SvelteKit server; nothing reaches the api
-# directly.
+# Public entry, one origin. The API's routes go to the api; everything else to
+# the SvelteKit server.
 #
-# That is a deliberate choice, not a routing accident. The session cookie stays
-# first-party because the browser only ever talks to one origin, which means no
-# CORS surface, no SameSite=None, and no second place where auth has to be got
-# right.
+# The session cookie stays first-party because the browser only ever talks to
+# one origin, which means no CORS surface, no SameSite=None, and no second place
+# where auth has to be got right. Routing by path keeps that property.
+#
+# This used to send everything to web, on the stated design that the SvelteKit
+# server fronts the api. Nothing implemented that: adapter-node has no /v1 route
+# and forwards nothing, so every browser-side API call would have been a 404.
+# /unsubscribe is listed because it is an API route and the digest builds its
+# links on this origin.
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -25,6 +30,20 @@ spec:
     - host: "{{HOST}}"
       http:
         paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: jobtrack-api
+                port:
+                  name: http
+          - path: /unsubscribe
+            pathType: Exact
+            backend:
+              service:
+                name: jobtrack-api
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

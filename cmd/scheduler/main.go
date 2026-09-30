@@ -14,6 +14,7 @@ import (
 
 	"github.com/ergodicregulus/jobtrack/internal/app"
 	"github.com/ergodicregulus/jobtrack/internal/datamigrations"
+	"github.com/ergodicregulus/jobtrack/internal/httpx"
 	"github.com/ergodicregulus/jobtrack/internal/jobs"
 	"github.com/ergodicregulus/jobtrack/internal/migrate"
 	"github.com/ergodicregulus/jobtrack/internal/normalise"
@@ -27,6 +28,9 @@ import (
 const leaderLockKey int64 = 8_675_309_002
 
 func main() {
+	// `<binary> healthcheck` probes RunWorker's /readyz: the image is distroless,
+	// so a container healthcheck has no curl and must be the binary itself.
+	httpx.RunHealthcheckIfAsked(":8080")
 	ctx := context.Background()
 
 	a, err := app.New(ctx, app.Options{Service: "scheduler", NeedsDB: true})
