@@ -218,6 +218,13 @@ jobs:
       RESUME_ENCRYPTION_KEY: ci-only-resume-key-at-least-32-chars
       RESUME_PARSER_URL: http://localhost:9090
       COOKIE_SECURE: "false"
+      # Far above production, for the same reason docker-compose.yml sets it:
+      # every browser in the suite shares one address, so a limit tuned for one
+      # person throttles the whole run. It surfaces as a signup that silently
+      # stays on /signup and a feed that is "unavailable" — a working limiter
+      # wearing the costume of a broken app. Nine 429s before this was set.
+      RATE_LIMIT_PER_MINUTE: "60000"
+      RATE_LIMIT_BURST: "2000"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5

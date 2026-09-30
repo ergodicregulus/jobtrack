@@ -16,9 +16,17 @@ What is checked: for each `go run ./cmd/<service>` in a workflow, every variable
 the loader marks required for that service is either in the job's `env:` block,
 the workflow-level `env:`, or set inline on the command itself.
 
-What is not: whether the VALUE is usable. A URL pointing at nothing still passes
-here and fails at runtime, which is the right division — this catches the absent
-variable, and the service's own startup validation catches the wrong one.
+It also checks one variable that is not *required* but whose absence is silent and
+expensive: a workflow running a browser suite must raise RATE_LIMIT_PER_MINUTE.
+Every browser shares the runner's address, so the production default throttles the
+whole run — and it does not look like throttling. It looks like a signup that
+stays on /signup and a feed that is "unavailable". docker-compose.yml has set it
+for this reason since the suite was written; the workflow did not, and paid nine
+429s for it.
+
+What is not checked: whether the VALUE is usable. A URL pointing at nothing still
+passes here and fails at runtime, which is the right division — this catches the
+absent variable, and the service's own startup validation catches the wrong one.
 """
 
 from __future__ import annotations
@@ -40,6 +48,7 @@ REQUIRED = re.compile(
 )
 SERVICE_EQ = re.compile(r'service\s*==\s*"([a-z-]+)"')
 RUNS = re.compile(r"go run \./cmd/([a-z-]+)")
+BROWSER_SUITE = re.compile(r"playwright test|ui-audit")
 ENV_LINE = re.compile(r"^\s*([A-Z][A-Z0-9_]*)\s*:", re.MULTILINE)
 INLINE = re.compile(r"\b([A-Z][A-Z0-9_]*)=")
 
@@ -75,6 +84,17 @@ def main() -> int:
                         f"and no env block in the file sets it. The service will "
                         f"refuse to start with 'invalid configuration'."
                     )
+
+        # A browser suite against a locally started api, with the production rate
+        # limit, throttles itself and blames the app.
+        if BROWSER_SUITE.search(text) and RUNS.search(text):
+            if "RATE_LIMIT_PER_MINUTE" not in present:
+                violations[f"{wf.name}:rate-limit"] = (
+                    f"{wf.name} runs a browser suite against its own api without "
+                    f"raising RATE_LIMIT_PER_MINUTE. Every browser shares one "
+                    f"address, so the run throttles itself and the failures look "
+                    f"like application bugs."
+                )
 
     return _ratchet.run(
         "workflow-env",
