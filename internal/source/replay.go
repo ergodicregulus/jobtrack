@@ -14,24 +14,14 @@ import (
 // Replay serves adapter requests from the committed golden fixtures instead of
 // the network. It is what INGEST_MODE=fixture means.
 //
-// The mode was documented from the first commit — ".env.example: replay golden
-// files. No network at all" — and implemented by nothing: the config loader
-// validated the value, cmd/ingestor logged it, and internal/jobs called
-// adapter.Fetch unconditionally. So a development machine polled live ATS
-// endpoints while its own configuration said it did not, and the
-// INGEST_LIVE_ALLOWLIST guard gated the label rather than any request.
+// It sits at the HTTPDoer boundary rather than inside each adapter, so the whole
+// Fetch path still runs — pagination, conditional requests, the detail sweep, the
+// cursor arithmetic. Those are the parts that break; a replay that skipped them
+// would exercise the parser and nothing else.
 //
-// It sits at the HTTPDoer boundary rather than inside each adapter, because
-// that is the one place every vendor already passes through. No adapter changes,
-// and the whole Fetch path still runs — pagination, conditional requests, the
-// detail sweep, the cursor arithmetic. Those are the parts that break; a replay
-// that skipped them would test the parser and nothing else.
-//
-// What it deliberately does not do is pretend to be per-company truth. Every
-// board of a vendor replays that vendor's captured board, so a seeded corpus has
-// a realistic shape, volume and field distribution, with the same postings under
-// many companies. That is the trade that buys determinism and no network.
-// ADR-0021.
+// Every board of a vendor replays that vendor's captured board, so a seeded
+// corpus is realistic in shape and volume but is the same postings under many
+// company names. ADR-0021 has the rest of the reasoning and the alternatives.
 type Replay struct {
 	// root is the module root. Fixtures are read from
 	// <root>/internal/source/<vendor>/testdata, which is where the golden tests
@@ -85,9 +75,8 @@ type fixture struct {
 	file   string
 }
 
-// contentType is derived from the extension. Personio is the only XML feed, and
-// an adapter that received JSON headers for XML would fail in a way that looks
-// like a parser bug.
+// contentType keeps Personio's XML from arriving with a JSON header, which fails
+// inside the adapter in a way that reads as a parser bug.
 func (f fixture) contentType() string {
 	if strings.HasSuffix(f.file, ".xml") {
 		return "application/xml"
@@ -101,6 +90,12 @@ func (f fixture) contentType() string {
 // than bypassed: a second poll of an unchanged board takes the 304 branch, which
 // is how the real ingestor spends most of its life.
 func (r *Replay) Do(req *http.Request) (*http.Response, error) {
+	// An http.Client would fail here, and a stand-in that ignores cancellation
+	// hides any caller that depends on it propagating.
+	if err := req.Context().Err(); err != nil {
+		return nil, err
+	}
+
 	f, err := resolveFixture(req.URL)
 	if err != nil {
 		return nil, err
@@ -109,18 +104,21 @@ func (r *Replay) Do(req *http.Request) (*http.Response, error) {
 	path := filepath.Join(r.root, "internal", "source", string(f.vendor), "testdata", f.file)
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("replay %s: %w (INGEST_MODE=fixture needs the repository's testdata; set INGEST_MODE=live to fetch)", f.vendor, err)
+		return nil, fmt.Errorf(
+			"replay %s: %w (INGEST_MODE=fixture reads the repository's testdata; "+
+				"set INGEST_MODE=live to fetch instead)", f.vendor, err)
 	}
 
 	// Derived from the bytes, so it is stable across restarts and changes when a
 	// fixture is re-captured — which is exactly what an ETag should do.
-	etag := fmt.Sprintf(`"replay-%s-%s-%d"`, f.vendor, strings.TrimSuffix(f.file, filepath.Ext(f.file)), len(body))
+	name := strings.TrimSuffix(f.file, filepath.Ext(f.file))
+	etag := fmt.Sprintf(`"replay-%s-%s-%d"`, f.vendor, name, len(body))
 
 	header := http.Header{}
 	header.Set("Content-Type", f.contentType())
 	header.Set("ETag", etag)
 
-	if match := req.Header.Get("If-None-Match"); match != "" && match == etag {
+	if req.Header.Get("If-None-Match") == etag {
 		return &http.Response{
 			StatusCode: http.StatusNotModified,
 			Header:     header,
@@ -154,7 +152,7 @@ func resolveFixture(u *url.URL) (fixture, error) {
 	switch {
 	case host == "boards-api.greenhouse.io":
 		// /v1/boards/{token}/jobs is the board; a further segment is one job.
-		if after, ok := cutAfter(path, "/jobs/"); ok && after != "" {
+		if _, after, ok := strings.Cut(path, "/jobs/"); ok && after != "" {
 			return fixture{VendorGreenhouse, "detail-pay-ranges.json"}, nil
 		}
 		return fixture{VendorGreenhouse, "board-full.json"}, nil
@@ -163,7 +161,7 @@ func resolveFixture(u *url.URL) (fixture, error) {
 		return fixture{VendorAshby, "board-full.json"}, nil
 
 	case host == "api.smartrecruiters.com":
-		if after, ok := cutAfter(path, "/postings/"); ok && after != "" {
+		if _, after, ok := strings.Cut(path, "/postings/"); ok && after != "" {
 			return fixture{VendorSmartRecruiters, "detail.json"}, nil
 		}
 		return fixture{VendorSmartRecruiters, "list.json"}, nil
@@ -198,10 +196,4 @@ func resolveFixture(u *url.URL) (fixture, error) {
 	return fixture{}, fmt.Errorf(
 		"replay: no fixture for host %q (INGEST_MODE=fixture makes no network requests; "+
 			"add a mapping in internal/source/replay.go or set INGEST_MODE=live)", host)
-}
-
-// cutAfter returns what follows sep, and whether sep was present.
-func cutAfter(s, sep string) (string, bool) {
-	_, after, ok := strings.Cut(s, sep)
-	return after, ok
 }

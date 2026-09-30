@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,7 @@ func TestProblemBase_IsOursAndAbsolute(t *testing.T) {
 // be handed a database error carrying a query or a hostname.
 func TestErrInternal_DoesNotLeakTheUnderlyingError(t *testing.T) {
 	secret := "pgx: dial tcp 10.0.3.14:5432: connection refused"
-	err := ErrInternal(os.NewSyscallError("connect", errString(secret)))
+	err := ErrInternal(errors.New(secret))
 
 	if strings.Contains(err.Detail, secret) {
 		t.Errorf("Detail leaks the underlying error: %q", err.Detail)
@@ -99,7 +100,3 @@ func TestErrInternal_DoesNotLeakTheUnderlyingError(t *testing.T) {
 		t.Error("the cause is not retrievable; it must be logged even though it is not sent")
 	}
 }
-
-type errString string
-
-func (e errString) Error() string { return string(e) }

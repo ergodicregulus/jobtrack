@@ -78,10 +78,17 @@ and sets `posted_at_is_estimate = true`.
 - **Seeded `posted_at` is derived, not observed.** A fixture is one day's capture,
   so replaying it yields postings 30 days to 5 years old, and the feed defaults to
   7 days because freshness is the product. The two cannot meet. The shift is
-  confined to `cmd/seed`, preserves the real order and relative spacing so ages
-  vary across cards, and sets the `posted_at_is_estimate` flag the schema already
-  carries for a date we computed rather than read. The ingest path is untouched: a
-  real fetch still records what the board reported.
+  confined to `cmd/seed`, preserves the real **order** so ages vary across cards,
+  and sets the `posted_at_is_estimate` flag the schema already carries for a date
+  we computed rather than read. Spacing is *even by rank*, not proportional to the
+  original gaps — the fixtures span 2021 to 2026, and honouring the real gaps would
+  bunch almost everything at one end and leave the default 7-day window as empty as
+  it started. The ingest path is untouched: a real fetch still records what the
+  board reported.
+
+  *(Corrected 2026-09-30, hours after this ADR was written: it first said "order
+  and relative spacing", and the spacing is not preserved. A factual correction to
+  a description of the implementation, not a change of decision.)*
 - **The host→fixture map is a place to forget a vendor.** A tenth adapter whose
   host is unmapped fails loudly on its first fixture-mode fetch, and
   `TestFetch_EveryAdapterYieldsPostingsFromItsReplay` fails in CI before that.

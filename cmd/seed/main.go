@@ -260,13 +260,17 @@ func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) erro
 // entire job is to manufacture a development corpus, and it does NOT touch the
 // ingest path: a real fetch still records the date the board reported.
 //
-// Two things keep it from being a fabricated number. The order and relative
-// spacing of the real dates are preserved, so ages vary across cards the way a
-// live board does rather than every posting claiming the same age. And
-// posted_at_is_estimate is set, which is the column the schema already carries
-// for precisely this distinction — a date we computed instead of read — and which
-// the UI already renders differently. Nothing ends up claiming to be observed
-// when it was derived.
+// Two things keep it from being a fabricated number. The real ORDER is preserved —
+// the newest fixture posting stays the newest — so ages vary across cards instead
+// of every posting claiming the same one. And posted_at_is_estimate is set, the
+// column the schema already carries for precisely this distinction, a date we
+// computed instead of read, which the UI already renders differently. Nothing
+// ends up claiming to be observed when it was derived.
+//
+// Spacing is EVEN by rank, not proportional to the original gaps, and that is
+// deliberate rather than a shortcut: the fixtures span 2021 to 2026, so honouring
+// the real gaps would bunch almost everything at one end and leave the feed's
+// default 7-day window as empty as it was before.
 func spreadDemoDates(ctx context.Context, a *app.App) (int64, error) {
 	tag, err := a.Pool.Exec(ctx, `
 		WITH ranked AS (

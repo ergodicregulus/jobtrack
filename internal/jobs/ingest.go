@@ -64,16 +64,14 @@ func (d *Deps) Init() {
 
 // httpClient is a real client only in live mode.
 //
-// INGEST_MODE is the switch, and until now it was a value nothing read: every
-// mode fetched over the network, so "fixture — no network at all" was false and
-// the INGEST_LIVE_ALLOWLIST guard protected a label rather than a request. The
-// default is fixture, which means the DEFAULT is now offline — a fresh clone and
-// CI both ingest from the golden files and reach nothing.
+// INGEST_MODE defaults to fixture, so the DEFAULT is offline: a fresh clone and
+// CI both ingest from the golden files and reach nothing. Before ADR-0021 no code
+// read the setting at all and every mode fetched live, which made
+// INGEST_LIVE_ALLOWLIST a guard on a label rather than on a request.
 //
-// `recorded` replays too. It is documented as "a captured session with realistic
-// timing" and the timing does not exist yet; replaying without it is strictly
-// closer to the promise than fetching live, and it is not a mode anything
-// selects today.
+// `recorded` replays as well. It promises "a captured session with realistic
+// timing", the timing does not exist, and replaying without it is closer to that
+// promise than fetching live would be.
 func (d *Deps) httpClient() source.HTTPDoer {
 	if d.Cfg.Ingest.Mode != "live" {
 		d.Log.Info("ingest is replaying fixtures, no requests will leave this process",

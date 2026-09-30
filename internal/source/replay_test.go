@@ -10,23 +10,12 @@ import (
 	"testing"
 )
 
-// repoRoot is two levels up from internal/source.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 // The whole point of the type: every vendor resolves to a fixture that exists on
 // disk. A mapping that compiles and points at a missing file is the failure this
 // catches, and it is the one that would otherwise surface as an empty corpus
 // three jobs later in CI.
 func TestReplay_EveryVendorResolvesToAFixtureThatExists(t *testing.T) {
-	root := repoRoot(t)
-	r := NewReplay(root)
+	r := NewReplay("")
 
 	// One representative URL per vendor, in the shape its adapter builds.
 	cases := map[Vendor]string{
@@ -70,9 +59,9 @@ func TestReplay_EveryVendorResolvesToAFixtureThatExists(t *testing.T) {
 			if resp.Header.Get("ETag") == "" {
 				t.Error("no ETag; the conditional-request path would never be exercised")
 			}
-			body := make([]byte, 1)
-			if n, _ := resp.Body.Read(body); n == 0 {
-				t.Error("empty body")
+			if resp.ContentLength <= 0 {
+				t.Errorf("ContentLength = %d; an empty board parses to nothing",
+					resp.ContentLength)
 			}
 		})
 	}
@@ -106,7 +95,7 @@ func TestReplay_DetailEndpointsResolveToDetailFixtures(t *testing.T) {
 // response by reaching the network, the guarantee the type exists to provide is
 // gone and INGEST_MODE=fixture is a lie again.
 func TestReplay_UnknownHostIsAnErrorRatherThanARequest(t *testing.T) {
-	r := NewReplay(repoRoot(t))
+	r := NewReplay("")
 	req, err := http.NewRequest(http.MethodGet, "https://jobs.example.com/api/v1/postings", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +116,7 @@ func TestReplay_UnknownHostIsAnErrorRatherThanARequest(t *testing.T) {
 // real ingestor spends most of its life. A replay that always answered 200 would
 // leave that path untested by every adapter at once.
 func TestReplay_HonoursIfNoneMatch(t *testing.T) {
-	r := NewReplay(repoRoot(t))
+	r := NewReplay("")
 	const raw = "https://boards-api.greenhouse.io/v1/boards/stripe/jobs?content=true"
 
 	first, err := http.NewRequest(http.MethodGet, raw, nil)

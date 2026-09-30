@@ -55,7 +55,6 @@ func TestClose_RunsClosersInReverseOrder(t *testing.T) {
 	a := testApp(t)
 	var order []string
 	for _, name := range []string{"first", "second", "third"} {
-		name := name
 		a.closers = append(a.closers, func(context.Context) error {
 			order = append(order, name)
 			return nil
