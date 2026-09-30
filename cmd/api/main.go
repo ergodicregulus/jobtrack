@@ -20,7 +20,7 @@ func main() {
 
 	ctx := context.Background()
 
-	a, err := app.New(ctx, app.Options{Service: "api", NeedsDB: true, NeedsObject: true})
+	a, err := app.New(ctx, app.Options{Service: "api", NeedsDB: true})
 	if err != nil {
 		app.Fatal(err)
 	}

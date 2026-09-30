@@ -31,7 +31,7 @@ func main() {
 
 	// NeedsDB is deliberately false. This process must not be able to reach the
 	// database even if a future change tries to.
-	a, err := app.New(ctx, app.Options{Service: "resume-parser", NeedsObject: true})
+	a, err := app.New(ctx, app.Options{Service: "resume-parser"})
 	if err != nil {
 		app.Fatal(err)
 	}

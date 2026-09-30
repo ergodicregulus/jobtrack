@@ -20,13 +20,20 @@ Docker, git and `python3` are the only host prerequisites. Everything else runs 
 
 ```bash
 make dev      # postgres, jaeger and every service, with live reload
-make check    # everything CI runs — this repository's definition of done
+make check    # every CI gate that needs no database and no network. The bar for "done"
+docker compose run --rm tools "go run ./cmd/seed -ingest"   # ~350 postings, offline
 ```
 
-Ingestion starts in `fixture` mode and replays captured responses, so the feed has data before the
-process has made a single network request. Live ingestion **refuses to start** without an explicit
-per-source allowlist; that is a startup check, not a convention
-([config.go](internal/config/config.go)).
+Ingestion defaults to `fixture` mode, which replays the committed golden boards through the real
+adapters, so **seeding reaches no network at all** and needs no credentials
+([ADR-0021](docs/architecture/adr/0021-fixture-replay-at-the-http-boundary.md)). An unmapped host is
+an error rather than a passthrough, and `internal/jobs` has a test asserting that only `live` mode
+receives an HTTP client capable of dialling. Live ingestion additionally **refuses to start** without
+an explicit per-source allowlist.
+
+That sentence was false until 2026-09-30, and this README asserted it anyway. `INGEST_MODE` was
+validated, logged, and read by no other code, so every mode fetched live. It is now implemented, and
+the test above is what keeps it true.
 
 ## What is actually built
 

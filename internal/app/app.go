@@ -35,12 +35,17 @@ type App struct {
 	startCtx context.Context
 }
 
-// Options controls what a service needs. Not every binary needs a database
-// (none currently), and asking keeps the failure surface honest.
+// Options controls what a service needs. Not every binary needs a database —
+// resume-parser must not be able to reach one (ADR-0007) — and asking keeps the
+// failure surface honest.
+//
+// NeedsObject was removed with the object store it described (ADR-0020). It was
+// set by two callers and read by none, which is the worst kind of option: it
+// documented a dependency that did not exist and no check noticed, because a
+// struct field that is assigned still looks used.
 type Options struct {
-	Service     string
-	NeedsDB     bool
-	NeedsObject bool
+	Service string
+	NeedsDB bool
 }
 
 // New loads config, starts telemetry, and connects dependencies.
