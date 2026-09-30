@@ -42,7 +42,7 @@ down: ## Stop the stack, keeping data
 	$(COMPOSE) down
 
 .PHONY: clean
-clean: ## Stop the stack and destroy all data
+clean: db-backup ## Back up, then stop the stack and destroy all data
 	$(COMPOSE) down -v --remove-orphans
 
 .PHONY: logs dev-logs
@@ -57,10 +57,38 @@ shell: ## Open a shell in the tools container
 psql: ## Open psql against the dev database
 	$(COMPOSE) exec postgres psql -U jobtrack -d jobtrack
 
+# The corpus is weeks of polling that cannot be re-fetched: posting_observations
+# records WHEN each posting was seen, and a fresh ingest only knows "now". It was
+# lost once to a `docker compose down -v` with nothing to restore from.
+#
+# Custom format (-Fc): compressed, and restorable per object. Written through the
+# container's stdout so the host needs no Postgres client.
+.PHONY: db-backup
+db-backup: ## Dump the dev database to backups/jobtrack-<UTC time>.dump
+	@mkdir -p backups
+	@$(COMPOSE) up -d --wait postgres >/dev/null 2>&1
+	@f=backups/jobtrack-$$(date -u +%Y%m%dT%H%M%SZ).dump; \
+	  $(COMPOSE) exec -T postgres pg_dump -U jobtrack -d jobtrack -Fc > "$$f" \
+	    || { rm -f "$$f"; echo "backup failed" >&2; exit 1; }; \
+	  echo "wrote $$f ($$(du -h "$$f" | cut -f1))"
+
+# Restore is itself destructive, so it takes a backup of the current state first.
+# The Go services are stopped because the swap cannot rename a database they hold
+# open. FILE is required; restoring "the latest" by default is how the wrong file
+# gets restored. Why a side database and a swap: scripts/db-restore.sh.
+.PHONY: db-restore
+db-restore: ## Restore a dump: make db-restore FILE=backups/<file>.dump
+	@test -n "$(FILE)" || { echo "usage: make db-restore FILE=backups/<file>.dump" >&2; exit 1; }
+	@test -f "$(FILE)" || { echo "no such file: $(FILE)" >&2; exit 1; }
+	@$(MAKE) --no-print-directory db-backup
+	$(COMPOSE) stop api ingestor scheduler
+	COMPOSE="$(COMPOSE)" scripts/db-restore.sh "$(FILE)"
+	@echo "restored $(FILE); start the services again with: make dev"
+
 ##@ Quality gates
 
 .PHONY: check
-check: arch-check docs-check tidy fmt-check vet lint test build-all web-test web-check bench-budget ## Every CI gate that runs without a database or the network. THE definition of done
+check: arch-check docs-check hooks-check tidy fmt-check vet lint test build-all web-test web-check bench-budget ## Every CI gate that runs without a database or the network. THE definition of done
 	@echo ""
 	@echo "  ✓ check passed"
 
@@ -78,6 +106,12 @@ docs-check: ## Documentation links resolve and every documented make target exis
 .PHONY: vuln
 vuln: ## Known vulnerabilities in dependencies, by call path
 	$(TOOLS) "GOTOOLCHAIN=auto go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+
+# The guard that stops an agent deleting the database volume. It is only worth
+# anything if it still blocks what it claims to, so its cases run with the rest.
+.PHONY: hooks-check
+hooks-check: ## Self-test the destructive-command guard in .claude/hooks
+	@python3 .claude/hooks/guard-destructive.py --self-test
 
 .PHONY: arch-check
 arch-check: ## Architecture invariants: layering, SQL location, function length, ADR index, citations, plans
@@ -228,7 +262,7 @@ seed: ## Load realistic development data (derived from adapter golden fixtures)
 	$(TOOLS_DB) "go run ./cmd/seed"
 
 .PHONY: seed-reset
-seed-reset: ## Wipe and reseed postings
+seed-reset: db-backup ## Back up, then wipe and reseed postings
 	$(TOOLS_DB) "go run ./cmd/seed -reset"
 
 .PHONY: seed-large
@@ -238,7 +272,7 @@ seed-large: ## Generate a large corpus for query-plan work
 ##@ Migrations (cont.)
 
 .PHONY: db-reset
-db-reset: ## Drop, recreate and migrate the dev database
+db-reset: db-backup ## Back up, then drop, recreate and migrate the dev database
 	$(COMPOSE) down -v postgres
 	$(COMPOSE) up -d postgres
 	@until $(COMPOSE) exec -T postgres pg_isready -U jobtrack -d jobtrack >/dev/null 2>&1; do sleep 1; done

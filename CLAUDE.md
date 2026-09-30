@@ -92,7 +92,15 @@ make migrate-new NAME=add_foo
 make migrate-verify   # migrations against the PREVIOUS release's schema
 make drift-check      # live schema vs. migration history
 make psql         # psql inside the network
+make db-backup    # pg_dump -Fc to backups/ — before anything that could lose data
+make db-restore FILE=backups/<file>.dump   # restores into a side database, then swaps
 ```
+
+**Never `docker compose down -v` on the dev stack.** It deletes the Postgres volume, and the corpus in
+it is weeks of polling that cannot be re-fetched — `posting_observations` records *when* each posting
+was seen. It was lost this way once, with no backup. `make clean`, `db-reset` and `seed-reset` now back
+up first; for a throwaway stack use `docker compose -p jobtrack-verify ...`. Enforced for agents by
+`.claude/hooks/guard-destructive.py`, whose cases run in `make hooks-check`.
 
 Details and troubleshooting: [docs/engineering/dev-environment.md](docs/engineering/dev-environment.md).
 

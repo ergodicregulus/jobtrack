@@ -64,6 +64,9 @@ jobs:
       - name: Architecture invariants
         run: python3 scripts/arch/check.py
 
+      - name: Destructive-command guard still blocks what it claims to
+        run: python3 .claude/hooks/guard-destructive.py --self-test
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest

@@ -42,3 +42,6 @@ web/.screenshots/
 # Playwright output
 web/test-results/
 web/playwright-report/
+
+# make db-backup output. Dumps hold user data and never belong in git.
+backups/
