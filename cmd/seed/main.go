@@ -239,6 +239,9 @@ func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) erro
 
 	a.Log.Info("ingestion complete", "live_postings", postings, "companies", companies)
 
+	if !spreadsDemoDates(a.Cfg.Ingest.Mode) {
+		return nil
+	}
 	shifted, err := spreadDemoDates(ctx, a)
 	if err != nil {
 		return err
@@ -247,6 +250,13 @@ func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) erro
 		"postings", shifted, "posted_at_is_estimate", true)
 	return nil
 }
+
+// spreadsDemoDates reports whether seeding may rewrite posted_at: only for a
+// REPLAYED corpus. A live posting carries the date its board reported, which is an
+// observation; rewriting it is fabricating a number. The first version ran in
+// every mode, and a live canary on a throwaway database is what caught it — two
+// real Workable postings came back dated exactly seven and fourteen days ago.
+func spreadsDemoDates(mode string) bool { return mode != "live" }
 
 // spreadDemoDates moves replayed posting dates into the recent past.
 //

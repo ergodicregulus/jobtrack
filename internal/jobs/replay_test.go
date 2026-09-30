@@ -128,3 +128,33 @@ func TestFetch_SecondPollOfAnUnchangedBoardIsNotModified(t *testing.T) {
 		t.Error("an unchanged board was fetched and parsed again; the conditional path is not working")
 	}
 }
+
+// INGEST_LIVE_ALLOWLIST was checked only for being non-empty, so naming one source
+// fetched all of them. These are the semantics it now has.
+func TestAllowlist_LiveModeFetchesOnlyWhatItNames(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    string
+		entries []string
+		permit  map[int64]bool
+	}{
+		{"replay limits nothing, it reaches no network", "fixture", nil,
+			map[int64]bool{1: true, 99: true}},
+		{"live names two sources", "live", []string{"3", "7"},
+			map[int64]bool{3: true, 7: true, 1: false, 99: false}},
+		{"live * is every registered source", "live", []string{"*"},
+			map[int64]bool{1: true, 99: true}},
+		{"live with nothing named permits nothing", "live", nil,
+			map[int64]bool{1: false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newAllowlist(tc.mode, tc.entries)
+			for id, want := range tc.permit {
+				if got := a.permits(id); got != want {
+					t.Errorf("permits(%d) = %v, want %v", id, got, want)
+				}
+			}
+		})
+	}
+}

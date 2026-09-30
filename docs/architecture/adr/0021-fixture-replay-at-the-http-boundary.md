@@ -86,6 +86,11 @@ and sets `posted_at_is_estimate = true`.
   it started. The ingest path is untouched: a real fetch still records what the
   board reported.
 
+  The shift applies only to a replayed corpus. `seed -ingest` in live mode leaves
+  every date as the board reported it — the first version did not, and a live
+  canary on a throwaway database caught two real postings re-dated to exactly
+  seven and fourteen days ago.
+
   *(Corrected 2026-09-30, hours after this ADR was written: it first said "order
   and relative spacing", and the spacing is not preserved. A factual correction to
   a description of the implementation, not a change of decision.)*

@@ -264,3 +264,24 @@ func TestLoad_MigrateHasNoStatementTimeout(t *testing.T) {
 			cfg.Database.StatementTimeout)
 	}
 }
+
+// A malformed allowlist entry used to be accepted and then ignored. It now fails
+// at startup, where every other bad setting fails.
+func TestLoad_LiveAllowlistEntriesMustBeIDsOrStar(t *testing.T) {
+	for entries, ok := range map[string]bool{
+		"1,2,3": true, "*": true, " 4 , 5 ": true,
+		"abc": false, "1,two": false, "0": false, "-3": false,
+	} {
+		env := validEnv()
+		env["INGEST_MODE"] = "live"
+		env["INGEST_LIVE_ALLOWLIST"] = entries
+		setEnv(t, env)
+		_, err := Load("ingestor")
+		if ok && err != nil {
+			t.Errorf("INGEST_LIVE_ALLOWLIST=%q rejected: %v", entries, err)
+		}
+		if !ok && (err == nil || !strings.Contains(err.Error(), "INGEST_LIVE_ALLOWLIST")) {
+			t.Errorf("INGEST_LIVE_ALLOWLIST=%q accepted, or rejected without naming it: %v", entries, err)
+		}
+	}
+}

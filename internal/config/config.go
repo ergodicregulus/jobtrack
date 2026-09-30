@@ -327,7 +327,13 @@ func (c *Config) validate(l *loader) {
 	// wiki page nobody reads. See docs/architecture/adr/0004.
 	if c.Ingest.Mode == "live" && len(c.Ingest.LiveAllowlist) == 0 {
 		l.problems = append(l.problems,
-			"INGEST_MODE=live requires INGEST_LIVE_ALLOWLIST (comma-separated source IDs)")
+			"INGEST_MODE=live requires INGEST_LIVE_ALLOWLIST (comma-separated source IDs, or *)")
+	}
+	for _, entry := range c.Ingest.LiveAllowlist {
+		if n, err := strconv.ParseInt(entry, 10, 64); entry != "*" && (err != nil || n <= 0) {
+			l.problems = append(l.problems, fmt.Sprintf(
+				"INGEST_LIVE_ALLOWLIST entry %q is neither a source ID nor *", entry))
+		}
 	}
 
 	if c.Env == "prod" {

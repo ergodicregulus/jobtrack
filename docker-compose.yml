@@ -38,7 +38,11 @@ x-go-service: &go-service
     # means the allowlist silently never matches. In production this is the
     # gateway's address or the pod CIDR, which is known and should be narrow.
     TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-    INGEST_MODE: fixture
+    # Replay by default, so nothing leaves the machine unless asked. Rebuilding a
+    # real corpus is then one line rather than an edit to this file:
+    #   INGEST_MODE=live INGEST_LIVE_ALLOWLIST='*' docker compose up -d ingestor scheduler
+    INGEST_MODE: ${INGEST_MODE:-fixture}
+    INGEST_LIVE_ALLOWLIST: ${INGEST_LIVE_ALLOWLIST:-}
   depends_on:
     postgres:
       condition: service_healthy

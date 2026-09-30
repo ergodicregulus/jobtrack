@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -41,7 +42,39 @@ type Deps struct {
 
 	adapters map[source.Vendor]source.Adapter
 	limiter  *hostLimiter
+	allow    allowlist
 }
+
+// allowlist is INGEST_LIVE_ALLOWLIST, enforced.
+//
+// It used to be checked only for being non-empty, so INGEST_LIVE_ALLOWLIST=1
+// fetched every registered board — the control on outbound traffic to third
+// parties guarded a label, the same way INGEST_MODE did before ADR-0021. "*" is an
+// explicit opt-in to every registered source, so rebuilding a corpus does not mean
+// typing out every ID; the default is still nothing.
+type allowlist struct {
+	all bool
+	ids map[int64]bool
+}
+
+// newAllowlist parses the entries config.Load has already validated. Outside live
+// mode it permits everything, because a replay makes no request to limit.
+func newAllowlist(mode string, entries []string) allowlist {
+	if mode != "live" {
+		return allowlist{all: true}
+	}
+	a := allowlist{ids: map[int64]bool{}}
+	for _, e := range entries {
+		if e == "*" {
+			a.all = true
+		} else if n, err := strconv.ParseInt(e, 10, 64); err == nil {
+			a.ids[n] = true
+		}
+	}
+	return a
+}
+
+func (a allowlist) permits(sourceID int64) bool { return a.all || a.ids[sourceID] }
 
 // Init builds the adapter registry and the politeness limiter.
 func (d *Deps) Init() {
@@ -60,6 +93,7 @@ func (d *Deps) Init() {
 		source.VendorBambooHR:        bamboohr.New(client, ua),
 	}
 	d.limiter = newHostLimiter(2 * time.Second)
+	d.allow = newAllowlist(d.Cfg.Ingest.Mode, d.Cfg.Ingest.LiveAllowlist)
 }
 
 // httpClient is a real client only in live mode.
@@ -152,6 +186,11 @@ func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSource
 	}
 	if err != nil {
 		return err
+	}
+	// Checked here, next to the request, rather than when scheduling: this is the
+	// one point every fetch passes, so nothing can route around it.
+	if !d.allow.permits(src.ID) {
+		return nil
 	}
 
 	// Force means "ignore the validators and re-read the board", not "throw
