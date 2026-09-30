@@ -37,12 +37,15 @@ type FieldError struct {
 
 // problemBase is where a type URI resolves.
 //
-// RFC 9457 says the type URI SHOULD resolve to human-readable documentation. It
-// used to point at jobtrack.dev, a domain this project does not own, so every
-// error response cited a stranger's site. It now points at the section that is
-// the documentation, on a repository we control, and each Kind below has an
-// anchor there — asserted by TestProblemKindsAreDocumented, because a fragment
-// that resolves to nothing is worse than no link at all.
+// RFC 9457 permits a non-resolvable type URI, but says that if it IS an http(s)
+// locator then dereferencing it SHOULD provide human-readable documentation. This
+// is a locator, so that applies. It used to point at jobtrack.dev — a resolving
+// locator on a domain this project does not own, which made every error response
+// cite a stranger's site as the explanation of our errors.
+//
+// Each Kind below has an anchor in api-design.md, asserted by
+// TestProblemKindsAreDocumented: a fragment that resolves to nothing is worse
+// than no link, because it teaches people the links are not worth following.
 const problemBase = "https://github.com/ergodicregulus/jobtrack/blob/main/docs/architecture/api-design.md#"
 
 // APIError is an error that carries an HTTP representation. Handlers return

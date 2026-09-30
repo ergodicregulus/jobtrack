@@ -135,10 +135,17 @@ message and we can find the exact request. This is cheap and disproportionately 
 
 ### Problem types
 
-RFC 9457 says a `type` URI SHOULD resolve to human-readable documentation. Ours points at this
-section, which is the documentation — so the link in an error body leads somewhere real, on a domain
-we control. It previously pointed at `jobtrack.dev/problems/...`, a domain owned by someone else,
-which made every error response cite a stranger.
+RFC 9457 **allows** a non-resolvable `type` URI. What it says is narrower and it is the part that
+binds us: *"If the type URI is a locator (e.g., those with an `http` or `https` scheme), dereferencing
+it SHOULD provide human-readable documentation for the problem type."* Ours is an `https` locator, so
+that obligation applies — and it now points at this section, which is the documentation.
+
+It previously pointed at `jobtrack.dev/problems/...`: a locator, resolving, on a domain owned by
+somebody else. Every error response cited a stranger's website as the explanation of our errors.
+
+A URN would have been the other honest option — no domain, no obligation. A resolving link to real
+documentation is more useful to whoever is reading the error at 2 a.m., so it is worth the obligation
+of keeping the anchors below in step, which a test enforces.
 
 `TestProblemKindsAreDocumented` in `internal/httpx` fails if a constructor here gains a kind with no
 heading below, because a type URI whose fragment resolves to nothing is worse than no link.
