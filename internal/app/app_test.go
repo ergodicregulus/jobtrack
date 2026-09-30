@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -112,5 +114,84 @@ func TestRun_ClosesOnlyAfterFnHasReturned(t *testing.T) {
 
 	if len(events) != 2 || events[0] != "fn returned" || events[1] != "closed" {
 		t.Errorf("order was %v, want [fn returned closed] — teardown must follow the drain", events)
+	}
+}
+
+// freeAddr returns a loopback address nothing is listening on.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
+
+// A worker answers probes while it runs. /readyz is 503 without a database: it
+// reports what River actually needs, not merely that the process exists.
+func TestRunWorker_ServesProbesWhileTheWorkerRuns(t *testing.T) {
+	a := testApp(t)
+	a.Cfg.HTTPAddr = freeAddr(t)
+
+	codes := make(chan [2]int, 1)
+	err := a.RunWorker(func(ctx context.Context) error {
+		var got [2]int
+		for i, path := range []string{"/livez", "/readyz"} {
+			var resp *http.Response
+			var err error
+			for try := 0; try < 50; try++ { // the server starts concurrently
+				if resp, err = http.Get("http://" + a.Cfg.HTTPAddr + path); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err != nil {
+				return err
+			}
+			resp.Body.Close()
+			got[i] = resp.StatusCode
+		}
+		codes <- got
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunWorker: %v", err)
+	}
+	got := <-codes
+	if got[0] != http.StatusNoContent {
+		t.Errorf("/livez = %d, want 204", got[0])
+	}
+	if got[1] != http.StatusServiceUnavailable {
+		t.Errorf("/readyz without a database = %d, want 503", got[1])
+	}
+}
+
+// If the health server cannot bind, the worker is stopped and the error
+// surfaces. A worker nobody can probe is the failure this exists to end.
+func TestRunWorker_StopsTheWorkerWhenItCannotBeProbed(t *testing.T) {
+	a := testApp(t)
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	a.Cfg.HTTPAddr = taken.Addr().String()
+
+	stopped := make(chan struct{})
+	runErr := a.RunWorker(func(ctx context.Context) error {
+		<-ctx.Done() // a real worker runs until told to stop
+		close(stopped)
+		return ctx.Err()
+	})
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker kept running although its health server never bound")
+	}
+	if runErr == nil {
+		t.Error("RunWorker returned nil; the bind failure must surface")
 	}
 }

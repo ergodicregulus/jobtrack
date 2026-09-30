@@ -161,6 +161,15 @@ services:
   ingestor:
     <<: *go-service
     command: air -c deploy/dev/air.ingestor.toml
+    # Probes RunWorker's health server. Without it a binary that exited under
+    # `air` left the container "running" — which is how a live rebuild once sat
+    # stalled for twenty minutes with nothing reporting it.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 420s
     develop:
       watch:
         - action: sync+restart
@@ -173,6 +182,15 @@ services:
   scheduler:
     <<: *go-service
     command: air -c deploy/dev/air.scheduler.toml
+    # Probes RunWorker's health server. Without it a binary that exited under
+    # `air` left the container "running" — which is how a live rebuild once sat
+    # stalled for twenty minutes with nothing reporting it.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 420s
     develop:
       watch:
         - action: sync+restart

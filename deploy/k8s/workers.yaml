@@ -1,11 +1,16 @@
 # The two background services: ingestor and scheduler.
 #
-# Neither serves HTTP, which is why neither has a probe. That is a deliberate
-# omission rather than an oversight, and it is a real gap worth stating: a
-# wedged worker will not be restarted automatically. The image is distroless, so
-# an `exec` probe has no shell to run and a `httpGet` probe has no server to
-# call. Closing it properly means giving the workers a health endpoint — a code
-# change, not a manifest one.
+# Neither has an HTTP surface of its own, so app.RunWorker serves one for probes:
+# /livez (the process is scheduling goroutines) and /readyz (it can reach the
+# database River keeps its queue in). The image is distroless, so an `exec` probe
+# has no shell to run; httpGet is the only probe available, and until the workers
+# served something it had nothing to call. A wedged worker was never restarted.
+#
+# The namespace is default-deny, which does not block these: "traffic to and
+# from the node where a Pod is running is always allowed" (Kubernetes
+# NetworkPolicy docs), and kubelet probes originate on the node. Liveness uses
+# /livez, not /readyz, because restarting a worker does not fix a database
+# outage — it only multiplies the reconnects.
 #
 # What does bound the damage today: River leases jobs, so a worker that dies
 # mid-job has its work re-run by another after the lease expires, and the
@@ -56,6 +61,24 @@ spec:
         - name: ingestor
           image: "{{REGISTRY}}/ingestor:{{VERSION}}"
           imagePullPolicy: IfNotPresent
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: health
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Gates a rollout: a new version that cannot reach the database is
+          # never marked available, so it cannot replace a working one.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
           envFrom:
             - configMapRef:
                 name: jobtrack-config
@@ -121,6 +144,24 @@ spec:
         - name: scheduler
           image: "{{REGISTRY}}/scheduler:{{VERSION}}"
           imagePullPolicy: IfNotPresent
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: health
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Gates a rollout: a new version that cannot reach the database is
+          # never marked available, so it cannot replace a working one.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
           envFrom:
             - configMapRef:
                 name: jobtrack-config

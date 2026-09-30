@@ -69,7 +69,7 @@ func main() {
 		"mode", a.Cfg.Ingest.Mode,
 		"max_hosts", a.Cfg.Ingest.MaxHosts)
 
-	if err := a.Run(func(ctx context.Context) error {
+	if err := a.RunWorker(func(ctx context.Context) error {
 		if err := client.Start(ctx); err != nil {
 			return err
 		}

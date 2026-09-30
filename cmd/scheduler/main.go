@@ -66,7 +66,7 @@ func main() {
 
 	runner := migrate.NewDataRunner(a.Pool, a.Log, version.Get().Version, datamigrations.All()...)
 
-	if err := a.Run(func(ctx context.Context) error {
+	if err := a.RunWorker(func(ctx context.Context) error {
 		// Hold the leader lock on a dedicated connection for the process
 		// lifetime. try-lock rather than blocking: if another scheduler holds
 		// it we exit rather than queue behind it, and Kubernetes restarts us
