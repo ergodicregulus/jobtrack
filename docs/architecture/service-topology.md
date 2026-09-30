@@ -51,7 +51,7 @@ flowchart TB
     end
 
     subgraph data["Data tier"]
-        PG[("PostgreSQL 17<br/>+ pgvector · pg_trgm<br/>River queue · LISTEN/NOTIFY")]
+        PG[("PostgreSQL 17<br/>+ pg_trgm<br/>River queue · LISTEN/NOTIFY")]
     end
 
     OTEL["OTel Collector<br/>→ any OTLP backend"]
@@ -173,7 +173,7 @@ I/O shows near-zero CPU while the backlog grows, so a CPU-based HPA would scale 
 
 | | |
 |---|---|
-| **Responsibility** | Generate embeddings, compute scores, maintain `user_job_scores` |
+| **Responsibility** | **Service deleted** ([ADR-0016](adr/0016-scores-are-computed-not-materialised.md)). Scores are computed on the read path, and `user_job_scores` was dropped by migration 0026. No embeddings are generated anywhere ([ADR-0022](adr/0022-retrieval-is-lexical.md)). The rows below describe the original design |
 | **Scaling** | KEDA on queue depth. 0 → 30. **CPU-bound**, so replica count tracks node CPU |
 | **Isolation** | Separate node pool where available. This is the workload that would otherwise damage `api` p99 |
 | **Shutdown** | Graceful; jobs are idempotent so a killed job simply re-runs |

@@ -47,7 +47,7 @@ flowchart TB
     end
 
     subgraph data["Data tier"]
-        PG[("PostgreSQL 17\npgvector · tsvector\nRiver queue tables\nLISTEN/NOTIFY")]
+        PG[("PostgreSQL 17\ntsvector · pg_trgm\nRiver queue tables\nLISTEN/NOTIFY")]
     end
 
     subgraph obs["Observability"]
@@ -104,7 +104,7 @@ extraction triggers: [ADR-0008](adr/0008-service-decomposition.md).
 ### Why this few
 
 No Redis, no Elasticsearch, no separate vector database, no message broker. Postgres provides
-full-text search (`tsvector` + GIN), vector similarity (`pgvector` + HNSW), durable queueing (River),
+full-text search (`tsvector` + GIN), durable queueing (River),
 pub/sub (`LISTEN/NOTIFY`) and scheduled jobs. One thing to back up, monitor, secure and upgrade.
 Reasoning and the explicit exit conditions: [ADR-0003](adr/0003-postgres-single-datastore.md).
 
@@ -309,11 +309,11 @@ Layout and rationale: [repository-structure.md](../engineering/repository-struct
 | Backend language | Go 1.25 | [0001](adr/0001-go-for-backend.md) |
 | HTTP routing | `net/http.ServeMux` (stdlib, Go 1.22+) | [0001](adr/0001-go-for-backend.md) |
 | Frontend | SvelteKit 2 / Svelte 5 | [0002](adr/0002-frontend-framework.md) |
-| Datastore | PostgreSQL 17 + `pgvector` + `tsvector` | [0003](adr/0003-postgres-single-datastore.md) |
+| Datastore | PostgreSQL 17 + `tsvector` (`pgvector` is installed but unused, see [0022](adr/0022-retrieval-is-lexical.md)) | [0003](adr/0003-postgres-single-datastore.md) |
 | DB access | `pgx/v5` + `sqlc` (generated, type-safe, no ORM) | [0001](adr/0001-go-for-backend.md) |
 | Source policy | Public first-party ATS feeds + JSON-LD only | [0004](adr/0004-source-acquisition-policy.md) |
 | Background jobs | River (Postgres-backed, transactional enqueue) | [0005](adr/0005-river-background-jobs.md) |
-| Retrieval + ranking | Hybrid BM25-ish `ts_rank` + `pgvector`, fused with RRF | [0006](adr/0006-hybrid-retrieval-and-scoring.md) |
+| Retrieval + ranking | Lexical: `tsvector` + `ts_rank` over structured filters; scoring per [0006](adr/0006-hybrid-retrieval-and-scoring.md). No vector search or RRF | [0022](adr/0022-retrieval-is-lexical.md) |
 | Resume parsing | Local-first deterministic pipeline; LLM opt-in | [0007](adr/0007-resume-parsing-local-first.md) |
 | Observability | OpenTelemetry; `log/slog` + `otelslog` bridge | [observability.md](../engineering/observability.md) |
 | Migrations | Numbered SQL, forward-only, expand/contract | [deployment-zdt.md](../operations/deployment-zdt.md) |

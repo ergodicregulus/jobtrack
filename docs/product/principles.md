@@ -105,7 +105,7 @@ Stated as a budget, not a vibe. The target for v1:
 | Frontend runtime (`dependencies`) | ≤ 6 |
 | Infrastructure services in production | 2 — Postgres and the app itself |
 
-Postgres does full-text (`tsvector`), vectors (`pgvector`), queues (River), pub/sub (`LISTEN/NOTIFY`)
+Postgres does full-text (`tsvector`), queues (River), pub/sub (`LISTEN/NOTIFY`)
 and scheduling. That is one operational surface to secure, back up, monitor and upgrade instead of
 five. Go 1.22+'s `net/http.ServeMux` handles method and path-parameter routing, so no router framework.
 

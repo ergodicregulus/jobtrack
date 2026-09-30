@@ -17,7 +17,7 @@ the other half of.
 | [0003](0003-postgres-single-datastore.md) | PostgreSQL as the only datastore | DECIDED |
 | [0004](0004-source-acquisition-policy.md) | Public first-party ATS feeds and JSON-LD only; no board scraping | DECIDED |
 | [0005](0005-river-background-jobs.md) | River for background jobs over asynq/Temporal/broker | DECIDED |
-| [0006](0006-hybrid-retrieval-and-scoring.md) | Hybrid lexical + vector retrieval, RRF fusion, explainable weighted scoring | DECIDED |
+| [0006](0006-hybrid-retrieval-and-scoring.md) | Explainable weighted scoring (its hybrid-retrieval half superseded by 0022) | DECIDED |
 | [0007](0007-resume-parsing-local-first.md) | Deterministic local parsing; LLM as opt-in enrichment only | DECIDED |
 | [0008](0008-service-decomposition.md) | **Modular monolith, six deployment units, one extracted service** | DECIDED |
 | [0009](0009-score-granularity-and-skill-coverage.md) | Score granularity, and the skill-coverage problem it uncovered | DECIDED |
@@ -32,6 +32,7 @@ the other half of.
 | [0019](0019-email-over-smtp-not-a-provider-sdk.md) | Digest email goes over SMTP with the provider in config; zero new dependencies | DECIDED |
 | [0020](0020-no-object-storage-until-something-stores-an-object.md) | **No object storage until something stores an object** — MinIO removed; nothing ever called it | DECIDED |
 | [0021](0021-fixture-replay-at-the-http-boundary.md) | **`INGEST_MODE=fixture` replays golden files at the HTTP boundary** — the mode was documented and unimplemented | DECIDED |
+| [0022](0022-retrieval-is-lexical.md) | **Retrieval is lexical**; posting features are computed at ingest, scores at read | DECIDED |
 
 <!-- gap: 0010 — never assigned. The number was skipped, not withdrawn; no draft
      was ever written and nothing references it. Declared here so a reader who

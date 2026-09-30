@@ -3,7 +3,7 @@
 > Status: **DECIDED**. Schema is the contract; changes go through
 > [deployment-zdt.md](../operations/deployment-zdt.md).
 
-PostgreSQL 17. Extensions: `pgvector`, `pg_trgm`, `citext`, `pgcrypto`.
+PostgreSQL 17. Extensions: `pgvector`, `pg_trgm`, `citext`, `pgcrypto`. `pgvector` is installed only so that migration history (0003, 0005) replays on a fresh database; nothing uses it ([ADR-0022](adr/0022-retrieval-is-lexical.md)).
 
 ## 1. Entity relationships
 
@@ -12,7 +12,6 @@ erDiagram
     COMPANIES ||--o{ SOURCES : "publishes via"
     SOURCES   ||--o{ JOB_POSTINGS : yields
     COMPANIES ||--o{ JOB_POSTINGS : offers
-    JOB_POSTINGS ||--o| POSTING_EMBEDDINGS : has
     JOB_POSTINGS ||--o{ POSTING_OBSERVATIONS : "seen in feed"
     JOB_POSTINGS ||--o{ POSTING_SKILLS : requires
     SKILLS ||--o{ POSTING_SKILLS : "referenced by"
@@ -20,9 +19,6 @@ erDiagram
     USERS ||--o{ RESUMES : uploads
     RESUMES ||--o{ RESUME_SKILLS : declares
     SKILLS ||--o{ RESUME_SKILLS : "referenced by"
-    RESUMES ||--o| RESUME_EMBEDDINGS : has
-    USERS ||--o{ USER_JOB_SCORES : "scored against"
-    JOB_POSTINGS ||--o{ USER_JOB_SCORES : "scored for"
 
     USERS ||--o{ APPLICATIONS : tracks
     JOB_POSTINGS ||--o{ APPLICATIONS : "applied to"
@@ -232,29 +228,12 @@ the heap and stall autovacuum. Retention: 13 months (enough for a year-over-year
 Partition creation is a scheduled River job running one month ahead; see
 [runbooks §R6](../operations/runbooks.md#r6--partition-maintenance-fell-behind).
 
-### `posting_embeddings`
+### Dropped: `posting_embeddings`, `resume_embeddings`, `skill_adjacency`
 
-```sql
-CREATE TABLE posting_embeddings (
-    posting_id bigint PRIMARY KEY REFERENCES job_postings(id) ON DELETE CASCADE,
-    -- 384 dimensions: a small sentence-transformer class model. Chosen over 768/1536
-    -- because at 200k postings the index fits comfortably in RAM and recall for
-    -- this task is indistinguishable. See ADR-0006.
-    embedding  vector(384) NOT NULL,
-    model      text NOT NULL,        -- model identity, so a swap can be rolled forward
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX ON posting_embeddings
-    USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64);
-```
-
-> **`hnsw.iterative_scan` is what makes this usable at all.** Filtering happens *after* the index
-> scan, so at the default `ef_search = 40` a predicate matching 10% of rows yields ~4 results `[A-13]`.
-> It is an enum — `off` | `strict_order` | `relaxed_order` — and every filtered vector query in this
-> system sets `relaxed_order` via `SET LOCAL`. Details and the planner caveat:
-> [matching-and-scoring §7](matching-and-scoring.md#filtered-vector-search--the-setting-that-is-not-optional).
+Migration 0029 dropped these three tables, and their HNSW indexes with them. Nothing ever read or
+wrote them. Retrieval is lexical (`search_tsv` above) and skill adjacency is curated in Go
+(`matching.DefaultAdjacency`). See [ADR-0022](adr/0022-retrieval-is-lexical.md). The `watchlists`
+table is unaffected and still exists.
 
 ---
 
@@ -353,35 +332,14 @@ CREATE TABLE resumes (
 CREATE UNIQUE INDEX ON resumes (user_id) WHERE is_default;
 ```
 
-### `user_job_scores`
+<!-- Anchor kept: ADR-0003 links here, and ADRs are immutable. -->
+<a id="user_job_scores"></a>
 
-Precomputed. The feed reads this; it never scores at request time.
+### Dropped: `user_job_scores`
 
-```sql
-CREATE TABLE user_job_scores (
-    user_id     bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    posting_id  bigint NOT NULL REFERENCES job_postings(id) ON DELETE CASCADE,
-    resume_id   bigint NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
-
-    score       real   NOT NULL,               -- 0..100
-    band        text   NOT NULL,               -- strong|plausible|stretch|unlikely
-    -- Per-component contributions, rendered directly in the UI as the explanation.
-    -- jsonb rather than columns because the scoring profile is configurable and
-    -- components can be added without a migration. Shape is versioned by profile_version.
-    components  jsonb  NOT NULL,
-    confidence  real   NOT NULL,               -- 0..1, from parse quality both sides
-
-    profile_version text NOT NULL,             -- scoring profile that produced this
-    computed_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, posting_id)
-);
-CREATE INDEX ujs_feed_idx ON user_job_scores (user_id, score DESC, posting_id DESC);
-```
-
-**Retention:** rows are deleted when the posting closes, and recomputed when either the posting or the
-user's default resume changes. Volume analysis in
-[scaling-and-capacity §3](../operations/scaling-and-capacity.md#3-scoring-load) — this is the table
-that grows fastest and it is where the first real scaling pressure appears.
+Migration 0026 dropped it. Scores are computed on the read path, per request, and never stored
+([ADR-0016](adr/0016-scores-are-computed-not-materialised.md)). The table had reached 1,952 MB — 78.4%
+of the database — for 244 users, to save 22 ms of CPU per request.
 
 ---
 

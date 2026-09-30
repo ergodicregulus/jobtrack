@@ -1,18 +1,17 @@
 # Matching and scoring
 
-> **Amended 2026-08-25.** The `matcher` service described below no longer
-> exists. [ADR-0016](adr/0016-scores-are-computed-not-materialised.md)
-> computes scores on the read path, which removed the scoring fan-out and the
-> `score` / `score_bulk` queues — the matcher's only work. There are now **five**
-> deployment units: api, ingestor, scheduler, resume-parser, migrate. Everything
-> else on this page still holds.
+> **Rewritten from the code, 2026-09-30.** This page described a design that had drifted from what
+> runs: a hot-reloadable YAML config that never existed, a semantic component that was never built,
+> different weights, and a precomputation pipeline that [ADR-0016](adr/0016-scores-are-computed-not-materialised.md)
+> removed. §1 and §4–§7 now follow `internal/matching/score.go` and `internal/store/feed.go`.
 
-> Status: **DECIDED**. Retrieval mechanics: [ADR-0006](adr/0006-hybrid-retrieval-and-scoring.md).
-> Resume parsing: [ADR-0007](adr/0007-resume-parsing-local-first.md).
+> Status: **DECIDED**. Scoring model: [ADR-0006](adr/0006-hybrid-retrieval-and-scoring.md).
+> Retrieval: [ADR-0022](adr/0022-retrieval-is-lexical.md). Resume parsing:
+> [ADR-0007](adr/0007-resume-parsing-local-first.md).
 
-The user asked for scoring to be **configuration-controlled**. That requirement shapes the whole
-design: the scoring model is data, not code, and can be tuned, versioned, A/B-tested and rolled back
-without a deploy.
+The scoring model is a set of named weights and thresholds, versioned and explained, rather than
+constants scattered through code — so it can be tuned and every change leaves a record. It is not a
+runtime-loaded file: a change is a reviewed diff and a deploy (§1 says why).
 
 ## 0. The governing constraint
 
@@ -25,8 +24,8 @@ So the output of this system is not a number. It is:
 
 ```
 Band          Strong fit
-Score         78            (available on expand, not headline)
-Components    skills 32/40 · yoe 15/15 · location 10/10 · comp 8/15 · semantic 13/20
+Score         80            (available on expand, not headline)
+Components    skills 32/40 · experience 20/20 · location 15/15 · comp 8/15 · freshness 5/10
 Gaps          Missing must-haves: Kafka, Terraform
 Confidence    0.82          (resume parsed 0.91 · posting parsed 0.74)
 ```
@@ -42,53 +41,34 @@ because [P7](../product/principles.md#p7--explainability-is-a-feature-not-a-debu
 we can explain any ranking as text.
 
 ```
-score = Σ (weight_i × component_i) × confidence_penalty
+score = 100 × Σ earned_i / Σ max_i        over the components that did not abstain
 ```
 
-Configuration, checked into the repo and hot-reloadable:
+A component that cannot judge — no salary stated, no location preference set — is **neutral** and
+leaves both sums, so abstaining never drags a score down. Skills is the one exception, because its
+abstention is the failure that let a sales role score 98 for a backend engineer: when it abstains it
+is credited 0.25 of its weight, the corpus median, rather than removed
+([ADR-0011](adr/0011-abstention-credit-calibration.md)). The band then comes from the score, tempered
+by confidence (§8).
 
-```yaml
-# config/scoring/default.yaml
-version: "2026.08.1"
-bands:
-  strong:    { min: 70 }
-  plausible: { min: 50 }
-  stretch:   { min: 30 }
-  unlikely:  { min: 0 }
+The defaults live in Go, in `matching.DefaultConfig()`, version `2026.08.7`:
 
-components:
-  skills:
-    weight: 40
-    must_have_ratio: 0.75      # must-haves carry 75% of the skills component
-    partial_credit_adjacent: 0.5  # 'MySQL' earns half credit toward 'PostgreSQL'
-  experience:
-    weight: 15
-    # Asymmetric by design: being under the stated band is normal and survivable;
-    # being far over it signals the role is a step backwards.
-    under_penalty_per_year: 4
-    over_penalty_per_year: 8
-    stretch_tolerance_years: 2
-  location:
-    weight: 10
-  compensation:
-    weight: 15
-    undisclosed_treatment: neutral   # never penalise a posting for not disclosing
-  semantic:
-    weight: 20
-  freshness:
-    # Not a match component — a ranking multiplier. See §5.
-    half_life_days: 7
+| Component | Weight | Parameters |
+|---|---|---|
+| Skills | **40** | must-haves carry 75% of the component; an adjacent skill earns 0.5; abstention credit 0.25 |
+| Experience | **20** | 4 points per year under the stated band, 8 per year over |
+| Location | **15** | — |
+| Compensation | **15** | undisclosed pay is neutral, never a penalty |
+| Freshness | **10** | halves every 7 days |
 
-confidence:
-  min_posting_parse: 0.4     # below this, do not score at all
-  penalty_curve: linear
-```
+Bands: **strong** ≥ 70, **plausible** ≥ 50, **stretch** ≥ 30, otherwise **unlikely**. A posting parsed
+below 0.4 confidence is not scored at all.
 
-**Why configuration rather than code:** weights are the part most likely to be wrong at launch and
-most likely to need adjusting per market. An Indian SDE-1 search and a US staff-engineer search want
-different weights. Config makes that a data change with a version stamp on every score row
-(`user_job_scores.profile_version`), which means we can tell exactly which model produced which score
-and re-run a cohort after a change.
+**Why code and not a config file.** An earlier version of this document showed a hot-reloadable
+`config/scoring/default.yaml`. It never existed. Weights are the part most likely to be wrong, and in
+code a change to one arrives as a reviewed diff with the test corpus run against it — which is worth
+more than reloading without a deploy. `DefaultConfig` carries a dated changelog of every change that
+moved a number, and why.
 
 ---
 
@@ -132,13 +112,15 @@ to dated employment periods.
 ## 3. Component: experience fit
 
 ```
-if yoe_confidence < 0.5:            # posting's YoE claim is unreliable
-    return neutral (full marks)     # do not penalise on our own parse failure
+if yoe_confidence < 0.5 or no minimum stated:   # posting's YoE claim is unreliable
+    return neutral                               # do not penalise on our own parse failure
+if user.total_yoe is unknown:
+    return neutral
 
 gap_under = max(0, posting.yoe_min - user.total_yoe)
-gap_over  = max(0, user.total_yoe - posting.yoe_max)
+gap_over  = max(0, user.total_yoe - posting.yoe_max)   # 0 when no maximum is stated
 
-score = 15 - 4×gap_under - 8×gap_over    # floored at 0
+score = 20 - 4×gap_under - 8×gap_over    # floored at 0
 ```
 
 Two deliberate asymmetries:
@@ -149,17 +131,18 @@ Two deliberate asymmetries:
 engineer applying to a "2+ years" role should see `plausible`, not `unlikely`. Meanwhile a
 6-year engineer looking at an intern posting genuinely should be pushed down.
 
-**Our own parse failure never costs the user.** If `yoe_confidence` is low, the component returns
-full marks rather than a guess. This rule recurs across every component and is the practical form of
+**Our own parse failure never costs the user.** If `yoe_confidence` is low, the component is
+neutral rather than a guess. This rule recurs across every component and is the practical form of
 P3: **uncertainty on our side is never converted into a penalty on the user's side.**
 
 ---
 
-## 4. Components: location, compensation, semantic
+## 4. Components: location, compensation, freshness
 
-**Location** (weight 10). Exact metro match, then country match, then remote-compatible. A `remote`
-posting with a region restriction the user fails scores zero — that is a knockout, and it also
-surfaces in the knockout radar.
+**Location** (weight 15). Neutral until the user states a country or work arrangement. A remote
+posting scores full marks for anyone who accepts remote; otherwise matching country and arrangement
+score full, the right country with a different arrangement scores half, and anything else scores
+zero. An unknown country or arrangement on the posting is not held against it.
 
 **Compensation** (weight 15). The rule that matters:
 
@@ -173,113 +156,63 @@ consistently. Penalising non-disclosure would systematically down-rank every Gre
 posting — an artefact of the *source*, not of the job. The UI distinguishes *"below your floor"* from
 *"not disclosed"* rather than collapsing them.
 
-**Semantic** (weight 20). Cosine similarity between the resume embedding and the posting embedding,
-384-dimensional, rescaled from the observed distribution rather than used raw.
+**Freshness** (weight 10). Halves every 7 days: a posting from today earns 10, a week old earns 5,
+two weeks old 2.5. Neutral when the posting date is unknown. It is part of the score, not a separate
+multiplier on it — see §5.
 
-Its weight is capped at 20 on purpose. Cosine similarity over whole documents rewards **shared
-vocabulary and document register** more than actual fit — two backend job descriptions from the same
-company are more similar to each other than either is to a matching resume. It is a good tie-breaker
-and a poor primary signal. This is why the architecture is hybrid rather than embedding-first; see
-[ADR-0006](adr/0006-hybrid-retrieval-and-scoring.md).
+*There is no semantic component.* ADR-0006 designed one — cosine similarity between résumé and
+posting embeddings, weighted 20 — and it was never built; nothing generates embeddings. Its weight
+was not redistributed; the five components above are the whole model.
+[ADR-0022](adr/0022-retrieval-is-lexical.md) records the decision and what would reopen it.
 
 ---
 
-## 5. Ranking composite
+## 5. Ranking
 
-The **score** answers "how well do I fit this?". The **rank** answers "what should I look at now?".
-They are not the same question, and conflating them is a common product mistake.
+The **score** answers "how well do I fit this?". The **order** answers "what should I look at now?".
+They are not the same question, and the product keeps them apart.
 
-```
-rank_key = score × freshness_multiplier
-
-freshness_multiplier = 0.5 ^ (age_days / half_life_days)   # half_life_days = 7
-```
-
-A perfect match posted 12 days ago is multiplied by ~0.31 and falls below a merely-strong match
-posted this morning. **This is correct**, because the 12-day-old posting already has hundreds of
-applicants and being in the first day matters more than fit at the margin `[B-04]`.
-
-Users who disagree can switch the sort to `Best match`, which drops the freshness term. The default
-encodes our view; the control lets them override it.
+Freshness contributes at most 10 of the 100 points, so it separates close matches without overturning
+fit. Recency as an *order* is a separate choice the reader makes: the feed opens newest-first, a
+signed-in, onboarded user defaults to **Best match** (by score), and a search sorts by text relevance
+(§7). Being early matters `[B-04]`; the newest-first default is how the product says so, rather than
+by folding a large recency term into a number that claims to be about fit.
 
 ---
 
 ## 6. When scoring runs
 
-Scores are **precomputed**. The feed reads `user_job_scores`; it never scores at request time.
+**On every request, for the viewer, and never stored**
+([ADR-0016](adr/0016-scores-are-computed-not-materialised.md)). The materialised design this section
+used to describe — a `user_job_scores` table, `matcher` workers and a fan-out on every new posting —
+reached 1,952 MB for 244 users and was removed.
 
-```mermaid
-flowchart LR
-    E1["Posting created\nor changed"] --> Q1(["score_for_watchers\nfan out to users whose\nfilters could match"])
-    E2["User uploads or\nswitches resume"] --> Q2(["rescore_user\nall live postings\nin their preference set"])
-    E3["Scoring config\nversion bump"] --> Q3(["rescore_all\nlow priority queue"])
+`matching.Scorer.Score` does arithmetic on fields computed once at ingest (skills, years, location,
+work mode, compensation — ADR-0022) and parses no text, so a request pays only for the arithmetic:
 
-    Q1 & Q2 & Q3 --> W["matcher workers\nKEDA on queue depth"]
-    W --> T[("user_job_scores")]
-    T --> F["Feed reads\nthis table only"]
-```
+- **Orders that do not depend on a score** — newest, compensation, relevance — keep keyset pagination
+  and score only the page returned: 25 rows, about 46 µs.
+- **Best match, or a band filter**, must score the candidate set before it can rank it. It scores the
+  newest 2,000 candidates that pass the filters (`scoreCandidateCap`).
 
-**Fan-out is bounded, not universal.** Scoring every new posting against every user is O(users ×
-postings) and would dominate all other work. Instead a new posting is scored only for users whose
-stored preferences (`pref_countries`, `pref_modes`, YoE band) make it plausibly relevant — typically
-a few percent of the user base. Volume analysis:
-[scaling-and-capacity §3](../operations/scaling-and-capacity.md#3-scoring-load).
-
-**`rescore_all` runs on a low-priority queue** so a config change cannot starve live scoring.
-
-**Unscored postings still appear** in the feed, marked `scoring…`, ordered by recency. Freshness beats
-completeness (P2) — hiding a two-hour-old posting because a worker is behind would defeat the point of
-the product.
+A profile change takes effect on the next request. There is nothing to rescore and nothing to go stale.
 
 ---
 
 ## 7. Retrieval
 
-Scoring ranks a candidate set. Getting that candidate set — especially for free-text search — is
-hybrid retrieval, fused with Reciprocal Rank Fusion.
-
-```
-lexical  : ts_rank over search_tsv        (GIN indexed)
-semantic : pgvector cosine, HNSW, iterative_scan on
-fusion   : RRF —  Σ 1 / (k + rank_i),  k = 60
-```
-
-RRF ignores raw scores and uses only rank positions, which sidesteps the fact that `ts_rank` and
-cosine distance live on incomparable scales. A document ranking highly in both lists rises; no
-normalisation is needed `[B-19]`.
+Retrieval is **lexical** ([ADR-0022](adr/0022-retrieval-is-lexical.md)): full-text search over
+`search_tsv`, weighted title **A** over description **B**, queried with `websearch_to_tsquery` and
+ordered by `ts_rank` when a search is present, inside the structured filters — country, work mode,
+field, experience band, compensation normalised to USD, vendor and recency.
 
 `ts_rank` is a TF-IDF variant rather than true BM25, which is a real but acceptable limitation at our
-corpus size — the fusion shape is identical to what you would write against Elasticsearch, without
-adding Elasticsearch. If lexical quality becomes the binding constraint, the upgrade path is a BM25
-extension (ParadeDB's `pg_search`) inside the same Postgres, not a separate search cluster.
+corpus size. If lexical quality becomes the binding constraint, the upgrade path is a BM25 extension
+(ParadeDB's `pg_search`) inside the same Postgres, not a separate search cluster.
 
-### Filtered vector search — the setting that is not optional
-
-With approximate indexes, **filtering is applied after the index is scanned**. At the default
-`hnsw.ef_search = 40`, a predicate matching 10% of rows leaves roughly **4 results** `[A-13]`. Our
-queries are always filtered (location, YoE, freshness), so the default silently returns short result
-sets — the worst kind of bug, because nothing errors.
-
-`hnsw.iterative_scan` is an **enum, not a boolean** — `off` (default) | `strict_order` |
-`relaxed_order`:
-
-```sql
-SET LOCAL hnsw.iterative_scan = relaxed_order;  -- keeps scanning until LIMIT is satisfied
-SET LOCAL hnsw.ef_search = 100;                 -- wider candidate list; 40 is too narrow for us
-SET LOCAL hnsw.max_scan_tuples = 20000;         -- bound the worst case
-```
-
-We use **`relaxed_order`**: it returns better recall for the same work, and exact distance ordering
-does not matter because the weighted scorer re-ranks everything afterwards anyway. `strict_order`
-would buy ordering we immediately discard.
-
-⚠️ **Known caveat:** with `relaxed_order` the planner may still assume the index returns strictly
-ordered rows ([pgvector#862](https://github.com/pgvector/pgvector/issues/862)). Retrieval therefore
-never relies on index order for correctness — the scorer sorts. An integration test asserts result
-*count* under a 5%-selectivity filter, which is what catches a regression here.
-
-`SET LOCAL` scopes these to the transaction rather than leaking across a pooled connection — a real
-hazard once PgBouncer is in front ([caching-and-storage](caching-and-storage.md#5-connection-pooling)).
+The known weakness is vocabulary: a search for "backend" does not find a posting that says only
+"server-side". ADR-0022 sets the measurement that would justify semantic retrieval, and notes that
+extending the skill vocabulary is the cheaper fix if the misses turn out to be synonyms.
 
 ---
 

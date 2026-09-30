@@ -37,8 +37,10 @@ router framework.
 **Postgres is the only datastore.** No object storage, no Redis, no Elasticsearch, no separate
 vector DB, no broker. The object-storage carve-out was removed by
 [ADR-0020](docs/architecture/adr/0020-no-object-storage-until-something-stores-an-object.md) once it
-turned out nothing had ever called it. Full-text via `tsvector`,
-similarity via `pgvector`, queues via River, pub/sub via `LISTEN/NOTIFY`, cache via in-process LRU.
+turned out nothing had ever called it. Full-text via `tsvector`, queues via River, pub/sub via
+`LISTEN/NOTIFY`, cache via in-process LRU. Retrieval is lexical — there is no vector search
+([ADR-0022](docs/architecture/adr/0022-retrieval-is-lexical.md)), and "similarity via `pgvector`" sat
+in this list for a month describing nothing.
 
 This is not dogma: every alternative has a **numeric trigger** in
 [caching-and-storage.md](docs/architecture/caching-and-storage.md). Proposing Redis is fine — cite the

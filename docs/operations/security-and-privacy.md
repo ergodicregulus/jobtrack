@@ -194,7 +194,7 @@ a commitment not to pursue good-faith researchers.
 |---|---|
 | Sell or share candidate data with recruiters | Inverts whose side we are on. This is the product thesis, not a policy ([personas](../product/personas-and-perspectives.md#perspective-map)) |
 | Third-party analytics that see user content | [P8](../product/principles.md#p8--the-users-data-is-theirs-and-it-is-the-most-sensitive-thing-we-hold) |
-| Store resume data unencrypted "for search" | Search operates on skills and embeddings, not raw text |
+| Store resume data unencrypted "for search" | Search operates on parsed skills, not raw resume text; no embeddings are generated ([ADR-0022](../architecture/adr/0022-retrieval-is-lexical.md)) |
 | Bulk export tooling for staff | If it does not exist, it cannot be misused or compelled |
 | Retain data after deletion "for analytics" | Deletion means deletion |
 | Enrich profiles from third-party sources | We hold what the user gave us, and nothing more |

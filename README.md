@@ -118,7 +118,7 @@ flowchart LR
         DEDUP["2-stage dedup\nrequisition → trigram"]
     end
 
-    subgraph core["Postgres 17 + pgvector"]
+    subgraph core["Postgres 17 — the only datastore"]
         DB[("jobs · companies\nusers · resumes\napplications · events")]
     end
 
@@ -154,7 +154,8 @@ not exist must not silently pass everything through.
 Full detail: **[system-architecture.md](docs/architecture/system-architecture.md)** (overview) and
 **[service-topology.md](docs/architecture/service-topology.md)** (gateway, scaling, contracts).
 
-**Stack:** Go 1.25 backend · PostgreSQL 17 with `pgvector` and `tsvector` as the *only* datastore ·
+**Stack:** Go 1.25 backend · PostgreSQL 17 as the *only* datastore, with lexical search on `tsvector`
+([ADR-0022](docs/architecture/adr/0022-retrieval-is-lexical.md) records why there is no vector search) ·
 River (Postgres-backed queue) · SvelteKit frontend · Envoy Gateway on Kubernetes Gateway API ·
 OpenTelemetry throughout. Dependency count is a design constraint, not an accident — see
 [ADR-0003](docs/architecture/adr/0003-postgres-single-datastore.md).

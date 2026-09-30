@@ -55,7 +55,7 @@ at the default `hnsw.ef_search = 40` a predicate matching 10% of rows yields rou
 Our queries are always filtered, so the default silently returns short result sets.
 
 **Changed:** exact syntax in
-[matching-and-scoring §7](../architecture/matching-and-scoring.md#filtered-vector-search--the-setting-that-is-not-optional),
+matching-and-scoring §7 (removed 2026-09-30: vector search was never built, see [ADR-0022](../architecture/adr/0022-retrieval-is-lexical.md)),
 including `ef_search = 100`, `max_scan_tuples`, the choice of `relaxed_order` (the scorer re-ranks
 anyway, so strict ordering buys nothing), and the
 [pgvector#862](https://github.com/pgvector/pgvector/issues/862) planner caveat.

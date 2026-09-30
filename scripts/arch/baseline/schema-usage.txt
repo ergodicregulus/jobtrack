@@ -4,7 +4,4 @@
 # by hand — a new entry means a new violation, and that is what this file
 # exists to prevent.
 
-posting_embeddings
-resume_embeddings
-skill_adjacency
 watchlists

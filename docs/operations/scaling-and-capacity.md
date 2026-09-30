@@ -128,8 +128,7 @@ they will never look at. This is what turns the 40% scenario from ~12 cores into
 **2. `score_fanout_ratio` is instrumented from day one**, with an alert above 20%. The 13% figure is a
 derivation, not a measurement, and it stops being a derivation the moment real traffic exists.
 
-Embedding generation is unaffected by fan-out — it is per-posting, not per-user-per-posting. At ~20 ms
-per posting for a 384-dim model, 10,000/day is **200 CPU-seconds/day**. Negligible in every scenario.
+No embeddings are generated ([ADR-0022](../architecture/adr/0022-retrieval-is-lexical.md)), so there is no per-posting embedding cost to size.
 
 ### Storage is insensitive to fan-out — and that is not luck
 
@@ -165,13 +164,9 @@ Mitigations, in the order we apply them:
 The feed query against `user_job_scores` with a keyset cursor and partial indexes is **~5–15 ms** at
 200k live postings. At 400 RPS that is ~6 concurrent queries — a fraction of one Postgres core.
 
-**HNSW vector search** on 200k × 384-dim: index ~300 MB, resident in shared buffers, ~2–5 ms per query
-with `ef_search = 40`. At 1M vectors the index is ~1.5 GB and still comfortably resident on a 16 GB
-instance.
-
-pgvector 0.8 matters here: parallel index builds cut build time 30–50% on multi-core machines, and
-iterative index scans are what make our always-filtered vector queries return correct result counts
-`[A-13]`.
+**Vector search: not applicable.** The HNSW capacity figures that stood here described a workload
+that does not exist; the embedding tables and their indexes were dropped by migration 0029
+([ADR-0022](../architecture/adr/0022-retrieval-is-lexical.md)). Retrieval is `tsvector` + GIN.
 
 ## 5. Bottleneck order
 
@@ -185,7 +180,7 @@ advance.**
 | 3 | Postgres write throughput | ~5k writes/s | Batch upserts (`COPY`), reduce score churn | Days |
 | 4 | Postgres read CPU | > 60% sustained | **Read replica** for feed queries | Days — but introduces replication lag bugs, so not before |
 | 5 | Feed query latency | p95 > 120 ms with DB < 50% CPU | Bottleneck moved to the app: split the read path | Weeks |
-| 6 | HNSW build time | > 20M vectors | Dedicated vector store | Weeks |
+| 6 | ~~HNSW build time~~ | Not applicable: no vector index exists ([ADR-0022](../architecture/adr/0022-retrieval-is-lexical.md)) | — | — |
 | 7 | Single-primary writes | ~20k writes/s | Shard by user, or CQRS | Months |
 
 **We are at #1 around 100k MAU.** Everything past #4 is beyond any credible near-term plan and is
@@ -247,7 +242,6 @@ Worth stating, since these are where over-engineering usually happens:
 | Not a problem | Why |
 |---|---|
 | Ingestion throughput | 0.17 req/s at year 1 |
-| Embedding generation | 200 CPU-seconds/day |
 | Resume parsing | Bounded by upload rate: ~500/day at 10k MAU |
 | Static assets | Content-hashed, immutable, cached forever |
 | Search index size | 200k documents is small for Postgres FTS |

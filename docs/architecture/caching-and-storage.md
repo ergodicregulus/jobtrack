@@ -28,7 +28,7 @@ operational cost**. Below, that point is a number.
 | Rate limiting | **Gateway (in-memory) + Postgres** | Multi-region deployment | Redis |
 | Resume blobs | **Not stored at all** — parsed in memory, bytes dropped | The original upload must be retained | S3-compatible object storage |
 | Job description HTML | **Postgres `text`** | p95 row fetch > 20 ms from TOAST | Move to object storage |
-| Embeddings | **Postgres `vector(384)`** | > 20M vectors | Dedicated vector store |
+| Embeddings | **None exist** — dropped by migration 0029 ([ADR-0022](adr/0022-retrieval-is-lexical.md)) | Not applicable | — |
 | Static assets | **CDN from day one** | — | (already) |
 | API responses at edge | **Never cached** | — | — |
 
@@ -196,9 +196,9 @@ a `max_connections` of 600.
 MAU — a scheduled task, not an incident.
 
 ⚠️ **One thing must be fixed before PgBouncer lands**, and it is easy to miss: transaction-mode
-pooling breaks session-level `SET`. Every `SET hnsw.iterative_scan` and `SET hnsw.ef_search` must
-therefore be `SET LOCAL` inside an explicit transaction, or vector search silently reverts to defaults
-and returns short result sets. We write it that way **from day one** so the migration is a
+pooling breaks session-level `SET`. Any session-level `SET` must
+therefore be `SET LOCAL` inside an explicit transaction. No vector search exists today
+([ADR-0022](adr/0022-retrieval-is-lexical.md)), so no `hnsw.*` setting is in use, but we write `SET LOCAL` **from day one** so the migration is a
 configuration change rather than a correctness bug hunt. A lint rule rejects a bare `SET` in
 `internal/store/queries/`.
 
@@ -227,7 +227,7 @@ Worth listing, because it is the reason the dependency count stays at two:
 |---|---|---|
 | Relational store | tables | — |
 | Full-text search | `tsvector` + GIN | Elasticsearch |
-| Vector similarity | `pgvector` HNSW | Qdrant / Pinecone |
+| Vector similarity | Not built ([ADR-0022](adr/0022-retrieval-is-lexical.md)) | Qdrant / Pinecone |
 | Durable queue | River | Redis + asynq / RabbitMQ / SQS |
 | Pub/sub wakeups | `LISTEN`/`NOTIFY` | Redis pub/sub / NATS |
 | Scheduled jobs | River periodic | cron / Temporal |
@@ -252,7 +252,7 @@ Each trigger has a metric already defined in
 | Redis for sessions | `db_query_duration_seconds{query="session_lookup"}` × rate | > 15% DB CPU |
 | PgBouncer | `db_connections_in_use` | > 400 sustained |
 | Description offload | `db_query_duration_seconds{query="get_posting"}` p95 | > 20 ms |
-| Vector store | `count(posting_embeddings)` | > 20M |
+| Vector store | Not applicable: `posting_embeddings` was dropped by migration 0029 ([ADR-0022](adr/0022-retrieval-is-lexical.md)) | — |
 
 **No infrastructure is added without its metric having fired.** That rule is the point of this
 document — it converts "should we add a cache?" from an argument into a query.

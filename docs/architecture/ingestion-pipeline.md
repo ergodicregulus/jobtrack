@@ -214,13 +214,13 @@ careers page, and a second ATS during a migration. Showing it three times destro
 We use the three-stage approach validated in the Fraunhofer job-posting duplicate-detection work,
 whose central finding is that **no single technique performs acceptably alone** — combining string
 comparison, text embeddings, and curated weighted skill lookups produces a significant boost, and
-their tool runs in production `[A-20]`.
+their tool runs in production `[A-20]`. Only the first two stages below are built; the embedding stage is not ([ADR-0022](adr/0022-retrieval-is-lexical.md)).
 
 ```mermaid
 flowchart LR
     IN["Incoming posting"] --> B["① Blocking\nsame company_id\n+ title trigram > 0.4\n+ compatible location"]
     B -->|"candidates, usually 0-3"| S["② Cheap string\nJaccard on shingles\ntitle Levenshtein"]
-    S -->|"0.55 ≤ score < 0.85\nambiguous"| E["③ Embedding cosine\n+ weighted skill overlap"]
+    S -->|"0.55 ≤ score < 0.85\nambiguous"| E["③ Not built\n(embedding stage)"]
     S -->|"≥ 0.85"| DUP["Duplicate"]
     S -->|"< 0.55"| NEW["Distinct"]
     E -->|"≥ threshold"| DUP
@@ -236,8 +236,10 @@ O(n²) problem to a handful of comparisons per posting.
 **Stage 2 — cheap string similarity.** Jaccard over description shingles plus title edit distance.
 Resolves the large majority of cases at negligible cost.
 
-**Stage 3 — embeddings, only for the ambiguous band.** Cosine similarity plus weighted skill overlap.
-Runs on a small fraction of comparisons, which is what keeps it affordable.
+**Stage 3 — embeddings, only for the ambiguous band. Not built.** The design was cosine similarity plus
+weighted skill overlap. No embeddings are generated ([ADR-0022](adr/0022-retrieval-is-lexical.md)), and `internal/jobs/dedupe.go` says
+so explicitly: dedup runs exact matching (same company and requisition id) and fuzzy matching (trigram
+blocking on normalised title, plus location and work-mode agreement).
 
 **Canonical selection**, in priority order — this ranking encodes the delivery mechanic from
 [problem-statement §4](../product/problem-statement.md#4-delivery-is-not-guaranteed--and-this-is-the-most-under-documented-mechanic-in-job-search):

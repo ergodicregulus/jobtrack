@@ -1,3 +1,8 @@
+<!-- The RETRIEVAL half of this record was superseded by ADR-0022 on 2026-09-30:
+     retrieval is lexical, and migration 0029 dropped the unbuilt embedding and
+     adjacency tables. The SCORING half stands and is what the product runs on.
+     The audit note below is kept as the record of how the gap was found. -->
+
 <!-- IMPLEMENTATION STATUS, added 2026-08-25 after an audit.
 
      The scoring half of this ADR is fully built and is what the product runs

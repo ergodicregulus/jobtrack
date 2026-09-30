@@ -108,13 +108,16 @@ Design notes that are requirements, not suggestions:
 
 ### Ranking
 
-Default order is **not** pure match score, and not pure recency. It is a blend, and the blend is
-visible to the user as a sort selector with `Best match`, `Newest`, `Highest paid`, `Closing soon`.
+The order is a choice the reader makes, from a sort selector offering `Newest`, `Salary`,
+`Best match` (signed in, with a profile) and `Relevance` (while searching). With no choice made, a
+signed-in reader with a finished profile gets `Best match` and everyone else gets `Newest`.
 
-The default `Best match` composite is defined in
-[matching-and-scoring.md](../architecture/matching-and-scoring.md#5-ranking-composite). It includes a
-freshness decay term specifically so that a perfect match posted 12 days ago does not outrank a
-strong match posted this morning — because the 12-day-old one already has 300 applicants.
+`Best match` orders by the score defined in
+[matching-and-scoring.md](../architecture/matching-and-scoring.md#5-ranking), in which freshness is one
+of five components, worth at most 10 of 100 points. An earlier draft of this spec folded a large
+freshness decay into the order instead, so that a perfect match from twelve days ago would fall below
+a strong match from this morning; that was not built, and the newest-first default carries the same
+argument without distorting a number that claims to be about fit.
 
 **Acceptance:**
 - `GET /v1/jobs` p95 ≤ 120 ms server time at 200k live postings with three filters applied.

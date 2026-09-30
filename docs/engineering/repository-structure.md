@@ -9,7 +9,6 @@ jobtrack/
 ├── cmd/                       # one main.go per binary; thin wiring only
 │   ├── api/                   # HTTP server
 │   ├── ingestor/              # River workers: fetch, normalise, dedup
-│   ├── matcher/               # River workers: embed, score
 │   ├── scheduler/             # singleton; enqueues periodic work
 │   ├── resume-parser/         # isolated gRPC service (untrusted input)
 │   └── migrate/               # migration runner; runs to completion
@@ -37,7 +36,6 @@ jobtrack/
 │   ├── matching/              # scoring engine + profile loading
 │   │   ├── score.go
 │   │   ├── components/        # one file per component, each independently testable
-│   │   └── retrieval/         # hybrid query + RRF fusion
 │   │
 │   ├── resumeparse/           # the deterministic pipeline (used by cmd/resume-parser)
 │   │   ├── extract/           # PDF/DOCX → positioned text

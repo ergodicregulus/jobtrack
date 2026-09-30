@@ -26,8 +26,7 @@ and the order matters, because teams routinely reach for #4 while #1 is still br
 **Scoring never happens during a request.** `matcher` writes `user_job_scores` when a posting or a
 resume changes; the feed reads it ([matching-and-scoring §6](matching-and-scoring.md#6-when-scoring-runs)).
 
-The counterfactual is worth stating: scoring 25 postings inline at ~0.5 ms each plus embedding
-comparison would put **12–40 ms of pure CPU** on every feed request, and it would scale with result
+The counterfactual is worth stating: scoring 25 postings inline at ~0.5 ms each would put **12–40 ms of pure CPU** on every feed request, and it would scale with result
 count rather than staying flat. Precomputation converts that into an indexed read.
 
 The same principle, applied elsewhere:
@@ -71,8 +70,7 @@ v, err, _ := facetGroup.Do(filterKey, func() (any, error) {
   through `Do`. So every coalesced call uses **`DoChan` with a context timeout**, never bare `Do` —
   one slow query must not stall every waiter past its deadline.
 
-Applied to: facet counts, company metadata, skill taxonomy reloads, and embedding generation for the
-same posting.
+Applied to: facet counts, company metadata, and skill taxonomy reloads.
 
 ### Query batching with `pgx.SendBatch`
 
@@ -155,7 +153,7 @@ connection. Concurrency inside a request is reserved for genuinely independent I
 | Generated columns | `search_tsv`, `has_disclosed_comp` |
 | Binary protocol | pgx default — no text encode/decode |
 | Prepared statements | pgx statement cache |
-| `SET LOCAL` for vector GUCs | Correctness under transaction pooling |
+| `SET LOCAL` for session settings | Correctness under transaction pooling (no vector GUCs are in use, [ADR-0022](adr/0022-retrieval-is-lexical.md)) |
 | Streaming JSON encode | No full-response buffering |
 | `sync.Pool` for hot buffers | Normalisation, which allocates heavily |
 
@@ -226,13 +224,11 @@ per call site.
 | Fetch | 15,000 req/day (0.17 rps) | Deliberate politeness, not capacity |
 | Parse + normalise | ≥ 500 postings/s/core | CPU |
 | Dedup — blocking | ≥ 5,000 candidates/s | `pg_trgm` index |
-| Dedup — embedding stage | ~50/s | Only the ambiguous band reaches it |
 | Upsert | ≥ 2,000 postings/s | `COPY` + `ON CONFLICT` |
-| Embedding | ~50/s/core | CPU (384-dim) |
 
-The three-stage dedup ordering is itself a performance decision: blocking removes ~99% of pairs at
-index cost, cheap string comparison resolves most of the rest, and embeddings run on the small
-remainder `[A-20]`. Running embeddings first would be ~100× more expensive for the same answer.
+The dedup ordering is itself a performance decision: blocking removes ~99% of pairs at
+index cost and cheap string comparison resolves most of the rest `[A-20]`. The design's third stage,
+embeddings on the small remainder, was not built ([ADR-0022](adr/0022-retrieval-is-lexical.md)).
 
 ---
 
