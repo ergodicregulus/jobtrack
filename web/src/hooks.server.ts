@@ -74,9 +74,18 @@ export const handleFetch: HandleFetch = async ({ event, request, fetch }) => {
   // it is copied across explicitly (the documented handleFetch pattern). The
   // response's Set-Cookie is unaffected: lib/server/api.ts already forwards it
   // by hand, without relying on same-origin behaviour.
+  //
+  // From event.cookies, not the incoming Cookie header: sign-in sets the session
+  // with cookies.set and then fetches the profile in the SAME request, and the
+  // browser's header does not have it yet. Copying the header sent every
+  // freshly signed-in user to onboarding. Identity decode, because the values
+  // go straight back onto the wire as they arrived.
   if (env.API_URL) {
     request = new Request(new URL(url.pathname + url.search, env.API_URL), request);
-    const cookie = event.request.headers.get('cookie');
+    const cookie = event.cookies
+      .getAll({ decode: (v) => v })
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ');
     if (cookie) request.headers.set('cookie', cookie);
   }
 

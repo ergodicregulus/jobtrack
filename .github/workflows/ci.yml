@@ -157,14 +157,21 @@ jobs:
 
       # Distroless images must stay small and shell-free. A regression here
       # usually means someone switched the base to debug something and forgot.
+      #
+      # web gets its own budget: the Node runtime alone is ~120MB unpacked, so
+      # 60MB could only be met by not shipping it. Sizes here are UNPACKED; a
+      # Docker Desktop with the containerd store reports the compressed size
+      # (web: 51MB), which is how 142MB passed a local check.
       - name: Image is minimal and has no shell
+        env:
+          BUDGET_MB: ${{ matrix.service == 'web' && 150 || 60 }}
         run: |
           size=$(docker image inspect jobtrack/${{ matrix.service }}:ci \
                    --format '{{.Size}}')
           mb=$((size / 1024 / 1024))
           echo "image size: ${mb}MB"
-          if [ "$mb" -gt 60 ]; then
-            echo "::error::image is ${mb}MB, budget is 60MB"; exit 1
+          if [ "$mb" -gt "$BUDGET_MB" ]; then
+            echo "::error::image is ${mb}MB, budget is ${BUDGET_MB}MB"; exit 1
           fi
           if docker run --rm --entrypoint /bin/sh \
                jobtrack/${{ matrix.service }}:ci -c 'echo shell present' 2>/dev/null; then
@@ -468,14 +475,16 @@ jobs:
           docker compose run --rm --no-deps tools "go build -buildvcs=false -o /dev/null ./cmd/api"
           docker compose up -d --wait api web
 
+      - name: ui-audit
+        run: make ui-audit
+
+      # After the audit, not before: a failure() step only sees the steps that
+      # ran ahead of it, so above it this never fired for an audit failure.
       - name: Container logs
         if: failure()
         run: |
           docker compose ps
           docker compose logs --no-color --tail=200 api web || true
-
-      - name: ui-audit
-        run: make ui-audit
 
       # Screenshots on failure, because every layout bug in this project so far
       # was found by looking rather than by testing.

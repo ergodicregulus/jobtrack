@@ -51,6 +51,10 @@ INGEST_ENABLED=false
 EOF
 
 echo "booting docker-compose.prod.yml"
+# Third-party images pulled explicitly, ours never: they exist only as the local
+# builds above, and a registry lookup for them would fail. With only --pull never
+# this passed on a machine that had Postgres cached and failed on a clean runner.
+compose pull --quiet postgres caddy
 compose up -d --wait --pull never
 
 for _ in $(seq 1 30); do curl -sk -o /dev/null https://localhost/ && break; sleep 1; done
