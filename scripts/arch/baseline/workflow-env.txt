@@ -1,0 +1,3 @@
+# Variables a workflow's service requires that the workflow never sets.
+#
+# Empty. The rule holds with no exceptions.

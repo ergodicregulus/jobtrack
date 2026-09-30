@@ -38,7 +38,7 @@ per-source allowlist; that is a startup check, not a convention
 | **56–65 min** | median ingest → visible, tier A. Budget 90 | [`A-31`](docs/research/evidence-ledger.md#a-31) |
 | **72 ms** | INP p75 at 4× CPU throttle, measured from the browser's own Event Timing. Budget 200 | [`A-32`](docs/research/evidence-ledger.md#a-32) |
 | **93.5% / 44.4%** | field classifier precision / recall — precise and deliberately low-recall | [`A-38`](docs/research/evidence-ledger.md#a-38) |
-| **13 invariants** | layering, SQL location, function length, dead code, citations, migrations, plans, config | `make arch-check`, under a second, no toolchain |
+| **14 invariants** | layering, SQL location, function length, dead code, citations, migrations, plans, config, workflow env | `make arch-check`, under a second, no toolchain |
 
 Every number above is a link to how it was measured, including the ones that are worse than we
 hoped. `A-38` is the clearest example: the classifier is right 93.5% of the time and finds under

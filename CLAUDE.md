@@ -115,6 +115,7 @@ of the three.
 | Add or change an ADR | Update the index table | `scripts/arch/check_adr_index.py` |
 | Cite a statistic | Add a ledger entry with its grade | `scripts/arch/check_citations.py` |
 | Read a new environment variable | Document it in `.env.example` | `scripts/arch/check_env_example.py` |
+| Make a variable required for a service | Set it in any workflow that runs that service | `scripts/arch/check_workflow_env.py` |
 | Change River job args | Read [deployment-zdt §4](docs/operations/deployment-zdt.md#4-queue-compatibility) | review |
 | Add a dependency | Say what it replaces and what breaks if abandoned | CI dependency budget |
 | Change `go.mod` | `make vuln` — it is not in `make check` | CI `govulncheck` |
