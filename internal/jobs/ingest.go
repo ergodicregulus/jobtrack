@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/ergodicregulus/jobtrack/internal/config"
+	"github.com/ergodicregulus/jobtrack/internal/mail"
 	"github.com/ergodicregulus/jobtrack/internal/normalise"
 	"github.com/ergodicregulus/jobtrack/internal/source"
 	"github.com/ergodicregulus/jobtrack/internal/source/ashby"
@@ -39,6 +40,10 @@ type Deps struct {
 	// River is set after the client is built, so workers can enqueue follow-up
 	// work inside the same transaction as their own writes.
 	River *river.Client[pgx.Tx]
+
+	// Mailer sends the digest. Nil means SMTP from configuration; tests set a
+	// fake so the whole path runs with no mail server.
+	Mailer mail.Sender
 
 	adapters map[source.Vendor]source.Adapter
 	limiter  *hostLimiter

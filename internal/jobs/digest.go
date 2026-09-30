@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
 
 	"github.com/ergodicregulus/jobtrack/internal/mail"
+	"github.com/ergodicregulus/jobtrack/internal/matching"
 	"github.com/ergodicregulus/jobtrack/internal/store"
 )
 
@@ -61,31 +63,39 @@ func (w *SendDigestsWorker) Work(ctx context.Context, job *river.Job[SendDigests
 		return err
 	}
 
-	sender := &mail.SMTPSender{
-		Host: cfg.Host, Port: cfg.Port,
-		Username: cfg.Username, Password: cfg.Password, From: cfg.From,
+	sender := w.Deps.Mailer
+	if sender == nil {
+		sender = &mail.SMTPSender{
+			Host: cfg.Host, Port: cfg.Port,
+			Username: cfg.Username, Password: cfg.Password, From: cfg.From,
+		}
 	}
+	scorer := matching.NewScorer(matching.DefaultConfig(), matching.DefaultAdjacency())
 
 	var sent int
 	for _, c := range candidates {
 		if ctx.Err() != nil {
 			break
 		}
-		items, err := store.DigestItems(ctx, w.Deps.Pool, c.Since, itemsPerDigest)
-		if err != nil || len(items) == 0 {
+		items, more, err := digestMatches(ctx, w.Deps, scorer, c)
+		if err != nil {
+			// A search saved before saving validated its query can fail to
+			// parse. Skipped and logged, never emailed a guess.
+			w.Deps.Log.WarnContext(ctx, "digest skipped", "search_id", c.SearchID, "error", err)
 			continue
 		}
+		if len(items) == 0 {
+			continue // "nothing new" is the email people unsubscribe from
+		}
 
-		unsub := fmt.Sprintf("%s/unsubscribe?u=%d&t=%s",
-			strings.TrimRight(cfg.BaseURL, "/"), c.UserID,
+		base := strings.TrimRight(cfg.BaseURL, "/")
+		unsub := fmt.Sprintf("%s/unsubscribe?u=%d&t=%s", base, c.UserID,
 			mail.UnsubscribeToken(cfg.UnsubscribeSecret, c.UserID))
+		d := digest{Search: c.SearchName, Items: items, More: more,
+			SeeAll: base + "/jobs?" + c.Query, Unsubscribe: unsub}
 
 		msg := mail.Message{
-			To:          c.Email,
-			Subject:     digestSubject(c),
-			Text:        digestText(c, items, unsub),
-			HTML:        digestHTML(c, items, unsub),
-			Unsubscribe: unsub,
+			To: c.Email, Subject: d.subject(), Text: d.text(), HTML: d.html(), Unsubscribe: unsub,
 		}
 		if err := sender.Send(ctx, msg); err != nil {
 			// One bad address must not stop the run. The next pass retries it,
@@ -107,54 +117,103 @@ func (w *SendDigestsWorker) Work(ctx context.Context, job *river.Job[SendDigests
 	return nil
 }
 
-func digestSubject(c store.DigestCandidate) string {
-	n := c.NewPostings
-	if n == 1 {
-		return fmt.Sprintf("1 new role for %q", c.SearchName)
+// digestMatches replays the saved search, as its owner, over roles posted since
+// they last looked.
+//
+// Through store.Feed, the same code the feed page runs, so the email and the
+// page cannot disagree about what matches. The first version did not read the
+// search at all: it sent the corpus's newest roles, and a count of every new
+// posting, under the subscriber's own search name.
+//
+// One extra row is fetched and never shown. Its presence is how the email knows
+// to say "more than" without claiming a total it did not count.
+func digestMatches(
+	ctx context.Context, d *Deps, scorer *matching.Scorer, c store.DigestCandidate,
+) ([]store.FeedItem, bool, error) {
+	values, err := url.ParseQuery(c.Query)
+	if err != nil {
+		return nil, false, fmt.Errorf("saved query: %w", err)
 	}
-	return fmt.Sprintf("%d new roles for %q", n, c.SearchName)
+	f, err := store.FeedFilterFromQuery(values)
+	if err != nil {
+		return nil, false, fmt.Errorf("saved query: %w", err)
+	}
+	f.UserID = &c.UserID // their dismissals hidden, their bands scored
+	f.PostedWithin = 0   // a relative window would fight the absolute boundary
+	f.PostedAfter = c.Since
+	f.Sort = "newest"
+	f.Limit = itemsPerDigest + 1
+
+	page, err := store.Feed(ctx, d.Pool, scorer, f, "")
+	if err != nil {
+		return nil, false, err
+	}
+	items := page.Items
+	if len(items) > itemsPerDigest {
+		return items[:itemsPerDigest], true, nil
+	}
+	return items, false, nil
 }
 
-// One source for both bodies.
-//
-// They are written together because they have to say the same thing: a text
-// part that drops the unsubscribe link makes the message non-compliant in
-// exactly the clients least able to render the HTML one.
-func digestText(c store.DigestCandidate, items []store.DigestItem, unsub string) string {
+// digest is one email's content. Both bodies render from it because they have
+// to say the same thing: a text part that drops the unsubscribe link makes the
+// message non-compliant in exactly the clients least able to render the HTML.
+type digest struct {
+	Search      string
+	Items       []store.FeedItem
+	More        bool // more matched than Items holds
+	SeeAll      string
+	Unsubscribe string
+}
+
+// count is the headline number, and never more than was actually found.
+func (d digest) count() string {
+	if d.More {
+		return fmt.Sprintf("More than %d new roles", len(d.Items))
+	}
+	if len(d.Items) == 1 {
+		return "1 new role"
+	}
+	return fmt.Sprintf("%d new roles", len(d.Items))
+}
+
+func (d digest) subject() string { return fmt.Sprintf("%s for %q", d.count(), d.Search) }
+
+func (d digest) text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d new since you last looked at %q.\r\n\r\n", c.NewPostings, c.SearchName)
-	for _, it := range items {
-		fmt.Fprintf(&b, "* %s — %s", it.Title, it.Company)
-		if it.Location != "" {
-			fmt.Fprintf(&b, " (%s)", it.Location)
+	fmt.Fprintf(&b, "%s matching %q.\r\n\r\n", d.count(), d.Search)
+	for _, it := range d.Items {
+		fmt.Fprintf(&b, "* %s — %s", it.Title, it.CompanyName)
+		if it.LocationRaw != "" {
+			fmt.Fprintf(&b, " (%s)", it.LocationRaw)
 		}
-		fmt.Fprintf(&b, "\r\n  %s\r\n", it.URL)
+		fmt.Fprintf(&b, "\r\n  %s\r\n", it.ApplyURL)
 	}
-	if c.NewPostings > len(items) {
-		fmt.Fprintf(&b, "\r\n…and %d more.\r\n", c.NewPostings-len(items))
+	if d.More {
+		fmt.Fprintf(&b, "\r\nSee them all: %s\r\n", d.SeeAll)
 	}
-	fmt.Fprintf(&b, "\r\nUnsubscribe: %s\r\n", unsub)
+	fmt.Fprintf(&b, "\r\nUnsubscribe: %s\r\n", d.Unsubscribe)
 	return b.String()
 }
 
-func digestHTML(c store.DigestCandidate, items []store.DigestItem, unsub string) string {
+func (d digest) html() string {
 	var b strings.Builder
 	b.WriteString(`<div style="font:15px/1.5 -apple-system,Segoe UI,sans-serif;color:#1c1b19">`)
-	fmt.Fprintf(&b, "<p>%d new since you last looked at <strong>%s</strong>.</p><ul>",
-		c.NewPostings, html.EscapeString(c.SearchName))
-	for _, it := range items {
+	fmt.Fprintf(&b, "<p>%s matching <strong>%s</strong>.</p><ul>",
+		html.EscapeString(d.count()), html.EscapeString(d.Search))
+	for _, it := range d.Items {
 		fmt.Fprintf(&b, `<li style="margin:0 0 10px"><a href="%s">%s</a> — %s`,
-			html.EscapeString(it.URL), html.EscapeString(it.Title), html.EscapeString(it.Company))
-		if it.Location != "" {
-			fmt.Fprintf(&b, ` <span style="color:#6d6a65">(%s)</span>`, html.EscapeString(it.Location))
+			html.EscapeString(it.ApplyURL), html.EscapeString(it.Title), html.EscapeString(it.CompanyName))
+		if it.LocationRaw != "" {
+			fmt.Fprintf(&b, ` <span style="color:#6d6a65">(%s)</span>`, html.EscapeString(it.LocationRaw))
 		}
 		b.WriteString("</li>")
 	}
 	b.WriteString("</ul>")
-	if c.NewPostings > len(items) {
-		fmt.Fprintf(&b, "<p>…and %d more.</p>", c.NewPostings-len(items))
+	if d.More {
+		fmt.Fprintf(&b, `<p><a href="%s">See them all</a></p>`, html.EscapeString(d.SeeAll))
 	}
 	fmt.Fprintf(&b, `<p style="color:#6d6a65;font-size:13px"><a href="%s">Unsubscribe</a></p></div>`,
-		html.EscapeString(unsub))
+		html.EscapeString(d.Unsubscribe))
 	return b.String()
 }

@@ -1,6 +1,6 @@
 # Digest email
 
-**Status:** built 2026-09-02 (ADR-0019). Disabled by default; the opt-in control exists (the "Weekly digest" toggle in `web/src/routes/settings/+page.svelte`, posting to `?/digest`), so only SMTP settings remain before a real send. Step 6, the integration test, has not been written; the repository has zero digest tests. **Done when:** a user with a saved
+**Status:** built 2026-09-02 (ADR-0019), tested 2026-09-30. Disabled by default; the opt-in control is the "Weekly digest" toggle in `web/src/routes/settings/+page.svelte`. Step 3 was not built as written until 2026-09-30: the worker ignored the saved query and sent the corpus's newest roles to every subscriber. It now replays the search through `store.Feed`, and `internal/jobs/digest_integration_test.go` runs the worker end to end with a fake sender (matching roles only, no resend, a verifying unsubscribe link); `internal/api/privacy_integration_test.go` covers the unsubscribe and consent handlers. What remains is operator configuration, not code: SMTP settings and one real send. **Done when:** a user with a saved
 search receives one email containing only roles they have not seen, and can stop
 it from the email itself in one click.
 

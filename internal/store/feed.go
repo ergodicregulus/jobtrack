@@ -43,9 +43,12 @@ type FeedFilter struct {
 	CompDisclosedOnly bool
 
 	PostedWithin time.Duration
-	Skills       []string
-	Vendors      []string
-	Query        string
+	// PostedAfter is an absolute boundary, where PostedWithin is relative to
+	// now. The digest uses it for "new since this search was last seen".
+	PostedAfter time.Time
+	Skills      []string
+	Vendors     []string
+	Query       string
 
 	// Bands filters to specific match bands — strong, plausible, stretch,
 	// unlikely.
@@ -362,6 +365,9 @@ func (p *feedPredicates) addSource(f FeedFilter) {
 	if f.PostedWithin > 0 {
 		p.where("COALESCE(p.posted_at, p.first_seen_at) >= $%d",
 			p.bind(time.Now().Add(-f.PostedWithin)))
+	}
+	if !f.PostedAfter.IsZero() {
+		p.where("COALESCE(p.posted_at, p.first_seen_at) > $%d", p.bind(f.PostedAfter))
 	}
 	if len(f.Vendors) > 0 {
 		p.where("s.vendor::text = ANY($%d)", p.bind(f.Vendors))

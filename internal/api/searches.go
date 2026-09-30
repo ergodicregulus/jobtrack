@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -61,6 +62,18 @@ func (a *API) handleCreateSearch(w http.ResponseWriter, r *http.Request) error {
 	if len(req.Query) > 2000 {
 		return httpx.ErrBadRequest("that filter is too long to save",
 			httpx.FieldError{Field: "query", Code: "length", Message: "at most 2000 characters"})
+	}
+	// Read exactly as the feed and the digest will read it. Only the length
+	// was checked before, so any string could be saved — and a saved search the
+	// feed cannot parse is one the digest cannot honour either.
+	values, err := url.ParseQuery(req.Query)
+	if err != nil {
+		return httpx.ErrBadRequest("that filter is not a valid query string",
+			httpx.FieldError{Field: "query", Code: "invalid", Message: "a URL query string"})
+	}
+	if _, err := store.FeedFilterFromQuery(values); err != nil {
+		return httpx.ErrBadRequest("that filter cannot be saved: "+err.Error(),
+			httpx.FieldError{Field: "query", Code: "invalid", Message: err.Error()})
 	}
 
 	s, err := store.CreateSavedSearch(ctx, a.pool, userID, req.Name, req.Query, req.IsDefault)

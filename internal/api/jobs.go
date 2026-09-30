@@ -3,10 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/ergodicregulus/jobtrack/internal/httpx"
 	"github.com/ergodicregulus/jobtrack/internal/store"
@@ -81,209 +77,17 @@ func (a *API) handleFacets(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// validBands mirrors the check constraint on user_job_scores.band. A value that
-// passed here but not there would surface as a 500 rather than a 400, which is
-// the wrong error for bad input.
-var validBands = map[string]bool{
-	"strong": true, "plausible": true, "stretch": true, "unlikely": true,
-}
-
-// parseFeedFilter reads the query string.
+// parseFeedFilter reads the feed filter from the request's query string, and
+// turns a bad parameter into a 400 that names it.
 //
-// An unknown parameter is a 400, never silently ignored: a typo'd filter that
-// quietly returns unfiltered results is the worst possible failure here,
-// because the user believes they are looking at a filtered list.
-// knownFeedParams is the allowlist. An unknown parameter is rejected rather
-// than ignored: a typo that silently returns an unfiltered feed looks like the
-// filter did nothing, which is the hardest kind of bug for a user to report.
-var knownFeedParams = map[string]bool{
-	"country": true, "mode": true, "yoe": true, "yoe_stretch": true,
-	"comp_min": true, "comp_currency": true, "comp_disclosed_only": true,
-	"posted_within": true, "skills": true, "vendor": true, "q": true,
-	"field": true,
-	"sort":  true, "limit": true, "cursor": true, "band": true,
-}
-
-var validModes = map[string]bool{
-	"onsite": true, "hybrid": true, "remote": true, "unknown": true,
-}
-
-// Empty is the default — hide `other`, keep `software` and `unknown`. "all"
-// turns the filter off entirely, which a reader who disagrees with the
-// classifier must be able to do.
-var validFields = map[string]bool{
-	"": true, "software": true, "other": true, "unknown": true, "all": true,
-}
-
-var validYoEBands = map[string]bool{"0-2": true, "3-5": true, "6-8": true, "9+": true}
-
-// yoeBandFor maps a legacy threshold to its band.
-func yoeBandFor(n int) string {
-	switch {
-	case n <= 2:
-		return "0-2"
-	case n <= 5:
-		return "3-5"
-	case n <= 8:
-		return "6-8"
-	default:
-		return "9+"
-	}
-}
-
-var validSorts = map[string]bool{
-	"": true, "newest": true, "comp": true, "match": true, "relevance": true,
-}
-
+// The parsing is store.FeedFilterFromQuery, shared with saved searches and the
+// digest, so all three read a filter the same way.
 func parseFeedFilter(r *http.Request) (store.FeedFilter, error) {
-	q := r.URL.Query()
-	for key := range q {
-		if !knownFeedParams[key] {
-			return store.FeedFilter{}, httpx.ErrBadRequest(
-				"unknown query parameter: "+key,
-				httpx.FieldError{Field: key, Code: "unknown", Message: "not a supported filter"})
-		}
+	f, err := store.FeedFilterFromQuery(r.URL.Query())
+	var fe *store.FilterError
+	if errors.As(err, &fe) {
+		return f, httpx.ErrBadRequest(fe.Detail,
+			httpx.FieldError{Field: fe.Field, Code: fe.Code, Message: fe.Message})
 	}
-
-	f := store.FeedFilter{
-		Countries: csv(q.Get("country")),
-		Modes:     csv(q.Get("mode")),
-		Skills:    csv(q.Get("skills")),
-		Vendors:   csv(q.Get("vendor")),
-		Query:     strings.TrimSpace(q.Get("q")),
-		Sort:      q.Get("sort"),
-		// Default true. A large share of SDE-1 postings say "2+ years"; that
-		// band is soft in practice and self-filtering there costs real
-		// opportunities, so the stretch is opt-out rather than opt-in.
-		CompDisclosedOnly: q.Get("comp_disclosed_only") == "true",
-	}
-
-	if err := validateEnums(&f, q); err != nil {
-		return f, err
-	}
-	if err := parseFeedNumbers(&f, q); err != nil {
-		return f, err
-	}
-	return f, nil
-}
-
-// validateEnums checks the parameters drawn from fixed sets.
-//
-// Validated rather than passed through: an unknown value would return an empty
-// feed, which is indistinguishable from "nothing matches you" and is the wrong
-// answer to a typo.
-func validateEnums(f *store.FeedFilter, q url.Values) error {
-	for _, m := range f.Modes {
-		if !validModes[m] {
-			return httpx.ErrBadRequest("invalid mode: "+m,
-				httpx.FieldError{Field: "mode", Code: "invalid",
-					Message: "must be onsite, hybrid, remote or unknown"})
-		}
-	}
-	if !validSorts[f.Sort] {
-		return httpx.ErrBadRequest("invalid sort: "+f.Sort,
-			httpx.FieldError{Field: "sort", Code: "invalid",
-				Message: "must be newest, comp or match"})
-	}
-	f.Field = strings.ToLower(strings.TrimSpace(q.Get("field")))
-	if !validFields[f.Field] {
-		return httpx.ErrBadRequest("invalid field: "+f.Field,
-			httpx.FieldError{Field: "field", Code: "invalid",
-				Message: "must be software, other, unknown or all"})
-	}
-
-	for _, b := range csv(q.Get("band")) {
-		// Lowercased, unlike the other enums: bands appear in shared URLs and
-		// "Strong" is what a person types. Modes and sorts are only ever
-		// produced by our own links.
-		b = strings.ToLower(b)
-		if !validBands[b] {
-			return httpx.ErrBadRequest("invalid band: "+b,
-				httpx.FieldError{Field: "band", Code: "invalid",
-					Message: "must be strong, plausible, stretch or unlikely"})
-		}
-		f.Bands = append(f.Bands, b)
-	}
-	return nil
-}
-
-// parseFeedNumbers reads the bounded numeric parameters.
-func parseFeedNumbers(f *store.FeedFilter, q url.Values) error {
-	// Bands, keyed as the chips and the facets are. A bare integer is accepted
-	// and mapped to the band it falls in, so saved searches and links written
-	// under the old threshold form keep working rather than 400ing.
-	for _, raw := range csv(q.Get("yoe")) {
-		band := raw
-		if n, err := strconv.Atoi(raw); err == nil {
-			band = yoeBandFor(n)
-		}
-		if !validYoEBands[band] {
-			return httpx.ErrBadRequest("invalid experience band: "+raw,
-				httpx.FieldError{Field: "yoe", Code: "invalid",
-					Message: "must be 0-2, 3-5, 6-8 or 9+"})
-		}
-		f.YoEBands = append(f.YoEBands, band)
-	}
-
-	if v := q.Get("comp_min"); v != "" {
-		n, err := strconv.ParseFloat(v, 64)
-		if err != nil || n < 0 {
-			return httpx.ErrBadRequest("comp_min must be a non-negative number",
-				httpx.FieldError{Field: "comp_min", Code: "invalid", Message: "non-negative number"})
-		}
-		f.CompMin = &n
-		f.CompCurrency = q.Get("comp_currency")
-	}
-
-	if v := q.Get("posted_within"); v != "" {
-		d, ok := parseWindow(v)
-		if !ok {
-			return httpx.ErrBadRequest("posted_within must be 24h, 3d, 7d, 14d or any",
-				httpx.FieldError{Field: "posted_within", Code: "invalid",
-					Message: "24h, 3d, 7d, 14d or any"})
-		}
-		f.PostedWithin = d
-	}
-
-	if v := q.Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 50 {
-			return httpx.ErrBadRequest("limit must be between 1 and 50",
-				httpx.FieldError{Field: "limit", Code: "range", Message: "1-50"})
-		}
-		f.Limit = n
-	}
-	return nil
-}
-
-// parseWindow maps the allowed freshness windows. An allowlist rather than a
-// duration parser, so "posted_within=8760h" cannot quietly mean "any".
-func parseWindow(v string) (time.Duration, bool) {
-	switch v {
-	case "24h":
-		return 24 * time.Hour, true
-	case "3d":
-		return 72 * time.Hour, true
-	case "7d":
-		return 7 * 24 * time.Hour, true
-	case "14d":
-		return 14 * 24 * time.Hour, true
-	case "any":
-		return 0, true
-	}
-	return 0, false
-}
-
-func csv(s string) []string {
-	if s = strings.TrimSpace(s); s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return f, err
 }

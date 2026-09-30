@@ -1,6 +1,6 @@
 # Plan — Production hardening after the first public release
 
-**Status:** IN PROGRESS, started 2026-09-30. Done: steps 1–4 and 7 (backups and restore, corpus rebuilt live and backed up, ADR-0022, the production path assembled and smoke-tested in CI — ADR-0023). Remaining: 5, 6 and 8. Written from a verification pass that
+**Status:** IN PROGRESS, started 2026-09-30. Done: steps 1–5 and 7 (backups and restore, corpus rebuilt live and backed up, ADR-0022, the production path assembled and smoke-tested in CI — ADR-0023, digest and consent tests — which found the digest ignoring the saved search). Remaining: 6 and 8. Written from a verification pass that
 found the local corpus destroyed, one DECIDED ADR describing an unbuilt system, and
 a release pipeline that has never booted its own images.
 

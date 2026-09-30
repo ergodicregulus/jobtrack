@@ -41,8 +41,17 @@ func (a *API) handleUnsubscribe(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
+	// Already withdrawn is not an error — the update matches no row and the
+	// reader gets the confirmation they asked for. An error here is a write that
+	// did not happen, and it used to return an empty 200: a blank page the reader
+	// takes as done, while the next digest still goes out.
 	if err := store.WithdrawConsent(r.Context(), a.pool, userID, "digest_email"); err != nil {
-		return nil // already withdrawn is the same outcome the reader asked for
+		a.log.ErrorContext(r.Context(), "unsubscribe not recorded", "user_id", userID, "error", err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(unsubPage("That did not go through.",
+			"Nothing was changed. Please open the link again in a minute.")))
+		return nil
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
