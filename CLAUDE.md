@@ -207,8 +207,8 @@ failure mode this file exists to prevent. Live counts: `make arch-check`.
 | ~~Database calls outside the data layer~~ | 0 | **Closed** |
 | ~~Package layering violations~~ | 0 | **Closed** |
 | Functions over 80 lines | 2 | Ratcheted; target is 50. `cmd/resume-parser/main.go:main` and `internal/migrate/split.go:splitStatements` |
-| `internal/app` has no tests | 1 package | `internal/jobs` and `internal/httpx` closed 2026-09-30. `internal/store` has integration tests |
-| INP and ingest-latency budgets | — | Declared but never measured. See phase-5 §10 |
+| ~~Packages with no tests~~ | 0 | **Closed 2026-09-30.** `internal/jobs`, `internal/httpx` and `internal/app` were the last three |
+| INP and ingest-latency budgets are not gated in CI | 2 budgets | **Measured** ([`A-31`](docs/research/evidence-ledger.md#a-31), [`A-32`](docs/research/evidence-ledger.md#a-32)) and re-runnable by one command, but a regression does not fail a build. This row said "never measured" until 2026-09-30, three weeks after they were |
 
 ## Testing expectations
 
@@ -225,9 +225,9 @@ failure mode this file exists to prevent. Live counts: `make arch-check`.
 |---|---|---|
 | First-load JS (gzipped, `/jobs`) | ≤ 100 KB | `make bench-budget` |
 | CSS (gzipped) | ≤ 20 KB | `make bench-budget` |
-| INP p75, 4× CPU throttle | ≤ 200 ms | not yet measured |
+| INP p75, 4× CPU throttle | ≤ 200 ms | `make inp` — **72 ms** ([`A-32`](docs/research/evidence-ledger.md#a-32)). By hand, not CI |
 | `GET /v1/jobs` p95 server time | ≤ 120 ms | `make load-test` |
-| Ingest → visible, tier A source | ≤ 90 min median | not yet measured |
+| Ingest → visible, tier A source | ≤ 90 min median | `make ingest-latency` — **56–65 min** ([`A-31`](docs/research/evidence-ledger.md#a-31)). By hand, not CI |
 
 A PR that regresses an enforced budget fails CI. Raising a budget requires a note in the PR
 explaining the trade — see [docs/architecture/frontend-architecture.md](docs/architecture/frontend-architecture.md).
