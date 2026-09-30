@@ -264,7 +264,7 @@ thing that surprises people moving from a host setup.
 
 ```bash
 INGEST_MODE=fixture    # DEFAULT — replay golden files. No network at all.
-INGEST_MODE=recorded   # replay a captured session with realistic timing
+INGEST_MODE=recorded   # replays too; the "realistic timing" half does not exist yet
 INGEST_MODE=live       # real requests. Requires INGEST_LIVE_ALLOWLIST.
 ```
 
@@ -272,6 +272,25 @@ INGEST_MODE=live       # real requests. Requires INGEST_LIVE_ALLOWLIST.
 the system, not of the environment
 ([ADR-0004](../architecture/adr/0004-source-acquisition-policy.md)) — the guard rail belongs in code,
 not in a wiki page nobody reads.
+
+**This paragraph described nothing at all until 2026-09-30.** `INGEST_MODE` was validated, logged, and
+read by no other code: every mode fetched live, so `make dev` on a fresh clone polled real ATS
+endpoints while its own configuration said "no network at all", and the allowlist guarded a label
+rather than a request. `source.Replay` now serves the committed fixtures at the HTTP boundary
+([ADR-0021](../architecture/adr/0021-fixture-replay-at-the-http-boundary.md)), an unmapped host is an
+error rather than a passthrough, and `internal/jobs` has a test asserting that only `live` receives a
+client capable of dialling.
+
+To fill a local corpus without touching the network:
+
+```bash
+make seed-reset            # wipe postings
+docker compose run --rm tools "go run ./cmd/seed -ingest"
+```
+
+That yields ~350 live postings across ~97 companies. `seed` also spreads `posted_at` over the last 14
+days and sets `posted_at_is_estimate`, because a fixture is one day's capture and the feed defaults to
+the last 7 days — without the shift the demo corpus renders as an empty state.
 
 ```bash
 make capture-source VENDOR=ashby BOARD=example-co

@@ -131,7 +131,7 @@ services:
     # measurement on a fast laptop and a two-core runner compiling from an
     # empty build cache went straight through it.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/readyz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
       interval: 5s
       timeout: 3s
       retries: 24
@@ -190,7 +190,7 @@ services:
     ports:
       - "9090:9090"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9090/readyz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9090/readyz"]
       interval: 5s
       timeout: 3s
       retries: 24
@@ -216,8 +216,13 @@ services:
       - "5173:5173"
     # `npm install` then a Vite cold start, both after the container is
     # running. busybox wget rather than curl: node:22-alpine has no curl.
+    #
+    # 127.0.0.1, NOT localhost. busybox wget tries ::1 first and does not fall
+    # back, while Vite binds 0.0.0.0 — IPv4 only. The container then reports
+    # unhealthy with the dev server answering perfectly well on the address
+    # anything else would use.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:5173/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5173/"]
       interval: 3s
       timeout: 5s
       retries: 24

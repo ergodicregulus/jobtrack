@@ -206,7 +206,7 @@ failure mode this file exists to prevent. Live counts: `make arch-check`.
 | ~~Database calls outside the data layer~~ | 0 | **Closed** |
 | ~~Package layering violations~~ | 0 | **Closed** |
 | Functions over 80 lines | 2 | Ratcheted; target is 50. `cmd/resume-parser/main.go:main` and `internal/migrate/split.go:splitStatements` |
-| `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 3 packages | Open. `internal/store` now has 7 integration tests |
+| `internal/httpx`, `internal/app` have no tests | 2 packages | `internal/jobs` closed 2026-09-30 (fixture replay, ADR-0021). `internal/store` has integration tests |
 | INP and ingest-latency budgets | — | Declared but never measured. See phase-5 §10 |
 
 ## Testing expectations

@@ -231,7 +231,11 @@ jobs:
       - name: Migrate and seed
         run: |
           go run ./cmd/migrate up
-          go run ./cmd/seed
+          # -ingest replays the golden fixtures; INGEST_MODE defaults to fixture,
+          # so this reaches no network and cannot touch a live ATS (ADR-0004,
+          # ADR-0021). Without it the corpus is empty and every feed assertion
+          # fails on an empty state.
+          go run ./cmd/seed -ingest
 
       - name: Start resume-parser
         run: |
@@ -392,7 +396,7 @@ jobs:
           cp .env.example .env
           docker compose up -d --wait postgres
           docker compose run --rm migrate
-          docker compose run --rm tools "go run ./cmd/seed"
+          docker compose run --rm tools "go run ./cmd/seed -ingest"
           # Warm the build cache for THIS binary before air has to compile it
           # inside the api container, where the only signal is a healthcheck
           # timing out. -buildvcs=false because git inside the container refuses
@@ -428,7 +432,7 @@ jobs:
           cp .env.example .env
           docker compose up -d --wait postgres
           docker compose run --rm migrate
-          docker compose run --rm tools "go run ./cmd/seed"
+          docker compose run --rm tools "go run ./cmd/seed -ingest"
           docker compose run --rm --no-deps tools "go build -buildvcs=false -o /dev/null ./cmd/api"
           docker compose up -d --wait api web
 

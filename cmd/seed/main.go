@@ -238,7 +238,54 @@ func fetchAll(ctx context.Context, a *app.App, vocab *normalise.Vocabulary) erro
 	_ = a.Pool.QueryRow(ctx, `SELECT count(DISTINCT company_id) FROM job_postings WHERE status = 'live'`).Scan(&companies)
 
 	a.Log.Info("ingestion complete", "live_postings", postings, "companies", companies)
+
+	shifted, err := spreadDemoDates(ctx, a)
+	if err != nil {
+		return err
+	}
+	a.Log.Info("demo dates spread over the last 14 days",
+		"postings", shifted, "posted_at_is_estimate", true)
 	return nil
+}
+
+// spreadDemoDates moves replayed posting dates into the recent past.
+//
+// A fixture is one board captured on one day, so replaying it yields postings
+// whose posted_at is as old as the capture — here, between 30 days and five
+// years. The feed defaults to the last 7 days because freshness is the product,
+// so a demo corpus built from fixtures renders completely empty. Neither half is
+// wrong; they just cannot meet.
+//
+// This is the one place that gap can be closed honestly. It is `seed`, whose
+// entire job is to manufacture a development corpus, and it does NOT touch the
+// ingest path: a real fetch still records the date the board reported.
+//
+// Two things keep it from being a fabricated number. The order and relative
+// spacing of the real dates are preserved, so ages vary across cards the way a
+// live board does rather than every posting claiming the same age. And
+// posted_at_is_estimate is set, which is the column the schema already carries
+// for precisely this distinction — a date we computed instead of read — and which
+// the UI already renders differently. Nothing ends up claiming to be observed
+// when it was derived.
+func spreadDemoDates(ctx context.Context, a *app.App) (int64, error) {
+	tag, err := a.Pool.Exec(ctx, `
+		WITH ranked AS (
+		    SELECT id,
+		           row_number() OVER (ORDER BY posted_at DESC) AS rn,
+		           count(*) OVER ()                            AS total
+		      FROM job_postings
+		     WHERE status = 'live'
+		)
+		UPDATE job_postings p
+		   SET posted_at = now() - (
+		           ranked.rn::float / GREATEST(ranked.total, 1) * interval '14 days'),
+		       posted_at_is_estimate = true
+		  FROM ranked
+		 WHERE p.id = ranked.id`)
+	if err != nil {
+		return 0, fmt.Errorf("spread demo dates: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // seedUsers creates the demo accounts, already onboarded so the dashboard has

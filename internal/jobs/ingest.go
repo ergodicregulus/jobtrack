@@ -45,14 +45,7 @@ type Deps struct {
 
 // Init builds the adapter registry and the politeness limiter.
 func (d *Deps) Init() {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 4,
-			IdleConnTimeout:     90 * time.Second,
-		},
-	}
+	client := d.httpClient()
 	ua := d.Cfg.Ingest.UserAgent
 
 	d.adapters = map[source.Vendor]source.Adapter{
@@ -67,6 +60,34 @@ func (d *Deps) Init() {
 		source.VendorBambooHR:        bamboohr.New(client, ua),
 	}
 	d.limiter = newHostLimiter(2 * time.Second)
+}
+
+// httpClient is a real client only in live mode.
+//
+// INGEST_MODE is the switch, and until now it was a value nothing read: every
+// mode fetched over the network, so "fixture — no network at all" was false and
+// the INGEST_LIVE_ALLOWLIST guard protected a label rather than a request. The
+// default is fixture, which means the DEFAULT is now offline — a fresh clone and
+// CI both ingest from the golden files and reach nothing.
+//
+// `recorded` replays too. It is documented as "a captured session with realistic
+// timing" and the timing does not exist yet; replaying without it is strictly
+// closer to the promise than fetching live, and it is not a mode anything
+// selects today.
+func (d *Deps) httpClient() source.HTTPDoer {
+	if d.Cfg.Ingest.Mode != "live" {
+		d.Log.Info("ingest is replaying fixtures, no requests will leave this process",
+			"mode", d.Cfg.Ingest.Mode)
+		return source.NewReplay("")
+	}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 4,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
 }
 
 func (d *Deps) adapterFor(v source.Vendor) (source.Adapter, bool) {
