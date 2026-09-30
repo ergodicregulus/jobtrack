@@ -305,6 +305,16 @@ jobs:
           npx playwright install --with-deps chromium
           npx playwright test --project=chromium
 
+      # The INP budget, gated. It was measured by hand (A-32) and a regression
+      # failed nothing. Its own step, one worker: four parallel browsers under
+      # 4x throttling would measure the runner's contention, not the page.
+      - name: INP p75 within 200 ms at 4x CPU throttle
+        working-directory: web
+        env:
+          E2E_INP: "1"
+          E2E_WORKERS: "1"
+        run: npx playwright test inp.spec.ts --project=chromium --reporter=list
+
   security:
     name: Security
     runs-on: ubuntu-latest
