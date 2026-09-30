@@ -35,7 +35,15 @@ type FieldError struct {
 	Message string `json:"message"`
 }
 
-const problemBase = "https://jobtrack.dev/problems/"
+// problemBase is where a type URI resolves.
+//
+// RFC 9457 says the type URI SHOULD resolve to human-readable documentation. It
+// used to point at jobtrack.dev, a domain this project does not own, so every
+// error response cited a stranger's site. It now points at the section that is
+// the documentation, on a repository we control, and each Kind below has an
+// anchor there — asserted by TestProblemKindsAreDocumented, because a fragment
+// that resolves to nothing is worse than no link at all.
+const problemBase = "https://github.com/ergodicregulus/jobtrack/blob/main/docs/architecture/api-design.md#"
 
 // APIError is an error that carries an HTTP representation. Handlers return
 // these; the writer turns them into responses.

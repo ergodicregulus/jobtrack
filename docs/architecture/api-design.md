@@ -118,7 +118,7 @@ RFC 9457 `application/problem+json`, always. One shape, machine-readable, and ne
 
 ```json
 {
-  "type": "https://jobtrack.dev/problems/validation-failed",
+  "type": "https://github.com/ergodicregulus/jobtrack/blob/main/docs/architecture/api-design.md#validation-failed",
   "title": "Validation failed",
   "status": 400,
   "detail": "yoe_min must be less than or equal to yoe_max",
@@ -132,6 +132,45 @@ RFC 9457 `application/problem+json`, always. One shape, machine-readable, and ne
 
 `trace_id` is present on **every** error and is the W3C trace ID. A user can paste it into a support
 message and we can find the exact request. This is cheap and disproportionately useful.
+
+### Problem types
+
+RFC 9457 says a `type` URI SHOULD resolve to human-readable documentation. Ours points at this
+section, which is the documentation — so the link in an error body leads somewhere real, on a domain
+we control. It previously pointed at `jobtrack.dev/problems/...`, a domain owned by someone else,
+which made every error response cite a stranger.
+
+`TestProblemKindsAreDocumented` in `internal/httpx` fails if a constructor here gains a kind with no
+heading below, because a type URI whose fragment resolves to nothing is worse than no link.
+
+<a id="validation-failed"></a>**validation-failed** — 400. The request was malformed, named an unknown
+parameter, or failed a field constraint. `errors[]` names each field, its code and a message.
+
+<a id="unauthorized"></a>**unauthorized** — 401. No session, or one that has expired. Sign in again;
+retrying the same request unchanged will not help.
+
+<a id="not-found"></a>**not-found** — 404. No such resource, or one this session may not see. The two
+are deliberately indistinguishable: telling an unauthorised caller that something exists is itself a
+disclosure.
+
+<a id="conflict"></a>**conflict** — 409. The resource changed under you, or the write would duplicate
+something unique. Re-read and decide; this is not retryable as-is.
+
+<a id="payload-too-large"></a>**payload-too-large** — 413. The body exceeded the limit for that
+endpoint. Resume uploads are the usual case.
+
+<a id="unprocessable"></a>**unprocessable** — 422. Well-formed and understood, but not actionable — a
+resume with no extractable text, for instance. The `detail` says what to do differently.
+
+<a id="rate-limited"></a>**rate-limited** — 429. Too many requests. `Retry-After` is always set; honour
+it rather than backing off on a guess.
+
+<a id="internal"></a>**internal** — 500. Our fault. `detail` is deliberately generic: the underlying
+error is logged against the `trace_id` and never sent, because internal detail in an error body is an
+information leak.
+
+<a id="unavailable"></a>**unavailable** — 503. A dependency is down or the service is draining.
+Retryable.
 
 | Status | Used for |
 |---|---|

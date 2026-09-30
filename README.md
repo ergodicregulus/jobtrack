@@ -217,7 +217,7 @@ What is **not** finished, stated here rather than left for a reader to discover:
 
 | | |
 |---|---|
-| `internal/jobs`, `internal/httpx`, `internal/app` have no tests | 3 packages. `internal/store` has integration tests; the workers do not |
+| `internal/app` has no tests | 1 package, down from 3. `internal/jobs` and `internal/httpx` gained tests on 2026-09-30 |
 | The digest has never delivered a real email | The code path is verified end to end against a local relay; no SMTP host has been configured |
 | One employer's board is 34.8% of the corpus | Mostly not software. Curation measured as the *weaker* lever ([`A-39`](docs/research/evidence-ledger.md#a-39)), so the answer is the Software filter rather than a blocklist — but it is a live product question |
 | Two functions exceed the 80-line limit | Recorded in `scripts/arch/baseline/func-length.txt`, which is only allowed to shrink |
