@@ -26,7 +26,6 @@ thing well.
 | [corpus-completeness](corpus-completeness.md) | description coverage 86.0%, country 88.9%; the local corpus was destroyed on 2026-09-30 and is being rebuilt, so these measurements must be re-taken | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
 | [digest-email](digest-email.md) | Built, tested end to end with a fake sender, off by default; not done until a real email is received | **Yes** — SMTP provider and credentials |
-| [production-hardening](production-hardening.md) | Corpus lost with no backup; ADR-0006 describes unbuilt vector retrieval; release images never booted | No |
 
 ## How these get executed
 

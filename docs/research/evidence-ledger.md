@@ -415,6 +415,10 @@ interaction came close to the budget, which is a stronger statement than a quant
 eight samples can make on its own. p75 of n=8 is the 6th value; treat it as an order of magnitude,
 and the max as the real result.
 
+*Gated in CI since 2026-09-30* (the `e2e` job). Its first run, on a GitHub-hosted runner against the
+same dev server: p75 64 ms, worst 72 ms, n=8/8 — agreeing with the local figure within the
+visit-to-visit spread.
+
 <a id="a-33"></a>**A-33 — `GET /v1/me/dashboard` p95: 178 ms.**
 Measured 2026-08-25 by `make load-test` (smoke profile, 30 s) against a seeded account carrying
 ~8,300 scores, with the dashboard scenario running CONCURRENTLY with the feed scenario rather than
