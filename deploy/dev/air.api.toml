@@ -4,7 +4,13 @@ root = "/src"
 tmp_dir = "/tmp/air-api"
 
 [build]
-  cmd = "go build -o /tmp/air-api/api ./cmd/api"
+  # -buildvcs=false: the repo is bind-mounted, and when the host uid does not
+  # match the container's, git refuses the directory as dubiously owned. Go
+  # turns that refusal into a hard "error obtaining VCS status: exit status
+  # 128" and builds nothing, so the container runs, answers nothing, and the
+  # only outward sign is a healthcheck that never passes. Version info comes
+  # from ldflags in the production Dockerfile, never from a dev build.
+  cmd = "go build -buildvcs=false -o /tmp/air-api/api ./cmd/api"
   bin = "/tmp/air-api/api"
   # Watch only what can affect this binary. Watching everything means an edit
   # to the web app restarts the Go services for no reason.
