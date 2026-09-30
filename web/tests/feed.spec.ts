@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { hydrated } from './helpers';
+import { hydrated, signIn } from './helpers';
 
 /**
  * The core loop, end to end. Each test proves something no unit test can:
@@ -108,6 +108,7 @@ test.describe('job feed', () => {
     // the feed's is hidden above 900px, which left an anonymous desktop
     // visitor with no way to search at all.
     await page.goto('/jobs');
+    await hydrated(page);
     const search = page.locator('#jt-search');
     await expect(search).toBeVisible();
 
@@ -178,11 +179,7 @@ test.describe('theme', () => {
     // The control moved out of the header deliberately: persistent real estate
     // is earned by frequency times value, and a theme is chosen about once per
     // user, ever. This test follows it rather than asserting it is still there.
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('dev@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'dev@jobtrack.local');
 
     await page.goto('/settings');
     await hydrated(page);
@@ -266,11 +263,7 @@ test.describe('hiding a posting', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('senior@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'senior@jobtrack.local');
   });
 
   // The collapse-in-place behaviour is the whole design. A row that vanishes

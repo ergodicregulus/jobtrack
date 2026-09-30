@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { hydrated } from './helpers';
+import { hydrated, signIn } from './helpers';
 
 /**
  * The whole user journey, in one pass: sign up, onboard, land on a dashboard
@@ -22,6 +22,9 @@ function freshEmail(): string {
 async function signUp(page: import('@playwright/test').Page): Promise<string> {
   const email = freshEmail();
   await page.goto('/signup');
+  // Before the first keystroke: hydration re-initialises the inputs from
+  // component state, and anything typed earlier is discarded. See signIn.
+  await hydrated(page);
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /create account/i }).click();
@@ -109,12 +112,7 @@ test.describe('signup and onboarding', () => {
 
 test.describe('dashboard', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('senior@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
-    await hydrated(page);
+    await signIn(page, 'senior@jobtrack.local');
   });
 
   test('shows every widget with real numbers, not placeholders', async ({ page }) => {
@@ -185,12 +183,7 @@ test.describe('dashboard', () => {
 
 test.describe('profile', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('dev@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
-    await hydrated(page);
+    await signIn(page, 'dev@jobtrack.local');
   });
 
   test('loads the stored profile and saves an edit', async ({ page }) => {
@@ -394,11 +387,7 @@ test.describe('routing guards', () => {
  */
 test.describe('job detail', () => {
   test('the score breakdown names every component and its reason', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('dev@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'dev@jobtrack.local');
 
     await page.goto('/jobs?sort=match');
     await hydrated(page);
@@ -429,11 +418,7 @@ test.describe('job detail', () => {
   });
 
   test('an abstaining component says so rather than showing a zero', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('dev@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'dev@jobtrack.local');
 
     // Undisclosed salary is the common abstention: roughly a fifth of postings.
     await page.goto('/jobs?sort=match');
@@ -457,11 +442,7 @@ test.describe('job detail', () => {
 
 test.describe('feed keyboard navigation', () => {
   test('j and k move focus, and s saves the focused row', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('grad@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'grad@jobtrack.local');
 
     await page.goto('/jobs');
     await hydrated(page);
@@ -512,11 +493,7 @@ test.describe('feed keyboard navigation', () => {
  */
 test.describe('a write that fails', () => {
   test('a save the server rejects reverts and offers a way forward', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('grad@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'grad@jobtrack.local');
 
     await page.goto('/jobs');
     await hydrated(page);
@@ -544,11 +521,7 @@ test.describe('a write that fails', () => {
   });
 
   test('an expired session asks for a sign-in, not a retry', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('grad@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'grad@jobtrack.local');
 
     await page.goto('/jobs');
     await hydrated(page);
@@ -567,11 +540,7 @@ test.describe('a write that fails', () => {
   });
 
   test('a posting that closes mid-read changes the page, not just a message', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('grad@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'grad@jobtrack.local');
 
     await page.goto('/jobs');
     await hydrated(page);
@@ -618,11 +587,7 @@ test.describe('a write that fails', () => {
   });
 
   test('a request that never reaches the server says so', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('grad@jobtrack.local');
-    await page.getByLabel('Password').fill('dev-password-please');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await signIn(page, 'grad@jobtrack.local');
 
     await page.goto('/jobs');
     await hydrated(page);
