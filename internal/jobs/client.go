@@ -23,7 +23,6 @@ type Role string
 const (
 	RoleIngestor  Role = "ingestor"
 	RoleScheduler Role = "scheduler"
-	RoleEnqueuer  Role = "enqueuer" // API: inserts jobs, works none
 )
 
 // New builds a River client for the given role.
@@ -52,10 +51,7 @@ func New(d *Deps, role Role) (*river.Client[pgx.Tx], error) {
 		// river_job table becomes the largest in the database.
 		JobTimeout: 10 * time.Minute,
 	}
-	// The API is excluded because it takes no queues and does no maintenance.
-	if role != RoleEnqueuer {
-		cfg.PeriodicJobs = periodicJobs()
-	}
+	cfg.PeriodicJobs = periodicJobs()
 
 	client, err := river.NewClient(riverpgxv5.New(d.Pool), cfg)
 	if err != nil {
@@ -104,10 +100,6 @@ func queuesFor(role Role) (map[string]river.QueueConfig, error) {
 
 	case RoleScheduler:
 		queues[QueueMaint] = river.QueueConfig{MaxWorkers: 2}
-
-	case RoleEnqueuer:
-		// No queues: the API inserts work but never performs it. A user request
-		// must never be slowed by a background job landing on the same process.
 
 	default:
 		return nil, fmt.Errorf("unknown river role %q", role)

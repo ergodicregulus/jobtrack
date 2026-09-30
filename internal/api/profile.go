@@ -26,12 +26,9 @@ func (a *API) handleGetProfile(w http.ResponseWriter, r *http.Request) error {
 
 // handlePatchProfile applies a partial profile update.
 //
-// Writes the profile and its skills in one transaction, then enqueues a
-// rescore. The enqueue is inside the transaction on purpose: River stores jobs
-// in Postgres, so committing the profile and the "go rescore this user" message
-// is a single atomic act. If it were a separate call, a crash between the two
-// would leave a user whose profile says one thing and whose match scores
-// reflect another, with nothing to detect the drift.
+// Writes the profile and its skills in one transaction. Nothing is enqueued:
+// scores are computed per request (ADR-0016), so the next page load already
+// reflects the change.
 func (a *API) handlePatchProfile(w http.ResponseWriter, r *http.Request) error {
 	var update user.ProfileUpdate
 	if err := decodeJSON(r, &update); err != nil {
@@ -90,8 +87,7 @@ func (a *API) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
-// saveProfile persists the profile, its skills, and the rescore request
-// atomically.
+// saveProfile persists the profile and its skills atomically.
 func (a *API) saveProfile(ctx context.Context, userID int64, p user.Profile, complete bool) error {
 	// No rescore is enqueued. Scores are computed on read (ADR-0016), so a
 	// profile change takes effect on the next request rather than after a

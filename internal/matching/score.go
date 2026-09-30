@@ -119,35 +119,35 @@ func (r Result) MissingSkills() []string {
 // different emphasis. Making them data means that is a config change with a
 // version stamp on every score row, not a deploy.
 type Weights struct {
-	Skills       float64 `yaml:"skills"`
-	Experience   float64 `yaml:"experience"`
-	Location     float64 `yaml:"location"`
-	Compensation float64 `yaml:"compensation"`
-	Freshness    float64 `yaml:"freshness"`
+	Skills       float64
+	Experience   float64
+	Location     float64
+	Compensation float64
+	Freshness    float64
 }
 
 // Config is a scoring profile.
 type Config struct {
-	Version string  `yaml:"version"`
-	Weights Weights `yaml:"weights"`
+	Version string
+	Weights Weights
 
-	MustHaveRatio float64 `yaml:"must_have_ratio"`
+	MustHaveRatio float64
 	// AdjacentCredit is the fraction a related skill earns. Adjacency comes
 	// from a CURATED table, never embeddings — embedding similarity places
 	// "Java" and "JavaScript" next to each other, which is exactly the mistake
 	// a candidate would find unforgivable.
-	AdjacentCredit float64 `yaml:"adjacent_credit"`
+	AdjacentCredit float64
 
-	UnderYoEPenalty float64 `yaml:"under_yoe_penalty"`
-	OverYoEPenalty  float64 `yaml:"over_yoe_penalty"`
+	UnderYoEPenalty float64
+	OverYoEPenalty  float64
 
-	FreshnessHalfLifeDays float64 `yaml:"freshness_half_life_days"`
+	FreshnessHalfLifeDays float64
 
-	BandStrong    float64 `yaml:"band_strong"`
-	BandPlausible float64 `yaml:"band_plausible"`
-	BandStretch   float64 `yaml:"band_stretch"`
+	BandStrong    float64
+	BandPlausible float64
+	BandStretch   float64
 
-	MinPostingParseConfidence float64 `yaml:"min_posting_parse_confidence"`
+	MinPostingParseConfidence float64
 
 	// AbstentionCredit is the fraction of the skills weight granted when a
 	// posting states no requirements we can read.
@@ -160,7 +160,7 @@ type Config struct {
 	// every unreadable posting above the majority of real ones.
 	//
 	// Re-measure with `make coverage` before changing it. See ADR-0011.
-	AbstentionCredit float64 `yaml:"abstention_credit"`
+	AbstentionCredit float64
 }
 
 // DefaultConfig is the launch profile. Every number here is a starting guess,
@@ -168,11 +168,11 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		// Bumped whenever the algorithm changes in a way that would produce a
-		// different number for the same inputs. Stored on every score row, and
-		// the scheduler's stale-score sweep uses it to roll the change out
-		// across the existing corpus. Forgetting to bump it means old scores
-		// silently survive a fix — which is exactly what happened when the
-		// evidence-weighting landed and a sales role kept its 98%.
+		// different number for the same inputs. It once versioned stored score
+		// rows so a sweep could find stale ones; ADR-0016 removed both, and
+		// scores are now computed per request, so nothing can go stale and
+		// nothing reads this at runtime. It is kept as the changelog below —
+		// the record of which change moved which number, and why.
 		//
 		// 2026.08.2: skills evidence weighting; unstated requirements credited
 		// at the midpoint rather than dropped; band capped below strong when

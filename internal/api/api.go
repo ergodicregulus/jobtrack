@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/riverqueue/river"
 
 	"github.com/ergodicregulus/jobtrack/internal/auth"
 	"github.com/ergodicregulus/jobtrack/internal/config"
@@ -25,12 +23,6 @@ type API struct {
 	pool     *pgxpool.Pool
 	sessions *auth.SessionStore
 	server   *httpx.Server
-
-	// river inserts background work. Insert-only: the API runs no workers, so a
-	// scoring batch can never land on a process that is serving a request.
-	// Inserts go through the request transaction, which is what makes "profile
-	// saved" and "rescore queued" a single atomic outcome.
-	river *river.Client[pgx.Tx]
 
 	// crypt seals resume text at rest. Nil is not tolerated: a misconfigured
 	// key must stop the process at startup rather than write plaintext CVs.
@@ -53,7 +45,13 @@ type API struct {
 	scorer *matching.Scorer
 }
 
-func New(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, rc *river.Client[pgx.Tx]) (*API, error) {
+// New builds the API.
+//
+// It takes no River client. It used to, to enqueue a rescore when a profile
+// changed; ADR-0016 moved scoring to the read path, the enqueue went, and the
+// client stayed — built at every startup, loading the skill vocabulary, and
+// never used.
+func New(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) (*API, error) {
 	c, err := crypt.New(cfg.Security.ResumeKey)
 	if err != nil {
 		return nil, fmt.Errorf("resume encryption key: %w", err)
@@ -63,7 +61,6 @@ func New(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, rc *river.Cli
 		log:      log,
 		pool:     pool,
 		sessions: auth.NewSessionStore(pool, cfg.Security.SessionTTL),
-		river:    rc,
 		crypt:    c,
 		parser:   newResumeClient(cfg.ResumeParserURL),
 		scorer:   matching.NewScorer(matching.DefaultConfig(), matching.DefaultAdjacency()),

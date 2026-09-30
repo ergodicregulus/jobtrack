@@ -7,9 +7,7 @@ import (
 	"github.com/ergodicregulus/jobtrack/internal/api"
 	"github.com/ergodicregulus/jobtrack/internal/app"
 	"github.com/ergodicregulus/jobtrack/internal/httpx"
-	"github.com/ergodicregulus/jobtrack/internal/jobs"
 	"github.com/ergodicregulus/jobtrack/internal/migrate"
-	"github.com/ergodicregulus/jobtrack/internal/normalise"
 	"github.com/ergodicregulus/jobtrack/internal/version"
 	"github.com/ergodicregulus/jobtrack/migrations"
 )
@@ -37,22 +35,7 @@ func main() {
 		app.Fatal(err)
 	}
 
-	// Insert-only River client: the API enqueues work, never performs it.
-	// Started implicitly — an insert-only client needs no worker goroutines, so
-	// there is nothing to start or stop.
-	rc, err := jobs.New(&jobs.Deps{
-		Pool:  a.Pool,
-		Log:   a.Log,
-		Cfg:   a.Cfg,
-		Vocab: normalise.DefaultVocabulary(),
-	}, jobs.RoleEnqueuer)
-	if err != nil {
-		a.Log.Error("could not build river client", "error", err)
-		a.Close(ctx)
-		app.Fatal(err)
-	}
-
-	svc, err := api.New(a.Cfg, a.Log, a.Pool, rc)
+	svc, err := api.New(a.Cfg, a.Log, a.Pool)
 	if err != nil {
 		app.Fatal(err)
 	}
