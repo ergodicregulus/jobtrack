@@ -1,7 +1,10 @@
 # Corpus completeness
 
 **Status:** description coverage 86.0%, country 88.9%. One board (5,200 postings)
-is still completing its first full detail sweep; everything else is done. **Done when:** description coverage is stable above 90%, the same class
+was still completing its first full detail sweep; everything else was done. The local
+database was destroyed on 2026-09-30 (a `docker compose down -v` during CI verification, with
+no backup), so that sweep restarts from zero and every figure in this plan is a dated
+historical measurement until re-taken on the rebuilt corpus. **Done when:** description coverage is stable above 90%, the same class
 of bug is ruled out on every two-phase vendor, and the country gap is either
 closed or explained.
 

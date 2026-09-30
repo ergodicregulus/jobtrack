@@ -23,9 +23,10 @@ thing well.
 | Plan | Problem it addresses | Blocked on a decision? |
 |---|---|---|
 | [corpus-relevance](corpus-relevance.md) | 67% of live postings are not engineering roles; one employer is 37% of the corpus | **Yes** — product scope |
-| [corpus-completeness](corpus-completeness.md) | 39% have no country; skills read for 52%; the description fix is unverified on three vendors | No |
+| [corpus-completeness](corpus-completeness.md) | description coverage 86.0%, country 88.9%; the local corpus was destroyed on 2026-09-30 and is being rebuilt, so these measurements must be re-taken | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
 | [digest-email](digest-email.md) | Built (ADR-0019) and off by default; not done until a real email is received | No |
+| [production-hardening](production-hardening.md) | Corpus lost with no backup; ADR-0006 describes unbuilt vector retrieval; release images never booted | No |
 
 ## How these get executed
 

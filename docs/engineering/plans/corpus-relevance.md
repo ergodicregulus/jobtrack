@@ -1,6 +1,6 @@
 # Corpus relevance
 
-**Status:** decided (ADR-0018), built, and exposed. Three chips ship. Curation was tried and measured as the weaker lever — see below. **Done when:** the share of live
+**Status:** decided (ADR-0018), built, and exposed. Three chips ship. Curation was tried and measured as the weaker lever — see below. The done-condition is not yet met: the homepage shows only the tagline "Job search instrument · software engineering" and states no share. **Done when:** the share of live
 postings that are software-engineering roles is stated on the homepage and is
 high enough that the claim "a job-search instrument for software engineers" is
 true without qualification.
