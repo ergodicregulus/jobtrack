@@ -52,7 +52,9 @@ export const load: PageServerLoad = async ({ parent, fetch, url }) => {
     live_postings: 0,
     companies: 0,
     added_this_week: 0,
-    remote_share: 0
+    remote_share: 0,
+    software_share: 0,
+    unclassified_share: 0
   });
 
   // Both widgets read the source_daily rollup (ADR-0017), so they cost the same

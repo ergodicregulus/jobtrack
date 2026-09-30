@@ -66,14 +66,18 @@
     ['It will not rewrite your CV with keywords', 'Keyword stuffing games a filter and insults the reader on the other side of it. We show you the gap instead.']
   ];
 
+  const share = (x: number) => (data.stats.live_postings ? `${Math.round(x * 100)}%` : '—');
+
+  // The software share is the claim in the masthead, counted. The unclassified
+  // share sits beside it because the first number alone would read as "the
+  // rest is not software", and most of the rest is the classifier abstaining.
   const figures = $derived([
     { label: 'Live postings', value: compactNumber(data.stats.live_postings) },
     { label: 'Employers', value: String(data.stats.companies) },
     { label: 'Added this week', value: compactNumber(data.stats.added_this_week) },
-    {
-      label: 'Fully remote',
-      value: data.stats.live_postings ? `${Math.round(data.stats.remote_share * 100)}%` : '—'
-    }
+    { label: 'Fully remote', value: share(data.stats.remote_share) },
+    { label: 'Software engineering', value: share(data.stats.software_share) },
+    { label: 'Not yet classified', value: share(data.stats.unclassified_share) }
   ]);
 </script>
 

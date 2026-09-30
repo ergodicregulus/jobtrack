@@ -1379,12 +1379,18 @@ components:
 
     MarketSummary:
       type: object
-      required: [live_postings, companies, added_this_week, remote_share]
+      required: [live_postings, companies, added_this_week, remote_share, software_share, unclassified_share]
       properties:
         live_postings: { type: integer }
         companies: { type: integer }
         added_this_week: { type: integer }
         remote_share: { type: number }
+        software_share:
+          type: number
+          description: Share of live postings classified as software engineering (ADR-0018).
+        unclassified_share:
+          type: number
+          description: Share of live postings the classifier could not call. Always shown beside software_share.
 
     Coverage:
       type: object

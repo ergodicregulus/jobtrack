@@ -77,6 +77,9 @@ type MarketSummary struct {
 	Companies     int     `json:"companies"`
 	AddedThisWeek int     `json:"added_this_week"`
 	RemoteShare   float64 `json:"remote_share"`
+
+	SoftwareShare     float64 `json:"software_share"`
+	UnclassifiedShare float64 `json:"unclassified_share"`
 }
 
 // ActivityDay is one cell of the activity grid.

@@ -1026,6 +1026,10 @@ export interface components {
             companies: number;
             added_this_week: number;
             remote_share: number;
+            /** @description Share of live postings classified as software engineering (ADR-0018). */
+            software_share: number;
+            /** @description Share of live postings the classifier could not call. Always shown beside software_share. */
+            unclassified_share: number;
         };
         Coverage: {
             /**

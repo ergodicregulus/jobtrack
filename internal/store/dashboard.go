@@ -66,6 +66,17 @@ type MarketSummary struct {
 	Companies     int
 	AddedThisWeek int
 	RemoteShare   float64
+
+	// SoftwareShare and UnclassifiedShare are ADR-0018's field, over live
+	// postings. Stated together because the first alone overstates what the
+	// classifier knows: `unknown` is most of the corpus, not a rounding error.
+	SoftwareShare     float64
+	UnclassifiedShare float64
+}
+
+func (m *MarketSummary) scan(row pgx.Row) error {
+	return row.Scan(&m.LivePostings, &m.Companies, &m.AddedThisWeek,
+		&m.RemoteShare, &m.SoftwareShare, &m.UnclassifiedShare)
 }
 
 // marketSummarySQL is the one definition of the corpus figures, shared by the
@@ -82,7 +93,9 @@ const marketSummarySQL = `
 	       count(*) FILTER (
 	           WHERE COALESCE(posted_at, first_seen_at) > now() - interval '7 days'
 	       ),
-	       COALESCE(avg((mode = 'remote')::int), 0)
+	       COALESCE(avg((mode = 'remote')::int), 0),
+	       COALESCE(avg((field = 'software')::int), 0),
+	       COALESCE(avg((field = 'unknown')::int), 0)
 	  FROM job_postings WHERE status = 'live'`
 
 // The band, new-today and total counts are three statements rather than one,
@@ -148,8 +161,7 @@ func LoadDashboard(
 	if d.NeedsReply, err = collectBatch[ActionItem](br); err != nil {
 		return d, fmt.Errorf("needs reply: %w", err)
 	}
-	if err = br.QueryRow().Scan(&d.Market.LivePostings, &d.Market.Companies,
-		&d.Market.AddedThisWeek, &d.Market.RemoteShare); err != nil {
+	if err = d.Market.scan(br.QueryRow()); err != nil {
 		return d, fmt.Errorf("market summary: %w", err)
 	}
 	br.Close()
@@ -219,9 +231,7 @@ func (d *Dashboard) rankMatches(
 // LoadMarketSummary reads the corpus figures alone, for the signed-out landing page.
 func LoadMarketSummary(ctx context.Context, pool *pgxpool.Pool) (MarketSummary, error) {
 	var m MarketSummary
-	err := pool.QueryRow(ctx, marketSummarySQL).
-		Scan(&m.LivePostings, &m.Companies, &m.AddedThisWeek, &m.RemoteShare)
-	if err != nil {
+	if err := m.scan(pool.QueryRow(ctx, marketSummarySQL)); err != nil {
 		return m, fmt.Errorf("market summary: %w", err)
 	}
 	return m, nil

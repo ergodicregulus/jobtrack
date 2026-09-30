@@ -1,6 +1,6 @@
 # Corpus relevance
 
-**Status:** decided (ADR-0018), built, and exposed. Three chips ship. Curation was tried and measured as the weaker lever — see below. The done-condition is not yet met: the homepage shows only the tagline "Job search instrument · software engineering" and states no share. **Done when:** the share of live
+**Status:** decided (ADR-0018), built, and exposed. Three chips ship. Curation was tried and measured as the weaker lever — see below. Since 2026-09-30 the homepage states the share from `/v1/market`, counted per request, beside the unclassified share: 24% software, 44% unclassified, of 13,511 live postings on the rebuilt corpus. That meets the first half of the done-condition and shows the second is not met — the claim is not yet true without qualification, and raising it is the product-scope decision this plan is blocked on. **Done when:** the share of live
 postings that are software-engineering roles is stated on the homepage and is
 high enough that the claim "a job-search instrument for software engineers" is
 true without qualification.
