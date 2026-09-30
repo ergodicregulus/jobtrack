@@ -212,13 +212,17 @@ Start at **[docs/README.md](docs/README.md)** for the full map and suggested rea
 
 **Built and running against a live corpus.** Nine ATS adapters ingest on a tiered schedule, the
 `/jobs` feed searches and filters 13k postings, resumes parse and score, applications track, and a
-weekly digest mails saved searches over SMTP. Eighteen [ADRs](docs/architecture/adr/) record how it
-got here, including the ones that overturned an earlier decision once a measurement disagreed with
-it: [ADR-0015](docs/architecture/adr/0015-hand-written-sql-in-a-store-layer.md) superseded ADR-0001's
-`sqlc` clause after it sat unadopted for months, and
+weekly digest mails saved searches over SMTP. Twenty [ADRs](docs/architecture/adr/) record how it got
+here, and the ones worth reading are those that overturned an earlier decision once a measurement
+disagreed with it. [ADR-0015](docs/architecture/adr/0015-hand-written-sql-in-a-store-layer.md)
+superseded ADR-0001's `sqlc` clause after it sat unadopted for months.
 [ADR-0016](docs/architecture/adr/0016-scores-are-computed-not-materialised.md) deleted a 1,952 MB
 table — 78.4% of the database — once scoring measured three orders of magnitude cheaper than the
-design assumed.
+design assumed. And the two most recent exist because a documented behaviour turned out not to be
+implemented at all: [ADR-0020](docs/architecture/adr/0020-no-object-storage-until-something-stores-an-object.md)
+removed an object store nothing had ever called, and
+[ADR-0021](docs/architecture/adr/0021-fixture-replay-at-the-http-boundary.md) implemented the offline
+ingest mode that `INGEST_MODE=fixture` had been promising since the first commit.
 
 What is **not** finished, stated here rather than left for a reader to discover:
 
