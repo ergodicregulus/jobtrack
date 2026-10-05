@@ -33,7 +33,7 @@ Compensation: rare."
 | Finding | Impact |
 |---|---|
 | The list response carries `meta.total` | Minor; useful as a sanity check against partial responses |
-| `requisition_id` is exposed | **Dedup improvement** — two postings sharing one is the same role, decided in blocking with no similarity computation |
+| `requisition_id` is exposed | ~~Dedup improvement~~ — **withdrawn 2026-10-05**: it is employer free text, reused across unrelated roles, and keying on it hid 2,293 postings still listed on their boards |
 | `first_published` exists on the **detail** endpoint | **Correctness fix** — `updated_at` moves on any edit, so using it makes an edited 40-day-old posting look fresh. That corrupts the exact signal the product is built on |
 | Structured pay is available via `?pay_transparency=true` on the **detail** endpoint (`pay_input_ranges[]` with `min_cents`, `max_cents`, `currency_type`) | **Design change** — Greenhouse is an N+1 vendor for structured comp, like SmartRecruiters is for descriptions |
 | `full_content=true` returns intro + pay transparency + conclusion in `content` | Text-parse fallback when detail fetch is not warranted |

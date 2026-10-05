@@ -45,7 +45,6 @@ func TestParse_MapsABoard(t *testing.T) {
 	if p.ExternalID != "CFF550F9FE" {
 		t.Errorf("ExternalID = %q, want the shortcode", p.ExternalID)
 	}
-	// The employer's own requisition reference is a free dedup key.
 	if p.RequisitionID != "BE0826" {
 		t.Errorf("RequisitionID = %q", p.RequisitionID)
 	}

@@ -23,7 +23,7 @@ thing well.
 | Plan | Problem it addresses | Blocked on a decision? |
 |---|---|---|
 | [corpus-relevance](corpus-relevance.md) | 67% of live postings are not engineering roles; one employer is 37% of the corpus | **Yes** — product scope |
-| [corpus-completeness](corpus-completeness.md) | description coverage 86.0%, country 88.9%; the local corpus was destroyed on 2026-09-30 and is being rebuilt, so these measurements must be re-taken | No |
+| [corpus-completeness](corpus-completeness.md) | description coverage 79.2% while two-phase sweeps finish, country 93.9% — re-measured 2026-10-05 on the rebuilt corpus | No |
 | [source-expansion](source-expansion.md) | India is 7.4% of the corpus against an India-first product | No |
 | [digest-email](digest-email.md) | Built, tested end to end with a fake sender, off by default; not done until a real email is received | **Yes** — SMTP provider and credentials |
 

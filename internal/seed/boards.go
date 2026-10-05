@@ -91,8 +91,6 @@ func Boards() []Board {
 			Vendor: source.VendorGreenhouse, Token: "robinhood", Openings: 124},
 		{Slug: "instacart", Name: "Instacart", Domain: "instacart.com", Country: "US",
 			Vendor: source.VendorGreenhouse, Token: "instacart", Openings: 112},
-		{Slug: "postman", Name: "Postman", Domain: "postman.com", Country: "US",
-			Vendor: source.VendorGreenhouse, Token: "postman", Openings: 109},
 		{Slug: "vercel", Name: "Vercel", Domain: "vercel.com", Country: "US",
 			Vendor: source.VendorGreenhouse, Token: "vercel", Openings: 83},
 		{Slug: "discord", Name: "Discord", Domain: "discord.com", Country: "US",
@@ -119,8 +117,10 @@ func Boards() []Board {
 		// site rather than publishing the JSON endpoint. This is the honest
 		// extent of what is publicly available, and the reason the source
 		// catalogue tracks vendor coverage per market.
-		{Slug: "phonepe", Name: "PhonePe", Domain: "phonepe.com", Country: "IN",
-			Vendor: source.VendorGreenhouse, Token: "phonepe", Openings: 76},
+		//
+		// PhonePe was removed 2026-10-05, as was Postman above: both boards
+		// answer 404 since at least 2026-09-30, and neither company publishes on
+		// any other vendor this repository reads.
 		{Slug: "slice", Name: "slice", Domain: "sliceit.com", Country: "IN",
 			Vendor: source.VendorGreenhouse, Token: "slice", Openings: 43},
 		{Slug: "razorpay", Name: "Razorpay", Domain: "razorpay.com", Country: "IN",
@@ -271,10 +271,11 @@ func Boards() []Board {
 		// Two-phase: the list carries no description, so every posting needs a
 		// detail fetch. Boards are small — ten postings is typical — so one poll
 		// covers a whole board.
+		//
+		// PostHog's BambooHR board was removed 2026-10-05: its one posting was
+		// "Demo Job for Hiring Call". PostHog hires through Ashby, listed above.
 		{Slug: "flyio", Name: "Fly.io", Domain: "fly.io", Country: "US",
 			Vendor: source.VendorBambooHR, Token: "flyio", Openings: 10},
-		{Slug: "posthog", Name: "PostHog", Domain: "posthog.com", Country: "GB",
-			Vendor: source.VendorBambooHR, Token: "posthog", Openings: 1},
 		// --- Engineering-dense additions, verified live 2026-09-01 ---
 		//
 		// Added to dilute a corpus that was 31% one industrial conglomerate and

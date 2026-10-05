@@ -107,9 +107,8 @@ func TestConvert_RequisitionIDIsCarried(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// refNumber is the employer's own requisition code, which is a free dedup
-	// key — two postings sharing it are the same role, with no similarity
-	// computation at all.
+	// refNumber is the employer's own requisition code. Carried, though dedup
+	// does not key on it.
 	var found bool
 	for _, p := range got {
 		if p.RequisitionID != "" {
@@ -117,7 +116,7 @@ func TestConvert_RequisitionIDIsCarried(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("no posting carried a RequisitionID; the free dedup key was dropped")
+		t.Error("no posting carried a RequisitionID; the employer's reference was dropped")
 	}
 }
 
@@ -458,5 +457,19 @@ func TestPublicURL_RefusesToBuildABrokenLink(t *testing.T) {
 	}
 	if got := publicURL("BoschGroup", ""); got != "" {
 		t.Errorf("publicURL with no id = %q, want empty", got)
+	}
+}
+
+// Captured from Ubisoft2 on 2026-10-05: department.id is a number there and a
+// string elsewhere. Decoding the unused id failed the whole document, so every
+// Ubisoft posting went without a body while the sweep advanced as if it worked.
+func TestParseDetail_ANumericDepartmentIDStillYieldsTheBody(t *testing.T) {
+	p, err := New(nil, "test").ParseDetail(fixture(t, "detail-numeric-department-id.json"))
+	if err != nil {
+		t.Fatalf("ParseDetail: %v", err)
+	}
+	if p.DescriptionHTML == "" || p.Department != "Ubisoft" {
+		t.Errorf("description %d bytes, department %q; want a body and the label",
+			len(p.DescriptionHTML), p.Department)
 	}
 }

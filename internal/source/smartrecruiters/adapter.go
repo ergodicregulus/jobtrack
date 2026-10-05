@@ -117,8 +117,10 @@ type wireJob struct {
 	JobAd        *wireAd   `json:"jobAd"`
 }
 
+// wireNamed decodes only the label. The id is never read, and its type is not
+// stable across tenants — Ubisoft sends department.id as a number — so decoding
+// it could only ever fail a document we otherwise understand.
 type wireNamed struct {
-	ID    string `json:"id"`
 	Label string `json:"label"`
 }
 
@@ -161,6 +163,7 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 
 	end := min(start+maxDetailFetches, len(all))
 	filled := a.fillDescriptions(ctx, src, all[start:end])
+	result.DetailRequested, result.DetailFilled = end-start, filled
 	result.DetailCursor = cursorAfter(ctx, filled, start, end, len(all))
 	result.Postings = a.convertAll(all, src.BoardToken)
 	return result, nil
@@ -493,9 +496,8 @@ func (a *Adapter) convert(j *wireJob, boardToken string) (source.RawPosting, err
 
 	p := source.RawPosting{
 		ExternalID: j.ID,
-		// refNumber is the employer's own requisition code and is a free dedup
-		// key: two postings sharing it are the same role, with no similarity
-		// computation.
+		// Carried, not trusted: refNumber is employer free text, and dedup does
+		// not key on it (store.DedupeAcrossSources says why).
 		RequisitionID:   strings.TrimSpace(j.RefNumber),
 		Title:           strings.TrimSpace(j.Name),
 		LocationRaw:     locationOf(j.Location),

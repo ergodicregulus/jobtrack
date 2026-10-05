@@ -33,6 +33,15 @@ var cityAliases = map[string]string{
 	"sea": "Seattle", "seattle": "Seattle", "austin": "Austin",
 	"london": "London", "berlin": "Berlin", "amsterdam": "Amsterdam",
 	"singapore": "Singapore", "dublin": "Dublin", "toronto": "Toronto",
+
+	// The most frequent cities among live postings with no country, 2026-10-05.
+	"san francisco bay area": "San Francisco", "bay area": "San Francisco",
+	"chicago": "Chicago", "menlo park": "Menlo Park", "foster city": "Foster City",
+	"mountain view": "Mountain View", "palo alto": "Palo Alto", "santa clara": "Santa Clara",
+	"nashville": "Nashville", "mexico city": "Mexico City", "tokyo": "Tokyo",
+	"barcelona": "Barcelona", "são paulo": "São Paulo", "sao paulo": "São Paulo",
+	"paris": "Paris", "munich": "Munich", "münchen": "Munich", "madrid": "Madrid",
+	"sydney": "Sydney", "warsaw": "Warsaw",
 }
 
 // cityCountry maps a canonical city to its country, so "Bengaluru" alone
@@ -46,7 +55,54 @@ var cityCountry = map[string]string{
 	"San Francisco": "US", "New York": "US", "Seattle": "US", "Austin": "US",
 	"London": "GB", "Berlin": "DE", "Amsterdam": "NL",
 	"Singapore": "SG", "Dublin": "IE", "Toronto": "CA",
+
+	"Chicago": "US", "Menlo Park": "US", "Foster City": "US", "Mountain View": "US",
+	"Palo Alto": "US", "Santa Clara": "US", "Nashville": "US",
+	"Mexico City": "MX", "Tokyo": "JP", "Barcelona": "ES", "São Paulo": "BR",
 }
+
+// namesakeCityCountry holds cities that share their name with a US town —
+// Paris TX, Warsaw IN, Munich ND, Madrid IA, Sydney NS. Alone, the famous one is
+// meant; beside a region code it may not be, so these resolve only when the
+// string carries no region. "Paris, TX" stays unknown rather than becoming France.
+var namesakeCityCountry = map[string]string{
+	"Paris": "FR", "Munich": "DE", "Madrid": "ES", "Sydney": "AU", "Warsaw": "PL",
+}
+
+// stateNames resolves a spelled-out US state or Canadian province. Unlike the
+// two-letter codes none of these collide with a country — except Georgia, which
+// is left out.
+var stateNames = map[string]string{
+	"alabama": "US", "alaska": "US", "arizona": "US", "arkansas": "US", "california": "US",
+	"colorado": "US", "connecticut": "US", "delaware": "US", "florida": "US", "hawaii": "US",
+	"idaho": "US", "illinois": "US", "indiana": "US", "iowa": "US", "kansas": "US",
+	"kentucky": "US", "louisiana": "US", "maine": "US", "maryland": "US", "massachusetts": "US",
+	"michigan": "US", "minnesota": "US", "mississippi": "US", "missouri": "US", "montana": "US",
+	"nebraska": "US", "nevada": "US", "new hampshire": "US", "new jersey": "US",
+	"new mexico": "US", "north carolina": "US", "north dakota": "US", "ohio": "US",
+	"oklahoma": "US", "oregon": "US", "pennsylvania": "US", "rhode island": "US",
+	"south carolina": "US", "south dakota": "US", "tennessee": "US", "texas": "US",
+	"utah": "US", "vermont": "US", "virginia": "US", "washington": "US",
+	"west virginia": "US", "wisconsin": "US", "wyoming": "US",
+	"ontario": "CA", "quebec": "CA", "british columbia": "CA", "alberta": "CA",
+	"manitoba": "CA", "nova scotia": "CA", "saskatchewan": "CA",
+}
+
+// isoPrefix reads the vendor shape "US-CA-Menlo Park" and "GB-London": an
+// ISO country code, an optional region code, then the city. The hyphenated
+// prefix is a format, not prose, so its codes are unambiguous — CA after US- is
+// California.
+var isoPrefix = regexp.MustCompile(`^([A-Z]{2})-(?:([A-Z]{2})-)?(.+)$`)
+
+// isoCodes are the codes the country table can produce, so a prefix outside it
+// ("XY-Somewhere") is not trusted.
+var isoCodes = func() map[string]bool {
+	m := map[string]bool{}
+	for _, c := range countryNames {
+		m[c] = true
+	}
+	return m
+}()
 
 // countryNames maps what employers actually write to ISO 3166-1 alpha-2.
 //
@@ -129,7 +185,14 @@ var indiaRegions = map[string]string{
 
 // separators splits multi-location strings like
 // "Bangalore / Hyderabad / Remote" or "London; Berlin".
-var separators = regexp.MustCompile(`\s*[/;|]\s*|\s+or\s+`)
+//
+// A spaced dash and a colon separate too: "*HQ - San Francisco, CA" and
+// "Remote - US: Select locations" put the place in a later part.
+var separators = regexp.MustCompile(`\s*[/;|:]\s*|\s+[-–—]\s+|\s+or\s+`)
+
+// brackets are dropped so "United States (Remote)" reads as its country once the
+// arrangement word inside them is gone.
+var brackets = regexp.MustCompile(`[()\[\]]`)
 
 // noise is stripped before parsing: these words appear inside location strings
 // but describe the arrangement, not the place.
@@ -149,8 +212,9 @@ func ParseLocation(raw string) Location {
 	}
 
 	for _, part := range separators.Split(loc.Raw, -1) {
-		cleaned := strings.TrimSpace(locationNoise.ReplaceAllString(part, " "))
-		cleaned = strings.Trim(cleaned, " ,-–—")
+		cleaned := locationNoise.ReplaceAllString(part, " ")
+		cleaned = strings.TrimSpace(brackets.ReplaceAllString(cleaned, " "))
+		cleaned = strings.Trim(cleaned, " ,-–—*")
 		if cleaned == "" {
 			continue
 		}
@@ -171,6 +235,14 @@ func ParseLocation(raw string) Location {
 func parseSingleLocation(s string) Location {
 	var out Location
 
+	if m := isoPrefix.FindStringSubmatch(s); m != nil && isoCodes[m[1]] {
+		out.Country, out.Region = m[1], m[2]
+		if canonical, ok := cityAliases[strings.ToLower(strings.TrimSpace(m[3]))]; ok {
+			out.City = canonical
+		}
+		return out
+	}
+
 	// Comma-separated is the common shape: "Bengaluru, India" / "Austin, TX, US".
 	segments := strings.Split(s, ",")
 	for i := len(segments) - 1; i >= 0; i-- {
@@ -179,6 +251,10 @@ func parseSingleLocation(s string) Location {
 			continue
 		}
 		if code, ok := countryNames[seg]; ok && out.Country == "" {
+			out.Country = code
+			continue
+		}
+		if code, ok := stateNames[seg]; ok && out.Country == "" {
 			out.Country = code
 			continue
 		}
@@ -194,6 +270,9 @@ func parseSingleLocation(s string) Location {
 
 	if out.City != "" {
 		if c, ok := cityCountry[out.City]; ok && out.Country == "" {
+			out.Country = c
+		}
+		if c, ok := namesakeCityCountry[out.City]; ok && out.Country == "" && out.Region == "" {
 			out.Country = c
 		}
 		if r, ok := indiaRegions[out.City]; ok && (out.Region == "" || out.Country == "IN") {

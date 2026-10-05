@@ -237,9 +237,19 @@ O(n²) problem to a handful of comparisons per posting.
 Resolves the large majority of cases at negligible cost.
 
 **Stage 3 — embeddings, only for the ambiguous band. Not built.** The design was cosine similarity plus
-weighted skill overlap. No embeddings are generated ([ADR-0022](adr/0022-retrieval-is-lexical.md)), and `internal/jobs/dedupe.go` says
-so explicitly: dedup runs exact matching (same company and requisition id) and fuzzy matching (trigram
-blocking on normalised title, plus location and work-mode agreement).
+weighted skill overlap. No embeddings are generated ([ADR-0022](adr/0022-retrieval-is-lexical.md)).
+
+**What is built: pairs from different sources only.** `store.DedupeAcrossSources` compares a company's
+postings across its sources — the three cases above are all cross-source — on lower-cased raw title
+similarity ≥ 0.9 with location and work-mode agreement. Inside one source nothing is compared: the
+vendor's ids are distinct postings, each with its own apply link.
+
+The first version compared inside a source, keyed on `requisition_id` and on a seniority-blind
+normalised title at 0.75. Audited on 2026-10-05 against every vendor's own feed, **4,310 postings
+still listed on their boards were hidden as duplicates** — 2,293 by requisition id, the rest by title: `requisition_id` is employer free
+text (Stripe puts "See Opening ID" on all 718 postings, Airbnb "ONE" on 137 unrelated roles), and the
+normalised title made "Senior Software Engineer, iOS" a duplicate of "Principal Software Engineer".
+Data migration 0105 restored them.
 
 **Canonical selection**, in priority order — this ranking encodes the delivery mechanic from
 [problem-statement §4](../product/problem-statement.md#4-delivery-is-not-guaranteed--and-this-is-the-most-under-documented-mechanic-in-job-search):

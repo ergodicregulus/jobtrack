@@ -158,3 +158,16 @@ func TestAllowlist_LiveModeFetchesOnlyWhatItNames(t *testing.T) {
 		})
 	}
 }
+
+// River shares the ingestor's pool. Writers must leave it room, or it cannot
+// fetch or complete jobs; and a pool too small to leave room still writes.
+func TestWriteSlots_LeaveRiverItsConnections(t *testing.T) {
+	for _, tc := range []struct {
+		maxConns int32
+		want     int
+	}{{5, 2}, {10, 7}, {3, 1}, {1, 1}} {
+		if got := writeSlotsFor(tc.maxConns); got != tc.want {
+			t.Errorf("writeSlotsFor(%d) = %d, want %d", tc.maxConns, got, tc.want)
+		}
+	}
+}

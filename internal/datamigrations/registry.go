@@ -29,5 +29,7 @@ func All() []migrate.DataMigration {
 		&CloseLongAbsentPostings{},
 		&ClassifyPostingField{},
 		&ReparseLocations{},
+		&UndoInSourceSupersession{},
+		&ReparseLocationsWiderTables{},
 	}
 }

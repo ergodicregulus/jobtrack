@@ -63,8 +63,10 @@ GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs/{job_id}?pay_t
   ([P2](../product/principles.md#p2--freshness-is-the-product)). Where we have only `updated_at`, age
   is marked as an upper bound rather than reported as fact.
 
-- ✅ **`requisition_id` is a genuine dedup key.** Two postings from one company sharing a
-  `requisition_id` are the same role, decided in blocking without any similarity computation.
+- ❌ **`requisition_id` is NOT a dedup key.** It is employer free text. Measured 2026-10-05: Stripe
+  sets "See Opening ID" on every posting, Airbnb "ONE" on 137 unrelated roles, Brex one id on twenty
+  different product roles. Treating it as a key hid 2,293 postings still listed on their boards
+  ([ingestion-pipeline §5](../architecture/ingestion-pipeline.md#5-deduplication)).
 
 - ✅ **`include_ai_disclaimer` / `ai_disclaimer` / `ai_opt_out_request_url`** — Greenhouse now exposes
   whether the employer runs AI talent matching, **and an opt-out URL**. This is a product feature, not
@@ -162,7 +164,12 @@ GET https://api.smartrecruiters.com/v1/companies/{company}/postings/{id}      # 
   reason alone. Always verify against `totalFound` before adding a board.
 - `releasedDate` is a genuine **first-published** timestamp, not an updated-at. Unusual and valuable:
   freshness from this vendor is real rather than an upper bound.
-- `refNumber` is the employer's own requisition code — a free dedup key.
+- `refNumber` is the employer's own requisition code. Free text, so not a dedup key — see Greenhouse's `requisition_id`.
+- ⚠️ **Field types vary by tenant.** `Ubisoft2` sends `department.id` as a number where every other
+  tenant sends a string. The adapter decoded that unused id, every Ubisoft detail document failed to
+  decode, and 0 of 347 postings had a description until 2026-10-05 — with no error, because a failed
+  body is skipped by design. Decode only fields the adapter reads; the ingestor now warns when a poll
+  fills fewer than half its detail requests.
 
 **Why it earns its place — measured, not assumed** ([A-00f](evidence-ledger.md#a-00f)):
 
@@ -305,7 +312,7 @@ posting.
 - An account with no live vacancies returns **200 with an empty `jobs` array**, identical to a board
   that just closed every role.
 - `employment_type` is often `""`. It stays empty rather than being guessed at.
-- `code` is the employer's own requisition reference and makes a free dedup key.
+- `code` is the employer's own requisition reference. Free text, so not a dedup key — see Greenhouse's `requisition_id`.
 - The flat `country`/`city` pair only ever holds the FIRST location; the `locations` array is
   authoritative.
 
@@ -397,6 +404,12 @@ from the careers page, so board tokens are two-part and cannot be guessed.
 title, a department and a location and nothing else — the description, the
 posting date and the seniority all live on `/careers/{id}/detail`. Shipping the
 list alone would add postings that can never be scored on skills.
+
+**The arrangement is `locationType`, not `isRemote`.** `isRemote` is null on every flyio posting.
+`locationType` is the string `"0"`, `"1"` or `"2"` — on-site, remote, hybrid, per BambooHR's own
+[API reference](https://documentation.bamboohr.com/reference/create-job-opening) (verified
+2026-10-05). The bound on detail fetches (60 per poll) bounds the detail phase only; it once sliced
+the list itself, which would have closed every posting past the 60th as absent.
 
 Both endpoints answer **403 to a bare HTTP client**. That is bot-shaping rather
 than authentication: no key, no session, no challenge, and the same public data

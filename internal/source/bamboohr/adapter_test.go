@@ -1,7 +1,11 @@
 package bamboohr
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -123,3 +127,62 @@ func TestParse_RejectsMalformed(t *testing.T) {
 }
 
 var _ = source.VendorBambooHR
+
+// locationType is the arrangement BambooHR fills; isRemote is null on flyio.
+func TestConvert_LocationTypeIsTheWorkplace(t *testing.T) {
+	a := New(nil, "test")
+	var lr listResponse
+	if err := json.Unmarshal(fixture(t, "board-full.json"), &lr); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	p, err := a.convert(&lr.Result[0], "flyio")
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if p.WorkplaceType != "remote" {
+		t.Errorf("locationType %q gave WorkplaceType %q, want remote", lr.Result[0].LocationType, p.WorkplaceType)
+	}
+	for in, want := range map[string]string{"0": "onsite", "1": "remote", "2": "hybrid", "": "", "9": ""} {
+		if got := workplace(&wireJob{LocationType: in}); got != want {
+			t.Errorf("workplace(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// fakeBambooHR serves a list of n postings and a body for every detail request.
+type fakeBambooHR struct{ n int }
+
+func (f fakeBambooHR) Do(req *http.Request) (*http.Response, error) {
+	body := `{"result":{"jobOpening":{"description":"<p>body</p>","datePosted":"2026-09-01"}}}`
+	if strings.HasSuffix(req.URL.Path, "/careers/list") {
+		var b strings.Builder
+		fmt.Fprintf(&b, `{"meta":{"totalCount":%d},"result":[`, f.n)
+		for i := 0; i < f.n; i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, `{"id":"%d","jobOpeningName":"Role %d","locationType":"1"}`, i, i)
+		}
+		b.WriteString(`]}`)
+		body = b.String()
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+// The detail bound must never shorten the board: a posting missing from the
+// result is closed as absent.
+func TestFetch_ABoardPastTheDetailBoundIsReturnedWhole(t *testing.T) {
+	n := detailsPerPoll + 15
+	res, err := New(fakeBambooHR{n: n}, "test").Fetch(context.Background(), source.Source{BoardToken: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Postings) != n {
+		t.Fatalf("returned %d of %d postings; the rest would be closed as absent", len(res.Postings), n)
+	}
+	if res.DetailRequested != detailsPerPoll || res.DetailFilled != detailsPerPoll {
+		t.Errorf("detail requested %d, filled %d; want %d each",
+			res.DetailRequested, res.DetailFilled, detailsPerPoll)
+	}
+}

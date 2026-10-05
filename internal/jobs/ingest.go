@@ -45,9 +45,29 @@ type Deps struct {
 	// fake so the whole path runs with no mail server.
 	Mailer mail.Sender
 
-	adapters map[source.Vendor]source.Adapter
-	limiter  *hostLimiter
-	allow    allowlist
+	adapters   map[source.Vendor]source.Adapter
+	limiter    *hostLimiter
+	allow      allowlist
+	writeSlots chan struct{}
+}
+
+// riverConnReserve is how much of the pool persist leaves to River itself: the
+// LISTEN connection it holds for the client's lifetime, plus the producer's job
+// fetch and the completer, which each need one at moments nobody schedules.
+const riverConnReserve = 3
+
+// writeSlotsFor is how many polls may write at once.
+//
+// Fetching needs no connection and writing needs one for the whole board, so
+// twenty workers on a five-connection pool (service-topology §5, a hard budget)
+// queue for it — and River's own acquires queue behind them. Measured on
+// 2026-10-05, catching up five days: "JobGetAvailable timed out after 10s",
+// "BatchCompleter … giving up", leader election failing every few seconds, three
+// boards finished in two and a half minutes. Steady state hides it, because a
+// 304 writes nothing; a first deploy, a restore or an outage is exactly when
+// every poll writes.
+func writeSlotsFor(maxConns int32) int {
+	return max(1, int(maxConns)-riverConnReserve)
 }
 
 // allowlist is INGEST_LIVE_ALLOWLIST, enforced.
@@ -99,6 +119,7 @@ func (d *Deps) Init() {
 	}
 	d.limiter = newHostLimiter(2 * time.Second)
 	d.allow = newAllowlist(d.Cfg.Ingest.Mode, d.Cfg.Ingest.LiveAllowlist)
+	d.writeSlots = make(chan struct{}, writeSlotsFor(d.Cfg.Database.MaxConns))
 }
 
 // httpClient is a real client only in live mode.
@@ -236,6 +257,15 @@ func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSource
 		return store.MarkPollUnchanged(ctx, d.Pool, src.ID, result.ETag, result.LastModified)
 	}
 
+	// Adapters skip an unreadable body by design, so this line is the only place
+	// a vendor-side change to the detail document becomes visible. Ubisoft's
+	// filled 0 of 250 on every poll for weeks before anyone looked.
+	if result.DetailRequested > 0 && result.DetailFilled*2 < result.DetailRequested {
+		d.Log.WarnContext(ctx, "detail bodies mostly unreadable",
+			"source_id", src.ID, "vendor", src.Vendor, "board", src.BoardToken,
+			"requested", result.DetailRequested, "filled", result.DetailFilled)
+	}
+
 	upserted, changed, err := w.persist(ctx, src, result)
 	if err != nil {
 		return err
@@ -262,6 +292,13 @@ func (w *FetchSourceWorker) Work(ctx context.Context, job *river.Job[FetchSource
 // scoring job, which is why this system needs no outbox.
 func (w *FetchSourceWorker) persist(ctx context.Context, src source.Source, result source.FetchResult) (upserted, changed int, err error) {
 	d := w.Deps
+
+	select {
+	case d.writeSlots <- struct{}{}:
+		defer func() { <-d.writeSlots }()
+	case <-ctx.Done():
+		return 0, 0, ctx.Err()
+	}
 
 	err = store.InTx(ctx, d.Pool, func(tx pgx.Tx) error {
 		seen := make([]string, 0, len(result.Postings))

@@ -1,10 +1,6 @@
 # Corpus completeness
 
-**Status:** description coverage 86.0%, country 88.9%. One board (5,200 postings)
-was still completing its first full detail sweep; everything else was done. The local
-database was destroyed on 2026-09-30 (a `docker compose down -v` during CI verification, with
-no backup), so that sweep restarts from zero and every figure in this plan is a dated
-historical measurement until re-taken on the rebuilt corpus. **Done when:** description coverage is stable above 90%, the same class
+**Status:** re-measured 2026-10-05 on the rebuilt corpus (18,631 live): description ≥ 200 chars **79.2%**, country **93.9%** (from 87.1% after parser step 4, applied as data migration 0106). Description is held down by the two-phase sweeps, not a defect, with one exception found and fixed the same day: every Ubisoft detail document failed to decode on a numeric `department.id`, so 0 of 347 had a body while the sweep advanced. BoschGroup is mid-sweep (cursor 1,750 of 5,028). Step 2 is done for SmartRecruiters and BambooHR; Workday has no registered board and its detail loop does not yet report fill counts. The remaining country gap is mostly placeless by the employer's own text — "Remote", "Distributed", "EMEA". **Done when:** description coverage is stable above 90%, the same class
 of bug is ruled out on every two-phase vendor, and the country gap is either
 closed or explained.
 

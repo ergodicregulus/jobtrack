@@ -77,7 +77,7 @@ type wireJob struct {
 	} `json:"location"`
 	Content     string          `json:"content"`
 	Departments []wireNamed     `json:"departments"`
-	Offices     []wireNamed     `json:"offices"`
+	Offices     []wireOffice    `json:"offices"`
 	Metadata    json.RawMessage `json:"metadata"`
 
 	// Detail-endpoint fields. Absent from the list response, which is exactly
@@ -91,6 +91,13 @@ type wireJob struct {
 
 type wireNamed struct {
 	Name string `json:"name"`
+}
+
+// wireOffice carries the office's address as well as its label: Cloudflare's
+// office is named "AMER" and located "United States".
+type wireOffice struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
 }
 
 type wirePayRange struct {
@@ -194,7 +201,7 @@ func (a *Adapter) convert(j *wireJob) (source.RawPosting, error) {
 		p.Department = j.Departments[0].Name
 	}
 	if len(j.Offices) > 0 {
-		p.Office = j.Offices[0].Name
+		p.Office = source.FirstNonEmpty(j.Offices[0].Location, j.Offices[0].Name)
 	}
 
 	// first_published is correct; updated_at is a fallback that must be marked

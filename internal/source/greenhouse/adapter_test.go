@@ -172,8 +172,8 @@ func TestParse_RejectsInvalidJSON(t *testing.T) {
 	}
 }
 
-// requisition_id is a free dedup key: two postings from one company sharing it
-// are the same role, decided without any similarity computation.
+// requisition_id is carried as the employer's reference. It is not a dedup key:
+// it is free text, reused across unrelated roles.
 func TestParse_ExtractsRequisitionID(t *testing.T) {
 	got, err := newAdapter().Parse(loadFixture(t, "board-full.json"))
 	if err != nil {

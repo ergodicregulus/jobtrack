@@ -384,6 +384,26 @@ ON CONFLICT (canonical) DO UPDATE SET display_name = EXCLUDED.display_name`,
 	return nil
 }
 
+// locate parses the posting's location, and falls back to its office when the
+// location names no place.
+//
+// The location is what the employer wrote and is always what users see; the
+// office only fills the country it left out. Cloudflare sets 308 postings'
+// location to "Hybrid" while naming the office "Austin, TX, United States" —
+// a hybrid role has an office, and the filter should find it there.
+func locate(raw source.RawPosting) normalise.Location {
+	loc := normalise.ParseLocation(raw.LocationRaw)
+	if loc.Country != "" || raw.Office == "" {
+		return loc
+	}
+	office := normalise.ParseLocation(raw.Office)
+	office.Raw = loc.Raw
+	if office.Country == "" {
+		return loc
+	}
+	return office
+}
+
 // PostingFromRaw applies normalisation to a fetched posting.
 //
 // The bridge between the vendor-shaped world and the canonical one. Kept here
@@ -392,7 +412,7 @@ ON CONFLICT (canonical) DO UPDATE SET display_name = EXCLUDED.display_name`,
 func PostingFromRaw(raw source.RawPosting, src source.Source, vocab *normalise.Vocabulary) Posting {
 	text := normalise.StripHTML(raw.DescriptionHTML)
 	titleNorm, seniority := normalise.Title(raw.Title)
-	loc := normalise.ParseLocation(raw.LocationRaw)
+	loc := locate(raw)
 	yoeMin, yoeMax, yoeConf := normalise.YoE(text, seniority)
 
 	p := Posting{

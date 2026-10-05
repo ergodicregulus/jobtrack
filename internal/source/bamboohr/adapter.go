@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ergodicregulus/jobtrack/internal/source"
@@ -32,9 +33,9 @@ import (
 const (
 	maxBodyBytes = 16 << 20
 
-	// detailsPerPoll bounds the second phase. BambooHR boards are small — ten
-	// postings is typical — so this covers a whole board in one poll and the
-	// sweep-resume machinery never has to engage.
+	// detailsPerPoll bounds the second phase, not the board. BambooHR boards are
+	// small — ten postings is typical — so this covers a whole board in one poll
+	// and the sweep-resume machinery never has to engage.
 	detailsPerPoll = 60
 
 	// detailConcurrency is deliberately low. These are small boards and there is
@@ -72,6 +73,7 @@ type wireJob struct {
 	DepartmentLabel string   `json:"departmentLabel"`
 	EmploymentType  string   `json:"employmentType"`
 	IsRemote        *bool    `json:"isRemote"`
+	LocationType    string   `json:"locationType"`
 	Location        *wireLoc `json:"location"`
 	ATSLocation     *wireLoc `json:"atsLocation"`
 
@@ -120,11 +122,13 @@ func (a *Adapter) Fetch(ctx context.Context, src source.Source) (source.FetchRes
 		return result, fmt.Errorf("bamboohr: %w: %v", source.ErrMalformed, err)
 	}
 
+	// The bound is on the detail phase, never on the board. This sliced the list
+	// itself, so a board past the bound would have returned only its first
+	// postings and the rest would have been closed as absent.
 	jobs := lr.Result
-	if len(jobs) > detailsPerPoll {
-		jobs = jobs[:detailsPerPoll]
-	}
-	a.fillDetails(ctx, src, jobs)
+	detailed := jobs[:min(len(jobs), detailsPerPoll)]
+	result.DetailRequested = len(detailed)
+	result.DetailFilled = a.fillDetails(ctx, src, detailed)
 
 	postings := make([]source.RawPosting, 0, len(jobs))
 	for i := range jobs {
@@ -170,6 +174,9 @@ func (a *Adapter) ParseDetail(body []byte, into *wireJob) error {
 	into.DatePosted = d.DatePosted
 	into.MinimumExperience = d.MinimumExperience
 	into.ShareURL = d.ShareURL
+	if d.LocationType != "" {
+		into.LocationType = d.LocationType
+	}
 	if d.Location != nil {
 		into.Location = d.Location
 	}
@@ -184,9 +191,10 @@ func (a *Adapter) ParseDetail(body []byte, into *wireJob) error {
 // Failures are skipped rather than fatal: one unreadable posting must not lose
 // the board. A posting with no body still ingests and scores as an honest
 // abstention, and the next poll retries it.
-func (a *Adapter) fillDetails(ctx context.Context, src source.Source, jobs []wireJob) {
+func (a *Adapter) fillDetails(ctx context.Context, src source.Source, jobs []wireJob) int {
 	work := make(chan int)
 	var wg sync.WaitGroup
+	var filled atomic.Int64
 
 	for i := 0; i < detailConcurrency; i++ {
 		wg.Add(1)
@@ -203,7 +211,9 @@ func (a *Adapter) fillDetails(ctx context.Context, src source.Source, jobs []wir
 				if err != nil || len(resp.Body) == 0 {
 					continue
 				}
-				_ = a.ParseDetail(resp.Body, j)
+				if a.ParseDetail(resp.Body, j) == nil {
+					filled.Add(1)
+				}
 			}
 		}()
 	}
@@ -214,11 +224,12 @@ func (a *Adapter) fillDetails(ctx context.Context, src source.Source, jobs []wir
 		case <-ctx.Done():
 			close(work)
 			wg.Wait()
-			return
+			return int(filled.Load())
 		}
 	}
 	close(work)
 	wg.Wait()
+	return int(filled.Load())
 }
 
 func (a *Adapter) convert(j *wireJob, boardToken string) (source.RawPosting, error) {
@@ -243,9 +254,7 @@ func (a *Adapter) convert(j *wireJob, boardToken string) (source.RawPosting, err
 		EmploymentType:  source.NormaliseEmployment(j.EmploymentType),
 		Raw:             raw,
 	}
-	if j.IsRemote != nil && *j.IsRemote {
-		p.WorkplaceType = "remote"
-	}
+	p.WorkplaceType = workplace(j)
 	// datePosted is a DATE with no time, so it is parsed as midnight UTC and
 	// flagged an estimate — the same rounding Workable gets, and for the same
 	// reason: it makes a posting look OLDER, never fresher.
@@ -283,4 +292,26 @@ func nonEmpty(vals ...string) []string {
 		}
 	}
 	return out
+}
+
+// workplace reads the vendor's arrangement.
+//
+// isRemote is null on every posting flyio publishes; locationType is the field
+// BambooHR actually fills, as the string "0", "1" or "2" — on-site, remote,
+// hybrid, per its API reference (verified 2026-10-05). Reading only isRemote left
+// identical remote postings to the description heuristics, which called four of
+// them remote, on-site and unknown.
+func workplace(j *wireJob) string {
+	if j.IsRemote != nil && *j.IsRemote {
+		return "remote"
+	}
+	switch strings.TrimSpace(j.LocationType) {
+	case "0":
+		return "onsite"
+	case "1":
+		return "remote"
+	case "2":
+		return "hybrid"
+	}
+	return ""
 }

@@ -603,3 +603,56 @@ func TestParseLocation_StillAbstainsOnAPlacelessString(t *testing.T) {
 	}
 	_ = strings.TrimSpace("")
 }
+
+// Every string here was among the most frequent live locations with no country
+// on 2026-10-05, after the corpus was rebuilt.
+func TestParseLocation_RecoversTheFormatsMissedOnTheRebuiltCorpus(t *testing.T) {
+	cases := map[string]string{
+		// A vendor format: ISO country, optional region, city.
+		"US-CA-Menlo Park":                  "US",
+		"US-CA-Menlo Park / US-WA-Bellevue": "US",
+		"GB-London":                         "GB",
+		"JP-Tokyo":                          "JP",
+		// The country, wrapped in the arrangement.
+		"United States (Remote)":        "US",
+		"Canada (Remote)":               "CA",
+		"Remote: United States":         "US",
+		"Remote - US: Select locations": "US",
+		"*HQ - San Francisco, CA":       "US",
+		// A spelled-out state or province.
+		"Mountain View, California": "US",
+		"Bellevue, Washington":      "US",
+		// Cities the table did not know.
+		"Foster City, CA":        "US",
+		"Chicago":                "US",
+		"San Francisco Bay Area": "US",
+		"Mexico City":            "MX",
+		"Munich":                 "DE",
+		"Paris":                  "FR",
+		"São Paulo":              "BR",
+		// A namesake beside a region code is the region's: Texas, not France.
+		"Paris, TX": "US",
+	}
+	for raw, want := range cases {
+		if got := ParseLocation(raw); got.Country != want {
+			t.Errorf("ParseLocation(%q).Country = %q, want %q", raw, got.Country, want)
+		}
+	}
+}
+
+// Wider tables must not start guessing. Each of these names no single country,
+// or names one only by a reading that could be wrong.
+func TestParseLocation_TheNewRulesStillAbstain(t *testing.T) {
+	for _, raw := range []string{
+		"Warsaw, IN",    // Indiana
+		"Georgia",       // a state and a country
+		"XY-Somewhere",  // not a code the table can produce
+		"EMEA",          // a region of the world
+		"North America", // two countries at least
+		"Distributed",   // no place at all
+	} {
+		if c := ParseLocation(raw).Country; c != "" {
+			t.Errorf("ParseLocation(%q).Country = %q, want empty", raw, c)
+		}
+	}
+}

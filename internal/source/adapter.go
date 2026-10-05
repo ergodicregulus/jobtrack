@@ -69,8 +69,9 @@ type RawPosting struct {
 	// docs/research/source-catalog.md.
 	ExternalID string
 
-	// RequisitionID, where exposed, is a free dedup key: two postings from one
-	// company sharing it are the same role, with no similarity computation.
+	// RequisitionID is the employer's own reference, where exposed. Carried for
+	// display and export, never as a dedup key: it is free text, and Stripe sets
+	// "See Opening ID" on every posting.
 	RequisitionID string
 
 	Title       string
@@ -140,6 +141,14 @@ type FetchResult struct {
 	// at or beyond the board's length means the board has been swept once, and
 	// is what allows the unchanged-board short-circuit to fire safely.
 	DetailCursor int
+
+	// DetailRequested and DetailFilled count a two-phase vendor's body fetches
+	// this poll. A body that cannot be read is skipped by design, so without these
+	// a vendor that changes one field's type loses every description in silence:
+	// Ubisoft's detail sent department.id as a number, every document failed to
+	// decode, and 0 of 347 postings had a body for as long as the board existed.
+	DetailRequested int
+	DetailFilled    int
 
 	StatusCode int
 	// RetryAfter is honoured exactly when the server sends it.
